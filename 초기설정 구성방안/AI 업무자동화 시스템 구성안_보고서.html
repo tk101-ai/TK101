@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 에이전트 기반 사내 업무 자동화 시스템 구성안</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;900&display=swap');
+
+  :root {
+    --primary: #1a1a2e;
+    --accent: #4361ee;
+    --accent-light: #e8edff;
+    --accent-dark: #2d46b9;
+    --surface: #f8f9fc;
+    --border: #e2e6ef;
+    --text: #1a1a2e;
+    --text-secondary: #5a6177;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #3b82f6;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--text);
+    background: #fff;
+    line-height: 1.7;
+    font-size: 10.5pt;
+  }
+
+  @media print {
+    body { font-size: 9.5pt; }
+    .page-break { page-break-before: always; }
+    .no-print { display: none; }
+    @page { margin: 15mm 18mm; size: A4; }
+  }
+
+  /* ── Cover Page ── */
+  .cover {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%);
+    color: #fff;
+    text-align: center;
+    padding: 60px 40px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cover::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -30%;
+    width: 800px;
+    height: 800px;
+    background: radial-gradient(circle, rgba(67,97,238,0.15) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+
+  .cover::after {
+    content: '';
+    position: absolute;
+    bottom: -40%;
+    left: -20%;
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(67,97,238,0.1) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+
+  .cover-badge {
+    display: inline-block;
+    padding: 8px 24px;
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 50px;
+    font-size: 0.85rem;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 40px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .cover h1 {
+    font-size: 2.8rem;
+    font-weight: 900;
+    line-height: 1.3;
+    margin-bottom: 16px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .cover h1 span {
+    display: block;
+    background: linear-gradient(90deg, #4361ee, #7c8cf8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .cover-subtitle {
+    font-size: 1.15rem;
+    font-weight: 300;
+    color: rgba(255,255,255,0.7);
+    margin-bottom: 60px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .cover-meta {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 40px;
+    font-size: 0.9rem;
+    color: rgba(255,255,255,0.5);
+  }
+
+  .cover-meta span { display: flex; align-items: center; gap: 8px; }
+
+  /* ── Content Area ── */
+  .content {
+    max-width: 840px;
+    margin: 0 auto;
+    padding: 60px 40px;
+  }
+
+  /* ── Section Headers ── */
+  .section-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    margin-right: 12px;
+    flex-shrink: 0;
+  }
+
+  h2 {
+    display: flex;
+    align-items: center;
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin: 48px 0 8px 0;
+    color: var(--primary);
+  }
+
+  .section-line {
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent) 0%, transparent 100%);
+    border-radius: 2px;
+    margin-bottom: 28px;
+  }
+
+  h3 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 28px 0 12px 0;
+    color: var(--accent-dark);
+    padding-left: 14px;
+    border-left: 3px solid var(--accent);
+  }
+
+  p { margin-bottom: 12px; color: var(--text-secondary); }
+
+  /* ── Overview Cards ── */
+  .overview-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 20px 0;
+  }
+
+  .overview-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .overview-card.full { grid-column: 1 / -1; }
+
+  .overview-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+
+  .overview-value {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  /* ── Architecture Diagram ── */
+  .arch-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px 24px;
+    margin: 24px 0;
+  }
+
+  .arch-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+  }
+
+  .arch-flow-item {
+    background: var(--accent);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .arch-flow-arrow {
+    color: var(--accent);
+    font-size: 1.2rem;
+    font-weight: 700;
+  }
+
+  .arch-layers {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .arch-layer {
+    display: flex;
+    align-items: stretch;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: #fff;
+  }
+
+  .arch-layer-num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+  }
+
+  .arch-layer-content {
+    flex: 1;
+    padding: 14px 18px;
+  }
+
+  .arch-layer-title {
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .arch-layer-desc {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+  }
+
+  /* ── Step Flow ── */
+  .step-flow {
+    position: relative;
+    margin: 24px 0;
+    padding-left: 28px;
+  }
+
+  .step-flow::before {
+    content: '';
+    position: absolute;
+    left: 14px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--accent), var(--accent-light));
+  }
+
+  .step-item {
+    position: relative;
+    margin-bottom: 24px;
+    padding-left: 28px;
+  }
+
+  .step-item::before {
+    content: '';
+    position: absolute;
+    left: -21px;
+    top: 6px;
+    width: 14px;
+    height: 14px;
+    background: var(--accent);
+    border: 3px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+
+  .step-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .step-desc {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+
+  .step-example {
+    display: inline-block;
+    background: var(--accent-light);
+    color: var(--accent-dark);
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-top: 4px;
+  }
+
+  /* ── Phase Timeline ── */
+  .phase-timeline {
+    margin: 24px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .phase-card {
+    display: flex;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: #fff;
+  }
+
+  .phase-sidebar {
+    width: 100px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 8px;
+    color: #fff;
+    flex-shrink: 0;
+  }
+
+  .phase-sidebar .num { font-size: 1.6rem; font-weight: 900; }
+  .phase-sidebar .period { font-size: 0.72rem; font-weight: 500; margin-top: 4px; }
+
+  .phase-body {
+    flex: 1;
+    padding: 16px 20px;
+  }
+
+  .phase-body h4 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+
+  .phase-body ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .phase-body li {
+    font-size: 0.84rem;
+    color: var(--text-secondary);
+    padding: 2px 0;
+    padding-left: 16px;
+    position: relative;
+  }
+
+  .phase-body li::before {
+    content: '›';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .phase-1 .phase-sidebar { background: #4361ee; }
+  .phase-2 .phase-sidebar { background: #3b82f6; }
+  .phase-3 .phase-sidebar { background: #0ea5e9; }
+  .phase-4 .phase-sidebar { background: #14b8a6; }
+  .phase-5 .phase-sidebar { background: #10b981; }
+  .phase-6 .phase-sidebar { background: #8b5cf6; }
+
+  /* ── Tables ── */
+  .styled-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.88rem;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .styled-table thead th {
+    background: var(--primary);
+    color: #fff;
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.82rem;
+  }
+
+  .styled-table tbody td {
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+
+  .styled-table tbody tr:nth-child(even) { background: var(--surface); }
+  .styled-table tbody tr:last-child td { border-bottom: none; }
+
+  /* ── Tags / Badges ── */
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 50px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .badge-blue { background: #dbeafe; color: #1e40af; }
+  .badge-green { background: #d1fae5; color: #065f46; }
+  .badge-yellow { background: #fef3c7; color: #92400e; }
+  .badge-red { background: #fee2e2; color: #991b1b; }
+  .badge-purple { background: #ede9fe; color: #5b21b6; }
+
+  /* ── Multi-agent Cards ── */
+  .agent-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin: 20px 0;
+  }
+
+  .agent-card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    background: #fff;
+  }
+
+  .agent-card-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--text);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .agent-card-title .icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+
+  .agent-card p {
+    font-size: 0.84rem;
+    margin-bottom: 0;
+  }
+
+  /* ── Mobile comparison ── */
+  .mobile-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin: 20px 0;
+  }
+
+  .mobile-card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    background: #fff;
+  }
+
+  .mobile-card .stars {
+    color: #f59e0b;
+    font-size: 1rem;
+    margin: 8px 0;
+  }
+
+  .mobile-card h4 { font-size: 0.95rem; margin-bottom: 4px; }
+  .mobile-card p { font-size: 0.82rem; text-align: center; }
+
+  .recommended {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+    position: relative;
+  }
+
+  .recommended::after {
+    content: '최추천';
+    position: absolute;
+    top: -10px;
+    right: 16px;
+    background: var(--accent);
+    color: #fff;
+    padding: 2px 12px;
+    border-radius: 50px;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+
+  /* ── Cost Section ── */
+  .cost-bar {
+    display: flex;
+    align-items: center;
+    margin: 8px 0;
+    gap: 12px;
+  }
+
+  .cost-label {
+    width: 140px;
+    font-size: 0.84rem;
+    font-weight: 500;
+    color: var(--text);
+    flex-shrink: 0;
+  }
+
+  .cost-bar-track {
+    flex: 1;
+    height: 24px;
+    background: var(--surface);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .cost-bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    padding-left: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  /* ── Risk Cards ── */
+  .risk-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 20px 0;
+  }
+
+  .risk-item {
+    display: flex;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .risk-icon {
+    width: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+  }
+
+  .risk-body { flex: 1; padding: 12px 16px; }
+  .risk-body strong { font-size: 0.9rem; display: block; margin-bottom: 2px; }
+  .risk-body span { font-size: 0.82rem; color: var(--text-secondary); }
+
+  .risk-high .risk-icon { background: #fee2e2; }
+  .risk-med .risk-icon { background: #fef3c7; }
+  .risk-low .risk-icon { background: #dbeafe; }
+
+  /* ── Footer ── */
+  .doc-footer {
+    margin-top: 60px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+
+  /* ── Print hint ── */
+  .print-hint {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--primary);
+    color: #fff;
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    cursor: pointer;
+    z-index: 100;
+  }
+
+  .print-hint:hover { background: var(--accent); }
+
+  @media print { .print-hint { display: none; } }
+</style>
+</head>
+<body>
+
+<!-- Print Hint -->
+<div class="print-hint no-print" onclick="window.print()">
+  Ctrl+P → PDF로 저장
+</div>
+
+<!-- ═══════════ COVER PAGE ═══════════ -->
+<div class="cover">
+  <div class="cover-badge">Internal Proposal</div>
+  <h1>
+    AI 에이전트 기반<br>
+    <span>사내 업무 자동화 시스템</span>
+  </h1>
+  <p class="cover-subtitle">멀티에이전트 아키텍처를 활용한 반복 업무 자동화 및 운영 효율화 방안</p>
+  <div class="cover-meta">
+    <span>작성일 : 2026.04.15</span>
+    <span>버전 : v1.0</span>
+  </div>
+</div>
+
+<!-- ═══════════ CONTENT ═══════════ -->
+<div class="content">
+
+<!-- ── 프로젝트 개요 ── -->
+<h2><span class="section-num">0</span>프로젝트 개요</h2>
+<div class="section-line"></div>
+
+<div class="overview-grid">
+  <div class="overview-card">
+    <div class="overview-label">목적</div>
+    <div class="overview-value">AI 에이전트를 활용한 사내 업무 자동화 시스템 구축</div>
+  </div>
+  <div class="overview-card">
+    <div class="overview-label">범위</div>
+    <div class="overview-value">사내 전체 업무 취합 → 자동화 가능 업무 선별 → 순차 적용</div>
+  </div>
+  <div class="overview-card full">
+    <div class="overview-label">핵심 원칙</div>
+    <div class="overview-value">한 번 구성하면 누구나 반복 사용 가능한 구조 (속인화 방지, 시스템화)</div>
+  </div>
+  <div class="overview-card full">
+    <div class="overview-label">동시 처리 요건</div>
+    <div class="overview-value">여러 사람이 동시에 여러 업무를 요청해도 문제없이 처리 가능 — 멀티에이전트 / 에이전트 팀 / 병렬실행 방식 적용</div>
+  </div>
+</div>
+
+<p>사내 모든 업무를 취합하여 자동화 가능 여부를 구분하고, AI 에이전트를 통해 반복 업무를 시스템화합니다. 웹사이트 또는 AI 에이전트 인터페이스를 구성하여 담당자 한 명에 의존하지 않는 자립형 시스템을 구축하는 것이 최종 목표입니다.</p>
+
+
+<!-- ── 1. 시스템 아키텍처 ── -->
+<div class="page-break"></div>
+<h2><span class="section-num">1</span>시스템 아키텍처</h2>
+<div class="section-line"></div>
+
+<p>전체 시스템은 6개 계층으로 구성됩니다. 각 계층은 독립적으로 확장 가능하며, 사용자 요청부터 결과 전달까지의 전 과정을 커버합니다.</p>
+
+<div class="arch-diagram">
+  <div class="arch-flow">
+    <div class="arch-flow-item">사용자</div>
+    <span class="arch-flow-arrow">→</span>
+    <div class="arch-flow-item">접속 화면</div>
+    <span class="arch-flow-arrow">→</span>
+    <div class="arch-flow-item">요청 관리</div>
+    <span class="arch-flow-arrow">→</span>
+    <div class="arch-flow-item">오케스트레이터</div>
+    <span class="arch-flow-arrow">→</span>
+    <div class="arch-flow-item">에이전트</div>
+    <span class="arch-flow-arrow">→</span>
+    <div class="arch-flow-item">결과 전달</div>
+  </div>
+
+  <div class="arch-layers">
+    <div class="arch-layer">
+      <div class="arch-layer-num">1</div>
+      <div class="arch-layer-content">
+        <div class="arch-layer-title">사용자 접속 계층 (Frontend)</div>
+        <div class="arch-layer-desc">웹 대시보드(PC) · 모바일 반응형/PWA · 슬랙/카카오워크 챗봇 연동</div>
+      </div>
+    </div>
+    <div class="arch-layer">
+      <div class="arch-layer-num">2</div>
+      <div class="arch-layer-content">
+        <div class="arch-layer-title">요청 관리 계층 (API Gateway)</div>
+        <div class="arch-layer-desc">요청 접수 · 인증 · 작업 큐 관리 · 우선순위 배정</div>
+      </div>
+    </div>
+    <div class="arch-layer">
+      <div class="arch-layer-num">3</div>
+      <div class="arch-layer-content">
+        <div class="arch-layer-title">에이전트 오케스트레이터 (Control Tower)</div>
+        <div class="arch-layer-desc">작업 유형 판별 → 적합 에이전트 배정 → 병렬/순차 실행 결정</div>
+      </div>
+    </div>
+    <div class="arch-layer">
+      <div class="arch-layer-num">4</div>
+      <div class="arch-layer-content">
+        <div class="arch-layer-title">AI 에이전트 풀</div>
+        <div class="arch-layer-desc">업무별 전문 에이전트 (보고서/분석/검수/번역 등) · 동시 다수 실행 · 독립 작동</div>
+      </div>
+    </div>
+    <div class="arch-layer">
+      <div class="arch-layer-num">5</div>
+      <div class="arch-layer-content">
+        <div class="arch-layer-title">데이터·파일 저장소</div>
+        <div class="arch-layer-desc">입력 파일 + 결과물 + 템플릿 관리 (Google Drive / NAS / S3)</div>
+      </div>
+    </div>
+    <div class="arch-layer">
+      <div class="arch-layer-num">6</div>
+      <div class="arch-layer-content">
+        <div class="arch-layer-title">결과 전달 계층</div>
+        <div class="arch-layer-desc">완료 알림 (슬랙/이메일/카카오) · 결과 파일 다운로드 링크</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── 2. 작업 흐름 ── -->
+<h2><span class="section-num">2</span>작업 흐름 (End-to-End)</h2>
+<div class="section-line"></div>
+
+<p>사용자 요청부터 결과물 수령까지 7단계로 구성됩니다. 완전자동화 업무는 STEP 4에서 바로 완료되며, 반자동화 업무는 중간에 사람 확인 단계가 삽입됩니다.</p>
+
+<div class="step-flow">
+  <div class="step-item">
+    <div class="step-title">STEP 1. 업무 요청</div>
+    <div class="step-desc">사용자가 웹/모바일/챗봇에서 작업 유형 선택 + 파일 첨부 + 요구사항 입력</div>
+    <div class="step-example">예: "경쟁사 분석 요청" + 게시물 텍스트 첨부</div>
+  </div>
+  <div class="step-item">
+    <div class="step-title">STEP 2. 요청 접수·분류</div>
+    <div class="step-desc">시스템이 작업 유형 자동 판별 (보고서/분석/검수/번역 등) + 긴급/일반 우선순위 배정</div>
+  </div>
+  <div class="step-item">
+    <div class="step-title">STEP 3. 에이전트 배정</div>
+    <div class="step-desc">오케스트레이터가 적합한 에이전트 선택. 복잡 작업은 멀티에이전트 병렬 실행</div>
+  </div>
+  <div class="step-item">
+    <div class="step-title">STEP 4. 작업 실행</div>
+    <div class="step-desc">에이전트가 자동 처리. 반자동화 작업은 중간에 사람 확인 단계 삽입</div>
+  </div>
+  <div class="step-item">
+    <div class="step-title">STEP 5. 품질 검증</div>
+    <div class="step-desc">결과물 자동 검수 — 맞춤법 / 가이드라인 준수 / 포맷 체크 / 에이전트 간 교차 검증</div>
+  </div>
+  <div class="step-item">
+    <div class="step-title">STEP 6. 결과 전달</div>
+    <div class="step-desc">완료 알림 발송 (슬랙/이메일/카카오) + 결과 파일 대시보드 게시 + 다운로드</div>
+  </div>
+  <div class="step-item">
+    <div class="step-title">STEP 7. 피드백 수집</div>
+    <div class="step-desc">사용자가 결과물 평가 (수정요청/승인) → 피드백이 에이전트 개선에 반영. 반복할수록 품질 향상</div>
+  </div>
+</div>
+
+
+<!-- ── 3. 파이프라인 구성 순서 ── -->
+<div class="page-break"></div>
+<h2><span class="section-num">3</span>초기 파이프라인 구성 순서</h2>
+<div class="section-line"></div>
+
+<p>총 6단계(Phase)로 구성하며, Phase 1~5까지 약 <strong>7~11주</strong> 소요 예상입니다. Phase 6은 지속적 확장 단계입니다.</p>
+
+<div class="phase-timeline">
+  <div class="phase-card phase-1">
+    <div class="phase-sidebar">
+      <div class="num">1</div>
+      <div class="period">1~2주</div>
+    </div>
+    <div class="phase-body">
+      <h4>기반 세팅</h4>
+      <ul>
+        <li>클라우드 서버 환경 구축</li>
+        <li>AI API 키 세팅 (Claude / OpenAI)</li>
+        <li>기본 에이전트 프레임워크 구성</li>
+        <li>파일 저장소 연결</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase-card phase-2">
+    <div class="phase-sidebar">
+      <div class="num">2</div>
+      <div class="period">2~3주</div>
+    </div>
+    <div class="phase-body">
+      <h4>코어 에이전트 개발</h4>
+      <ul>
+        <li>가장 빈도 높은 업무 3~5개 선정 (DM생성 / 가이드라인검토 / 보고서 등)</li>
+        <li>전용 에이전트 개발 + 테스트</li>
+        <li>입출력 포맷 표준화</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase-card phase-3">
+    <div class="phase-sidebar">
+      <div class="num">3</div>
+      <div class="period">2~3주</div>
+    </div>
+    <div class="phase-body">
+      <h4>웹 대시보드 개발</h4>
+      <ul>
+        <li>요청 화면 (작업선택 + 파일첨부)</li>
+        <li>진행상태 확인 화면</li>
+        <li>결과 다운로드 화면</li>
+        <li>반응형으로 모바일 동시 대응</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase-card phase-4">
+    <div class="phase-sidebar">
+      <div class="num">4</div>
+      <div class="period">1주</div>
+    </div>
+    <div class="phase-body">
+      <h4>연동·알림</h4>
+      <ul>
+        <li>슬랙/카카오워크/이메일 알림 연동</li>
+        <li>파일 저장소 자동 연결</li>
+        <li>챗봇 인터페이스 구성 (선택)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase-card phase-5">
+    <div class="phase-sidebar">
+      <div class="num">5</div>
+      <div class="period">1~2주</div>
+    </div>
+    <div class="phase-body">
+      <h4>내부 배포·테스트</h4>
+      <ul>
+        <li>소수 인원 대상 실제 업무 적용</li>
+        <li>피드백 수집 + 안정화</li>
+        <li>운영 매뉴얼 작성</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase-card phase-6">
+    <div class="phase-sidebar">
+      <div class="num">6</div>
+      <div class="period">지속</div>
+    </div>
+    <div class="phase-body">
+      <h4>확장</h4>
+      <ul>
+        <li>매달 2~3개 업무 추가 자동화</li>
+        <li>에이전트 추가 개발</li>
+        <li>성능 최적화 + 비용 관리</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── 4. 서버 구성 ── -->
+<h2><span class="section-num">4</span>서버 구성</h2>
+<div class="section-line"></div>
+
+<table class="styled-table">
+  <thead>
+    <tr>
+      <th style="width:22%">구성요소</th>
+      <th style="width:40%">추천 스택</th>
+      <th>비고</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>웹 프론트엔드</strong></td>
+      <td>Next.js / React (Vercel 배포)</td>
+      <td>무료~저비용 시작 가능</td>
+    </tr>
+    <tr>
+      <td><strong>백엔드 API</strong></td>
+      <td>Node.js(Express) 또는 Python(FastAPI)</td>
+      <td>작업 요청 접수 및 에이전트 호출</td>
+    </tr>
+    <tr>
+      <td><strong>작업 큐</strong></td>
+      <td>BullMQ (Node) 또는 Celery (Python)</td>
+      <td>병렬 처리의 핵심</td>
+    </tr>
+    <tr>
+      <td><strong>AI 엔진</strong></td>
+      <td>Claude API (Anthropic) + OpenAI 보조</td>
+      <td>핵심 비용 항목</td>
+    </tr>
+    <tr>
+      <td><strong>데이터베이스</strong></td>
+      <td>PostgreSQL (Supabase 무료 티어)</td>
+      <td>요청 이력 / 결과 / 사용자 관리</td>
+    </tr>
+    <tr>
+      <td><strong>파일 저장소</strong></td>
+      <td>Google Drive API / AWS S3</td>
+      <td>입력 파일 + 결과물 저장</td>
+    </tr>
+    <tr>
+      <td><strong>알림 시스템</strong></td>
+      <td>Slack Webhook / SendGrid / 카카오워크 API</td>
+      <td>완료 알림 발송</td>
+    </tr>
+    <tr>
+      <td><strong>배포 환경</strong></td>
+      <td>Tencent Cloud (텐센트 클라우드)</td>
+      <td>중국 시장 대응 및 글로벌 커버리지</td>
+    </tr>
+  </tbody>
+</table>
+
+
+<!-- ── 5. 멀티에이전트 처리 방식 ── -->
+<div class="page-break"></div>
+<h2><span class="section-num">5</span>멀티에이전트 처리 방식</h2>
+<div class="section-line"></div>
+
+<p>여러 사람이 동시에 다양한 업무를 요청하는 환경에 대응하기 위해, 4가지 방식을 조합하여 적용합니다.</p>
+
+<div class="agent-grid">
+  <div class="agent-card">
+    <div class="agent-card-title">
+      <span class="icon" style="background:#dbeafe;color:#1e40af;">Q</span>
+      작업 큐 기반 병렬처리
+    </div>
+    <p>요청이 들어오면 큐에 적재 → 여러 에이전트 워커가 동시에 꺼내서 처리. 10명이 동시 요청해도 순차·병렬 혼합 처리 가능. <strong>가장 안정적인 기본 방식.</strong></p>
+  </div>
+  <div class="agent-card">
+    <div class="agent-card-title">
+      <span class="icon" style="background:#d1fae5;color:#065f46;">T</span>
+      에이전트 팀 구성
+    </div>
+    <p>큰 작업(제안서 등)은 여러 에이전트가 분담. 구조설계 + 본문작성 + 검수 에이전트가 협업. 하나의 요청에 3~4개 에이전트 투입.</p>
+  </div>
+  <div class="agent-card">
+    <div class="agent-card-title">
+      <span class="icon" style="background:#ede9fe;color:#5b21b6;">R</span>
+      에이전트 라우팅
+    </div>
+    <p>요청 내용을 분석하여 최적 에이전트에 자동 배정. "보고서 써줘" → 보고서 에이전트로 자동 연결. 사용자는 세부 선택 불필요.</p>
+  </div>
+  <div class="agent-card">
+    <div class="agent-card-title">
+      <span class="icon" style="background:#fef3c7;color:#92400e;">C</span>
+      동시성 제어
+    </div>
+    <p>동시 실행 수 제한 + API 일일 비용 상한 설정 + 우선순위 큐. 비용 폭증과 시스템 과부하를 사전에 방지.</p>
+  </div>
+</div>
+
+
+<!-- ── 6. 모바일 연동 ── -->
+<h2><span class="section-num">6</span>모바일 연동</h2>
+<div class="section-line"></div>
+
+<div class="mobile-grid">
+  <div class="mobile-card recommended">
+    <h4>챗봇 연동</h4>
+    <div class="stars">★★★★★</div>
+    <p>카카오톡/슬랙/위챗 모바일에서<br>직접 요청 및 결과 수신<br><strong>별도 앱 없이 즉시 사용 가능</strong></p>
+  </div>
+  <div class="mobile-card">
+    <h4>PWA</h4>
+    <div class="stars">★★★★☆</div>
+    <p>웹을 앱처럼 홈화면에 설치<br>별도 앱 개발 불필요<br>대시보드 확인에 적합</p>
+  </div>
+  <div class="mobile-card">
+    <h4>반응형 웹</h4>
+    <div class="stars">★★★★☆</div>
+    <p>PC/태블릿/모바일 모두 대응<br>추가 비용 없음<br>PWA와 함께 기본 적용</p>
+  </div>
+  <div class="mobile-card">
+    <h4>네이티브 앱</h4>
+    <div class="stars">★★☆☆☆</div>
+    <p>Flutter / React Native<br>초기에는 불필요<br>사용량 증가 시 검토</p>
+  </div>
+</div>
+
+
+<!-- ── 7. 예상 비용 ── -->
+<h2><span class="section-num">7</span>예상 비용 (월간)</h2>
+<div class="section-line"></div>
+
+<div style="margin: 24px 0;">
+  <div class="cost-bar">
+    <div class="cost-label">AI API</div>
+    <div class="cost-bar-track">
+      <div class="cost-bar-fill" style="width:75%;background:linear-gradient(90deg,#4361ee,#7c8cf8);">$50 ~ $300</div>
+    </div>
+  </div>
+  <div class="cost-bar">
+    <div class="cost-label">서버 호스팅</div>
+    <div class="cost-bar-track">
+      <div class="cost-bar-fill" style="width:20%;background:linear-gradient(90deg,#3b82f6,#93c5fd);">$0 ~ $30</div>
+    </div>
+  </div>
+  <div class="cost-bar">
+    <div class="cost-label">데이터베이스</div>
+    <div class="cost-bar-track">
+      <div class="cost-bar-fill" style="width:16%;background:linear-gradient(90deg,#0ea5e9,#7dd3fc);">$0 ~ $25</div>
+    </div>
+  </div>
+  <div class="cost-bar">
+    <div class="cost-label">파일 저장소</div>
+    <div class="cost-bar-track">
+      <div class="cost-bar-fill" style="width:8%;background:linear-gradient(90deg,#14b8a6,#5eead4);">$0 ~ $10</div>
+    </div>
+  </div>
+  <div class="cost-bar">
+    <div class="cost-label">알림 서비스</div>
+    <div class="cost-bar-track">
+      <div class="cost-bar-fill" style="width:8%;background:linear-gradient(90deg,#10b981,#6ee7b7);">$0 ~ $10</div>
+    </div>
+  </div>
+</div>
+
+<div class="overview-grid">
+  <div class="overview-card">
+    <div class="overview-label">소규모 시작</div>
+    <div class="overview-value" style="font-size:1.3rem;color:var(--accent);">월 $50 ~ $100</div>
+  </div>
+  <div class="overview-card">
+    <div class="overview-label">확장 시</div>
+    <div class="overview-value" style="font-size:1.3rem;color:var(--accent);">월 $200 ~ $400</div>
+  </div>
+</div>
+
+
+<!-- ── 8. 리스크 및 대응 ── -->
+<div class="page-break"></div>
+<h2><span class="section-num">8</span>리스크 및 대응</h2>
+<div class="section-line"></div>
+
+<div class="risk-grid">
+  <div class="risk-item risk-high">
+    <div class="risk-icon">!</div>
+    <div class="risk-body">
+      <strong>API 비용 폭증</strong>
+      <span>동시 요청 제한 + 일일 예산 상한 설정 + 사용량 대시보드로 실시간 모니터링</span>
+    </div>
+  </div>
+  <div class="risk-item risk-high">
+    <div class="risk-icon">!</div>
+    <div class="risk-body">
+      <strong>결과물 품질 불안정</strong>
+      <span>품질 검증 에이전트 + 사람 최종 승인 단계. 초기 반자동 → 점진적 자동화</span>
+    </div>
+  </div>
+  <div class="risk-item risk-med">
+    <div class="risk-icon">△</div>
+    <div class="risk-body">
+      <strong>담당자 부재 시 운영</strong>
+      <span>시스템화 완료 후 운영 매뉴얼 작성 + 외부 지원자 백업 체계</span>
+    </div>
+  </div>
+  <div class="risk-item risk-med">
+    <div class="risk-icon">△</div>
+    <div class="risk-body">
+      <strong>보안·기밀 데이터</strong>
+      <span>사내 데이터 외부 API 전송 시 민감정보 마스킹 처리. 개인정보/재무정보 별도 관리</span>
+    </div>
+  </div>
+  <div class="risk-item risk-low">
+    <div class="risk-icon">○</div>
+    <div class="risk-body">
+      <strong>에이전트 오류 / 무한루프</strong>
+      <span>타임아웃 설정 + 에러 알림 + 자동 재시도 횟수 제한 (최대 3회)</span>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── Footer ── -->
+<div class="doc-footer">
+  <span>AI 업무자동화 시스템 구성안 v1.0</span>
+  <span>2026.04.15</span>
+</div>
+
+</div><!-- /content -->
+</body>
+</html>
