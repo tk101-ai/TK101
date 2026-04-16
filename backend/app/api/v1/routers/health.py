@@ -2,6 +2,7 @@
 
 Design Ref: §4.1 — GET /health (auth 없음, 항상 200 OK)
 """
+
 from fastapi import APIRouter
 
 router = APIRouter()

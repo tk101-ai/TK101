@@ -78,6 +78,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
+known-third-party = ["alembic"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 
 [tool.pytest.ini_options]

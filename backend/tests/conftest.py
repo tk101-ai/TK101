@@ -5,6 +5,7 @@ Sprint 1+에서 확장:
 - 테스트용 FastAPI TestClient
 - 인증된 사용자 fixture
 """
+
 from collections.abc import Iterator
 
 import pytest

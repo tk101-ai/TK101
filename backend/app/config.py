@@ -2,6 +2,7 @@
 
 Design Ref: §10.3 Environment Variables
 """
+
 from functools import lru_cache
 from typing import Literal
 
@@ -25,7 +26,9 @@ class Settings(BaseSettings):
 
     # -------- Database --------
     database_url: str = Field(..., description="async driver: postgresql+asyncpg://...")
-    database_url_sync: str = Field(..., description="sync driver (Alembic용): postgresql+psycopg://...")
+    database_url_sync: str = Field(
+        ..., description="sync driver (Alembic용): postgresql+psycopg://..."
+    )
 
     # -------- Redis --------
     redis_url: str = "redis://redis:6379/0"
