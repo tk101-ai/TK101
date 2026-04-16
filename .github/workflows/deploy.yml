@@ -11,12 +11,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Lint (ruff)
+      - name: Lint (ruff via docker)
         working-directory: backend
         run: |
-          pip install --user --quiet ruff
-          ~/.local/bin/ruff check .
-          ~/.local/bin/ruff format --check .
+          docker run --rm -v "$PWD":/src -w /src \
+            ghcr.io/astral-sh/ruff:latest check .
+          docker run --rm -v "$PWD":/src -w /src \
+            ghcr.io/astral-sh/ruff:latest format --check .
 
       - name: Build and deploy
         run: docker compose up -d --build
