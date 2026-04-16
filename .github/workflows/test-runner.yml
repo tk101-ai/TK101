@@ -1,0 +1,44 @@
+# Self-hosted runner 동작 검증 — 최소 workflow
+#
+# 목적: CVM에 설치한 runner가 GitHub push를 수신하고 작업을 실행하는지 확인
+# 다음 단계: 이 workflow를 확장하여 실제 Docker 빌드/배포 로직 추가
+
+name: Test Self-Hosted Runner
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Verify CVM Runner
+    runs-on: [self-hosted, linux, x64]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show CVM environment
+        run: |
+          echo "=========================================="
+          echo "✅ Runner is alive on CVM"
+          echo "=========================================="
+          echo "Hostname: $(hostname)"
+          echo "User:     $(whoami)"
+          echo "PWD:      $(pwd)"
+          echo "Kernel:   $(uname -r)"
+          echo "Date:     $(date)"
+          echo ""
+          echo "=== Docker availability ==="
+          docker --version || echo "docker not found"
+          docker compose version || echo "docker compose not found"
+
+      - name: Read hello.txt from checked-out repo
+        run: |
+          echo "=== Contents of hello.txt ==="
+          cat hello.txt
+
+      - name: Success marker
+        run: |
+          echo "🎉 Self-hosted runner test PASSED"

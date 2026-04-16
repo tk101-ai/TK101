@@ -1,0 +1,4 @@
+Hello from TK101 AI Platform.
+
+이 파일은 self-hosted runner 동작 확인을 위한 테스트 페이로드입니다.
+GitHub push → CVM runner가 이 파일을 cat으로 출력하면 성공.
