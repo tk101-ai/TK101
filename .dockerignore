@@ -1,0 +1,22 @@
+.git
+.github
+.gitignore
+.dockerignore
+
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.venv
+**/venv
+
+.env
+.env.*
+
+.claude
+.bkit
+README.md
+docker-compose.yml
+PROJECT_DESIGN.md
+초기설정 구성방안
