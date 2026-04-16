@@ -8,5 +8,5 @@
 - repositories/: 영속화 인터페이스 (ABC)
 - services/: Domain Service 인터페이스
 - providers/: 외부 서비스 추상화 (LLM, JWT 등)
-- exceptions.py: DomainException 계층
+- exceptions.py: DomainError 계층
 """

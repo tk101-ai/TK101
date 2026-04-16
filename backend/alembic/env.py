@@ -2,6 +2,7 @@
 
 app.config에서 DATABASE_URL_SYNC를 읽어 사용 (Alembic은 동기 드라이버 필요).
 """
+
 from logging.config import fileConfig
 
 from alembic import context

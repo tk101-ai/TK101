@@ -151,7 +151,7 @@
 4. [Application] UseCase 실행:
      a. UserRepository.find_by_email() 호출  ───► [Infrastructure: SQLAlchemy]
      b. PasswordHasher.verify() 호출         ───► [Infrastructure: bcrypt]
-     c. 검증 실패 시 DomainException 발생    ───► [Domain]
+     c. 검증 실패 시 DomainError 발생    ───► [Domain]
      d. JWTProvider.issue() 호출             ───► [Infrastructure: PyJWT]
      │
      ▼
@@ -591,29 +591,29 @@ CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
 
 ```python
 # app/domain/exceptions.py
-class DomainException(Exception):
+class DomainError(Exception):
     """비즈니스 규칙 위반 (400대 에러에 매핑)"""
     code: str = "DOMAIN_ERROR"
     http_status: int = 400
 
-class InvalidCredentialsError(DomainException):
+class InvalidCredentialsError(DomainError):
     code = "INVALID_CREDENTIALS"
     http_status = 401
 
-class ForbiddenError(DomainException):
+class ForbiddenError(DomainError):
     code = "FORBIDDEN"
     http_status = 403
 
-class NotFoundError(DomainException):
+class NotFoundError(DomainError):
     code = "NOT_FOUND"
     http_status = 404
 
-class DuplicateError(DomainException):
+class DuplicateError(DomainError):
     code = "CONFLICT"
     http_status = 409
 ```
 
-Presentation Layer에서 `DomainException` → HTTP 응답 매핑 미들웨어 구현.
+Presentation Layer에서 `DomainError` → HTTP 응답 매핑 미들웨어 구현.
 
 ---
 
@@ -759,7 +759,7 @@ backend/app/
 │   ├── __init__.py
 │   ├── deps.py                      # FastAPI Depends (인증, 현재 사용자)
 │   ├── middleware/
-│   │   ├── error_handler.py         # DomainException → HTTP 매핑
+│   │   ├── error_handler.py         # DomainError → HTTP 매핑
 │   │   ├── rate_limit.py            # slowapi
 │   │   └── request_logging.py
 │   ├── routers/
@@ -939,7 +939,7 @@ from app.api.v1.schemas.auth import LoginRequest
 
 | Item | Convention |
 |------|-----------|
-| 에러 처리 | Domain 레이어에서 `DomainException` 발생 → Presentation 미들웨어가 HTTP 응답으로 매핑 |
+| 에러 처리 | Domain 레이어에서 `DomainError` 발생 → Presentation 미들웨어가 HTTP 응답으로 매핑 |
 | Entity 불변성 | `@dataclass(frozen=True)` 사용 (Python), `readonly` 타입 (TS) |
 | Repository 반환 타입 | Domain Entity만 반환 (SQLAlchemy 모델 유출 금지) |
 | Use Case 시그니처 | `async def execute(self, ...) -> DomainEntity` |

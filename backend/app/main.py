@@ -2,8 +2,9 @@
 
 Design Ref: §9.4 Feature Module Structure — Presentation Layer
 """
+
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

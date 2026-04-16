@@ -7,7 +7,7 @@ Design Ref: §6.3 Exception Hierarchy
 """
 
 
-class DomainException(Exception):
+class DomainError(Exception):
     """비즈니스 규칙 위반의 기본 클래스.
 
     Attributes:
@@ -30,42 +30,42 @@ class DomainException(Exception):
         self.details = details or {}
 
 
-class InvalidCredentialsError(DomainException):
+class InvalidCredentialsError(DomainError):
     """로그인 자격증명 불일치."""
 
     code = "INVALID_CREDENTIALS"
     http_status = 401
 
 
-class UnauthorizedError(DomainException):
+class UnauthorizedError(DomainError):
     """인증 누락/만료."""
 
     code = "UNAUTHORIZED"
     http_status = 401
 
 
-class ForbiddenError(DomainException):
+class ForbiddenError(DomainError):
     """권한 부족 (인증은 되었으나 접근 불가)."""
 
     code = "FORBIDDEN"
     http_status = 403
 
 
-class NotFoundError(DomainException):
+class NotFoundError(DomainError):
     """리소스 미존재."""
 
     code = "NOT_FOUND"
     http_status = 404
 
 
-class DuplicateError(DomainException):
+class DuplicateError(DomainError):
     """중복 데이터 (unique constraint 위반 등)."""
 
     code = "CONFLICT"
     http_status = 409
 
 
-class ValidationError(DomainException):
+class ValidationError(DomainError):
     """도메인 수준의 입력 검증 실패.
 
     Pydantic 검증(400 VALIDATION_ERROR)과는 구분 — 이는 비즈니스 규칙 위반.
