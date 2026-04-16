@@ -1,0 +1,74 @@
+# TK101 AI Platform — Production Docker Compose (Tencent CVM)
+#
+# 사용:
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# 주의: 환경변수는 서버의 .env 파일 또는 GitHub Actions Secrets에서 주입
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tk101_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # 프로덕션: 호스트 포트 노출 안 함 (내부 네트워크만)
+
+  redis:
+    image: redis:7-alpine
+    container_name: tk101_redis
+    restart: always
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: ${BACKEND_IMAGE:-tk101/backend:latest}
+    container_name: tk101_backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_SYNC: ${DATABASE_URL_SYNC}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: ${JWT_ALGORITHM}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+    ports:
+      - "8000:8000"
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-tk101/frontend:latest}
+    container_name: tk101_frontend
+    restart: always
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    ports:
+      - "3000:3000"
+    command: pnpm start
+
+volumes:
+  postgres_data:
+  redis_data:

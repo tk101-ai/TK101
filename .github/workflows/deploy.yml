@@ -1,0 +1,109 @@
+# TK101 AI Platform — CI/CD (Sprint 0 stub)
+#
+# Sprint 1 cicd scope에서 실제 배포 로직 추가 예정.
+# 현재는 lint + test + build 검증만 수행.
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ==========================================================================
+  # Backend 검증 (FastAPI + pytest)
+  # ==========================================================================
+  backend-ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.0"
+
+      - name: Setup Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+
+      - name: Type check (mypy)
+        run: uv run mypy app --ignore-missing-imports
+        continue-on-error: true  # Sprint 0에서는 경고만
+
+      - name: Test (pytest)
+        env:
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+          DATABASE_URL_SYNC: postgresql+psycopg://test:test@localhost:5432/test
+          JWT_SECRET_KEY: test_secret_key_do_not_use_in_production
+          REDIS_URL: redis://localhost:6379/0
+        run: uv run pytest --cov=app --cov-report=xml
+        continue-on-error: true  # Sprint 0에서는 최소 테스트만
+
+  # ==========================================================================
+  # Frontend 검증 (Next.js + TypeScript)
+  # ==========================================================================
+  frontend-ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        continue-on-error: true  # lock 파일 첫 생성 전까지
+
+      - name: Type check
+        run: pnpm type-check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+
+  # ==========================================================================
+  # Deploy to Tencent CVM (Sprint 1 cicd scope에서 완성)
+  # ==========================================================================
+  deploy:
+    needs: [backend-ci, frontend-ci]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Placeholder
+        run: |
+          echo "🚧 Deploy job — Sprint 1 cicd scope에서 구현 예정"
+          echo "  - SSH to Tencent CVM"
+          echo "  - docker compose -f docker-compose.prod.yml pull"
+          echo "  - docker compose -f docker-compose.prod.yml up -d"
+          echo "  - health check via curl"
