@@ -121,7 +121,11 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.CVM_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ secrets.CVM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          # 키 포맷 검증 (디버깅용)
+          ssh-keygen -l -f ~/.ssh/deploy_key || echo "⚠️ Key format invalid"
+          # known_hosts 사전 등록은 불필요 (이후 ssh 명령들이 StrictHostKeyChecking=no 사용)
+          # 단, 실패해도 진행하도록 || true 추가
+          ssh-keyscan -H "${{ secrets.CVM_HOST }}" >> ~/.ssh/known_hosts 2>&1 || echo "⚠️ ssh-keyscan failed (non-fatal, StrictHostKeyChecking=no will be used)"
 
       - name: Generate .env.prod from secrets
         run: |
