@@ -1,9 +1,10 @@
-# TK101 AI Platform — Production Docker Compose (Tencent CVM)
+# TK101 AI Platform — Production Docker Compose
 #
-# 사용:
+# 사용 (CVM에서):
+#   cd /opt/tk101
 #   docker compose -f docker-compose.prod.yml up -d
 #
-# 주의: 환경변수는 서버의 .env 파일 또는 GitHub Actions Secrets에서 주입
+# 환경변수는 /opt/tk101/.env 파일에서 자동 로드 (GitHub Actions가 생성)
 
 services:
   postgres:
@@ -22,6 +23,7 @@ services:
       timeout: 5s
       retries: 10
     # 프로덕션: 호스트 포트 노출 안 함 (내부 네트워크만)
+    # 외부에서 DB 직접 접근 필요 시 SSH 터널 사용
 
   redis:
     image: redis:7-alpine
@@ -36,7 +38,9 @@ services:
       retries: 10
 
   backend:
-    image: ${BACKEND_IMAGE:-tk101/backend:latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: tk101_backend
     restart: always
     depends_on:
@@ -45,20 +49,31 @@ services:
       redis:
         condition: service_healthy
     environment:
-      ENVIRONMENT: production
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       DATABASE_URL: ${DATABASE_URL}
       DATABASE_URL_SYNC: ${DATABASE_URL_SYNC}
       REDIS_URL: ${REDIS_URL}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-      JWT_ALGORITHM: ${JWT_ALGORITHM}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-14}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     ports:
       - "8000:8000"
     command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   frontend:
-    image: ${FRONTEND_IMAGE:-tk101/frontend:latest}
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: tk101_frontend
     restart: always
     depends_on:
@@ -67,7 +82,7 @@ services:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     ports:
       - "3000:3000"
-    command: pnpm start
+    # Dockerfile의 CMD ["node", "server.js"] 사용
 
 volumes:
   postgres_data:

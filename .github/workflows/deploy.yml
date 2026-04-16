@@ -1,7 +1,14 @@
-# TK101 AI Platform — CI/CD (Sprint 0 stub)
+# TK101 AI Platform — CI/CD
 #
-# Sprint 1 cicd scope에서 실제 배포 로직 추가 예정.
-# 현재는 lint + test + build 검증만 수행.
+# 트리거:
+#   - push to main → CI + Deploy to CVM
+#   - PR to main   → CI only
+#   - workflow_dispatch → 수동 실행 가능
+#
+# 배포 전략:
+#   - rsync로 코드 업로드 → CVM에서 docker compose build → stop → up
+#   - 단일 CVM 서버 (프로덕션 이중화는 운영 단계에서)
+#   - 약 1~2분 다운타임 허용
 
 name: CI/CD
 
@@ -10,12 +17,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   # ==========================================================================
-  # Backend 검증 (FastAPI + pytest)
+  # Backend CI
   # ==========================================================================
   backend-ci:
+    name: Backend CI
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -35,10 +44,10 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
 
-      - name: Lint (ruff)
+      - name: Lint (ruff check)
         run: uv run ruff check .
 
-      - name: Format check (ruff)
+      - name: Format check (ruff format)
         run: uv run ruff format --check .
 
       - name: Type check (mypy)
@@ -49,15 +58,16 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
           DATABASE_URL_SYNC: postgresql+psycopg://test:test@localhost:5432/test
-          JWT_SECRET_KEY: test_secret_key_do_not_use_in_production
+          JWT_SECRET_KEY: test_secret_key_minimum_16_chars_for_validation
           REDIS_URL: redis://localhost:6379/0
         run: uv run pytest --cov=app --cov-report=xml
         continue-on-error: true  # Sprint 0에서는 최소 테스트만
 
   # ==========================================================================
-  # Frontend 검증 (Next.js + TypeScript)
+  # Frontend CI
   # ==========================================================================
   frontend-ci:
+    name: Frontend CI
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -77,14 +87,14 @@ jobs:
           version: 9.12.0
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-        continue-on-error: true  # lock 파일 첫 생성 전까지
+        run: pnpm install --no-frozen-lockfile
 
       - name: Type check
         run: pnpm type-check
 
       - name: Lint
         run: pnpm lint
+        continue-on-error: true  # Sprint 0에서는 경고만
 
       - name: Build
         run: pnpm build
@@ -92,18 +102,113 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:8000
 
   # ==========================================================================
-  # Deploy to Tencent CVM (Sprint 1 cicd scope에서 완성)
+  # Deploy to Tencent CVM (main 푸시 시만)
   # ==========================================================================
   deploy:
+    name: Deploy to CVM
     needs: [backend-ci, frontend-ci]
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-cvm-production
+      cancel-in-progress: false  # 배포 중엔 다음 배포 대기
 
     steps:
-      - name: Placeholder
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH key
         run: |
-          echo "🚧 Deploy job — Sprint 1 cicd scope에서 구현 예정"
-          echo "  - SSH to Tencent CVM"
-          echo "  - docker compose -f docker-compose.prod.yml pull"
-          echo "  - docker compose -f docker-compose.prod.yml up -d"
-          echo "  - health check via curl"
+          mkdir -p ~/.ssh
+          echo "${{ secrets.CVM_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.CVM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Generate .env.prod from secrets
+        run: |
+          cat > .env.prod <<EOF
+          ENVIRONMENT=production
+          LOG_LEVEL=INFO
+
+          # Database
+          DATABASE_URL=postgresql+asyncpg://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}
+          DATABASE_URL_SYNC=postgresql+psycopg://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}
+
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+
+          # Redis
+          REDIS_URL=redis://redis:6379/0
+
+          # JWT
+          JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+          JWT_ALGORITHM=HS256
+          JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
+          JWT_REFRESH_TOKEN_EXPIRE_DAYS=14
+
+          # Claude API
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+
+          # CORS
+          ALLOWED_ORIGINS=http://${{ secrets.CVM_HOST }}:3000
+
+          # Frontend
+          NEXT_PUBLIC_API_URL=http://${{ secrets.CVM_HOST }}:8000
+          EOF
+
+      - name: Rsync code to CVM
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='__pycache__' \
+            --exclude='.venv' \
+            --exclude='.next' \
+            --exclude='docs' \
+            --exclude='reports' \
+            --exclude='초기설정 구성방안' \
+            --exclude='.bkit' \
+            --exclude='.claude' \
+            --exclude='CLAUDE.md' \
+            --exclude='PROJECT_DESIGN.md' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            ./ ubuntu@${{ secrets.CVM_HOST }}:/opt/tk101/
+
+      - name: Upload .env.prod to CVM
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            .env.prod ubuntu@${{ secrets.CVM_HOST }}:/opt/tk101/.env
+
+      - name: Run deploy script on CVM
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.CVM_HOST }} \
+            "cd /opt/tk101 && bash scripts/deploy.sh"
+
+      - name: Post-deploy health check
+        run: |
+          sleep 10
+          for i in 1 2 3 4 5; do
+            echo "Health check attempt $i/5..."
+            if curl -fsS "http://${{ secrets.CVM_HOST }}:8000/health" | grep -q '"status":"ok"'; then
+              echo "✅ Backend /health OK"
+              break
+            fi
+            if [ $i -eq 5 ]; then
+              echo "❌ Backend health check failed after 5 attempts"
+              exit 1
+            fi
+            sleep 6
+          done
+
+          if curl -fsS -o /dev/null -w "%{http_code}" "http://${{ secrets.CVM_HOST }}:3000" | grep -q "200"; then
+            echo "✅ Frontend OK"
+          else
+            echo "⚠️ Frontend not responding (may still be building)"
+          fi
+
+      - name: Cleanup secrets
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key .env.prod

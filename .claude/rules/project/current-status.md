@@ -10,8 +10,10 @@
 ## 현재 작업
 
 - **현재 feature**: `tk101-platform-foundation` (1단계 뼈대 구축)
-- **PDCA 단계**: Do 진행 중 — **skeleton scope 완료**
-- **다음 scope**: `domain-db` (Entity + Repository 인터페이스 + SQLAlchemy 모델 + 첫 Alembic 마이그레이션)
+- **PDCA 단계**: Do 진행 중
+  - `skeleton` scope 완료 (58 파일)
+  - `cicd` scope Step 1 완료 (배포 파일 작성) — **Step 2 CVM 세팅 사용자 수동 작업 대기**
+- **다음 scope**: `domain-db` (CVM 세팅 완료 후 진입)
 
 ## Sprint 체크리스트
 
@@ -26,12 +28,19 @@
   - Next.js 15 + App Router + Tailwind + shadcn 베이스
   - Docker Compose (dev + prod)
   - Alembic 초기화
-  - GitHub Actions CI 기본 구조
+- [x] **cicd scope Step 1 완료** (2026-04-16): 배포 파일 작성
+  - `.github/workflows/deploy.yml` — CI + 자동배포 완성
+  - `scripts/deploy.sh` — CVM 실행 배포 스크립트
+  - `docs/deployment/cvm-initial-setup.md` — CVM 세팅 가이드
+  - `docker-compose.prod.yml` — 프로덕션 설정
 
 ### 진행 예정
 
-- [ ] **Sprint 0 — domain-db scope** — Entity + Repository 인터페이스 + ORM 모델 + 첫 마이그레이션
-- [ ] **Sprint 1**: auth + dashboard-shell + cicd (4/19~4/25)
+- [ ] **cicd scope Step 2** (사용자 수동): CVM 세팅 + GitHub Secrets 등록
+  → `docs/deployment/cvm-initial-setup.md` 가이드 따라 실행
+- [ ] **cicd scope Step 3**: main push → 자동 배포 성공 확인
+- [ ] **Sprint 0 — domain-db scope** — Entity + Repository + ORM 모델 + 첫 마이그레이션
+- [ ] **Sprint 1**: auth + dashboard-shell (4/19~4/25, cicd는 이미 완료)
 - [ ] **4/21 월요일 이사님 미팅** — 아키텍처 + 로그인 + CI/CD 시연
 - [ ] **Sprint 2**: admin-crud + chat + security (4/26~5/9)
 - [ ] 뼈대 완성 (5/9 목표)
