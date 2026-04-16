@@ -15,9 +15,9 @@ jobs:
         working-directory: backend
         run: |
           docker run --rm -v "$PWD":/src -w /src \
-            ghcr.io/astral-sh/ruff:latest check .
+            ghcr.io/astral-sh/ruff:latest check --no-cache .
           docker run --rm -v "$PWD":/src -w /src \
-            ghcr.io/astral-sh/ruff:latest format --check .
+            ghcr.io/astral-sh/ruff:latest format --check --no-cache .
 
       - name: Build and deploy
         run: docker compose up -d --build
