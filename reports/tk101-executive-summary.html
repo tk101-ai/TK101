@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>TK101 사내 AI 자동화 플랫폼 — 임원 보고서</title>
+<style>
+  @page { size: A4; margin: 22mm 20mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+    font-size: 11pt;
+    line-height: 1.7;
+    color: #2c2c2c;
+    margin: 0;
+  }
+  .cover {
+    text-align: center;
+    padding: 40px 0 20px;
+    border-bottom: 4px double #1a237e;
+    margin-bottom: 30px;
+  }
+  .cover h1 {
+    font-size: 26pt;
+    color: #1a237e;
+    margin: 10px 0 6px;
+    letter-spacing: -0.5px;
+  }
+  .cover .subtitle {
+    font-size: 13pt;
+    color: #546e7a;
+    margin-bottom: 18px;
+  }
+  .cover .date {
+    font-size: 10.5pt;
+    color: #78909c;
+  }
+  h2 {
+    font-size: 16pt;
+    color: #1a237e;
+    margin-top: 32px;
+    padding: 10px 14px;
+    background: linear-gradient(90deg, #e8eaf6 0%, transparent 100%);
+    border-left: 6px solid #3949ab;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 13pt;
+    color: #283593;
+    margin-top: 22px;
+    page-break-after: avoid;
+  }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0; padding-left: 24px; }
+  li { margin: 6px 0; }
+
+  .highlight-box {
+    background: #e8f5e9;
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin: 16px 0;
+    border-left: 5px solid #43a047;
+    page-break-inside: avoid;
+  }
+  .highlight-box h4 {
+    margin: 0 0 8px;
+    color: #1b5e20;
+    font-size: 12pt;
+  }
+  .info-box {
+    background: #e3f2fd;
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin: 16px 0;
+    border-left: 5px solid #1976d2;
+    page-break-inside: avoid;
+  }
+  .info-box h4 {
+    margin: 0 0 8px;
+    color: #0d47a1;
+    font-size: 12pt;
+  }
+  .warn-box {
+    background: #fff3e0;
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin: 16px 0;
+    border-left: 5px solid #fb8c00;
+    page-break-inside: avoid;
+  }
+  .warn-box h4 {
+    margin: 0 0 8px;
+    color: #e65100;
+    font-size: 12pt;
+  }
+
+  .card-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin: 16px 0;
+  }
+  .card {
+    background: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 14px 18px;
+    page-break-inside: avoid;
+  }
+  .card h4 {
+    margin: 0 0 6px;
+    color: #1a237e;
+    font-size: 11.5pt;
+  }
+  .card p {
+    margin: 0;
+    font-size: 10pt;
+    color: #555;
+  }
+  .big-number {
+    font-size: 28pt;
+    font-weight: 700;
+    color: #1a237e;
+    display: block;
+    line-height: 1;
+    margin: 6px 0;
+  }
+
+  .timeline {
+    position: relative;
+    margin: 20px 0;
+    padding-left: 30px;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: 5px;
+    bottom: 5px;
+    width: 3px;
+    background: #3949ab;
+  }
+  .timeline-item {
+    position: relative;
+    margin-bottom: 18px;
+    page-break-inside: avoid;
+  }
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -25px;
+    top: 6px;
+    width: 14px;
+    height: 14px;
+    background: #fff;
+    border: 3px solid #3949ab;
+    border-radius: 50%;
+  }
+  .timeline-date {
+    font-size: 10pt;
+    color: #546e7a;
+    font-weight: 600;
+  }
+  .timeline-title {
+    font-size: 12pt;
+    font-weight: 600;
+    color: #1a237e;
+    margin: 2px 0 4px;
+  }
+  .timeline-desc {
+    font-size: 10.5pt;
+    color: #37474f;
+    margin: 0;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 14px 0;
+    font-size: 10.5pt;
+    page-break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid #cfd8dc;
+    padding: 10px 12px;
+    text-align: left;
+  }
+  th {
+    background: #3949ab;
+    color: white;
+    font-weight: 600;
+  }
+  tr:nth-child(even) td { background: #f5f5f5; }
+
+  .emoji { font-size: 14pt; margin-right: 4px; }
+  .page-break { page-break-before: always; }
+  strong { color: #1a237e; }
+
+  .footer {
+    text-align: center;
+    color: #90a4ae;
+    font-size: 9.5pt;
+    margin-top: 40px;
+    padding-top: 15px;
+    border-top: 1px solid #eceff1;
+  }
+
+  .analogy {
+    background: #f3e5f5;
+    border-radius: 8px;
+    padding: 14px 20px;
+    margin: 14px 0;
+    border-left: 4px solid #8e24aa;
+    font-style: italic;
+    color: #4a148c;
+    page-break-inside: avoid;
+  }
+  .analogy strong {
+    font-style: normal;
+    color: #4a148c;
+  }
+</style>
+</head>
+<body>
+
+<div class="cover">
+<div style="font-size: 40pt;">🤖</div>
+<h1>TK101 사내 AI 자동화 플랫폼</h1>
+<div class="subtitle">전사 40명 업무 자동화를 위한 AI 시스템 구축 계획</div>
+<div class="date">2026년 4월 16일 · 담당자: TK101</div>
+</div>
+
+<h2>📌 한눈에 보는 요약</h2>
+
+<div class="highlight-box">
+<h4>🎯 우리가 만드는 것</h4>
+<p>회사 직원 40명이 웹사이트에 로그인해서 <strong>AI 비서(Claude)를 통해 업무를 자동화</strong>할 수 있는 회사 전용 시스템입니다. 은행 거래내역 정리, 세금계산서 매칭, 이메일 초안 작성, 보고서 생성 등 반복 업무를 AI가 대신 처리합니다.</p>
+</div>
+
+<div class="card-grid">
+<div class="card">
+<span class="big-number">40명</span>
+<h4>전사 이용 대상</h4>
+<p>마케팅1팀, 마케팅2팀, 디자인팀, 신사업팀, 회계팀</p>
+</div>
+<div class="card">
+<span class="big-number">월 15~30만원</span>
+<h4>예상 AI 사용료</h4>
+<p>40명이 매일 평균 5번 사용 기준. 서버비는 별도 (월 약 5만원)</p>
+</div>
+<div class="card">
+<span class="big-number">1단계</span>
+<h4>현재 진행 중</h4>
+<p>기본 시스템 구축 중 (로그인, 권한 관리, AI 대화 기능)</p>
+</div>
+<div class="card">
+<span class="big-number">5월 중순</span>
+<h4>회계 자동화 목표</h4>
+<p>이사님 요청 기능 — 은행 내역 + 세금계산서 자동 매칭</p>
+</div>
+</div>
+
+<h2>💡 왜 필요한가?</h2>
+
+<div class="analogy">
+<strong>비유하자면,</strong> 지금은 40명이 각자 반복 업무를 수기로 처리하고 있습니다. AI 자동화 플랫폼은 <strong>회사 안에 "똑똑한 공용 비서"를 한 명 들이는 것</strong>과 같습니다. 모든 직원이 이 비서에게 업무를 맡길 수 있고, 회사는 그 사용 내역을 한눈에 관리할 수 있습니다.
+</div>
+
+<h3>현재 문제</h3>
+<ul>
+<li>AI 도구(ChatGPT, Claude 등)를 각자 개인 계정으로 쓰면 <strong>데이터 보안 문제</strong>가 생기고, 회사 차원에서 관리가 안 됨</li>
+<li>전 직원 유료 구독 시 <strong>월 수백만원 비용</strong> 발생</li>
+<li>업무 데이터가 회사 밖으로 유출될 위험</li>
+<li>반복 업무를 AI로 맡길 표준화된 방법이 없음</li>
+</ul>
+
+<h3>이 플랫폼이 해결하는 것</h3>
+<ul>
+<li>✅ <strong>회사 전용 AI 시스템</strong> — 데이터는 회사 서버에만 저장</li>
+<li>✅ <strong>비용 절감</strong> — 개인 구독 대비 월 최대 90% 절감 (API 공용 사용)</li>
+<li>✅ <strong>권한 관리</strong> — 직급/부서별로 접근 가능한 데이터 범위 제한</li>
+<li>✅ <strong>회계 자동화</strong> — 은행 내역 정리, 세금계산서 매칭 등 반복 업무 자동화</li>
+<li>✅ <strong>확장성</strong> — 팀별로 필요한 기능을 추가로 개발 가능</li>
+</ul>
+
+<div class="page-break"></div>
+
+<h2>🏗️ 어떻게 만들고 있나?</h2>
+
+<h3>3단계 구조</h3>
+
+<div class="card-grid">
+<div class="card" style="border-left: 4px solid #1976d2;">
+<h4>🖥️ 1층: 직원 화면</h4>
+<p>직원이 보는 웹사이트. 로그인 후 AI와 대화하거나 원하는 업무를 요청할 수 있는 화면.</p>
+</div>
+<div class="card" style="border-left: 4px solid #388e3c;">
+<h4>🧠 2층: AI 처리</h4>
+<p>요청을 받아 Claude(주) / OpenAI / Gemini 같은 AI 엔진에 연결. 답변을 돌려보냄.</p>
+</div>
+<div class="card" style="border-left: 4px solid #e64a19;">
+<h4>💾 3층: 데이터 보관</h4>
+<p>회사 서버에 모든 데이터를 저장. 사용자 정보, 대화 이력, 업무 결과물을 안전하게 관리.</p>
+</div>
+<div class="card" style="border-left: 4px solid #7b1fa2;">
+<h4>🔐 공통: 권한 관리</h4>
+<p>직급(관리자/팀장/일반)과 부서별로 볼 수 있는 데이터와 사용 가능한 기능을 구분.</p>
+</div>
+</div>
+
+<h3>어떤 업무가 자동화되나?</h3>
+
+<table>
+<thead><tr><th>부서</th><th>자동화할 수 있는 업무 (예시)</th></tr></thead>
+<tbody>
+<tr><td><strong>회계팀</strong></td><td>은행 거래내역 정리, 세금계산서 매칭, 계좌간 이체 자동 감지, 월별 리포트 자동 생성</td></tr>
+<tr><td><strong>마케팅팀</strong></td><td>체험단/인플루언서 DM 초안 작성, 가이드라인 준수 검토, 월간 성과 보고서, 전월 대비 인사이트 도출</td></tr>
+<tr><td><strong>디자인팀</strong></td><td>고객 대화 기반 디자인/영상 브리프 자동 작성, 요청사항 정리</td></tr>
+<tr><td><strong>신사업팀</strong></td><td>물류/클라우드 업무 관련 분석 및 보고서 작성 보조</td></tr>
+<tr><td><strong>공통</strong></td><td>이메일 초안, 회의록 요약, 문서 요약, 업무 질문 답변</td></tr>
+</tbody>
+</table>
+
+<h2>📅 일정 (로드맵)</h2>
+
+<div class="timeline">
+
+<div class="timeline-item">
+<div class="timeline-date">2026년 4월 16일~18일 (3일)</div>
+<div class="timeline-title">🏗️ 기초 공사</div>
+<p class="timeline-desc">프로젝트 뼈대 설정. 서버 환경, 데이터베이스, 개발 도구를 준비하는 단계.</p>
+</div>
+
+<div class="timeline-item">
+<div class="timeline-date">2026년 4월 19일~25일 (1주)</div>
+<div class="timeline-title">🔑 로그인 & 자동 배포</div>
+<p class="timeline-desc">직원이 이메일로 로그인할 수 있는 기능. 코드를 작성하면 서버에 자동으로 반영되는 CI/CD 구축.</p>
+</div>
+
+<div class="timeline-item" style="background: #fff9c4; padding: 12px 16px; border-radius: 8px; margin-left: -10px;">
+<div class="timeline-date" style="color: #f57f17;">📣 2026년 4월 21일 (월) — 이사님 미팅</div>
+<div class="timeline-title" style="color: #e65100;">중간 진척 보고</div>
+<p class="timeline-desc">그때까지 완성된 것: 아키텍처 설계 + 로그인 기능 + 자동 배포. 회계 자동화는 아직 진행 중.</p>
+</div>
+
+<div class="timeline-item">
+<div class="timeline-date">2026년 4월 26일~5월 9일 (2주)</div>
+<div class="timeline-title">💬 AI 대화 & 관리자 기능</div>
+<p class="timeline-desc">직원이 AI와 실제로 대화할 수 있는 화면. 관리자가 사용자/부서를 추가·수정하는 백오피스.</p>
+</div>
+
+<div class="timeline-item">
+<div class="timeline-date">2026년 5월 9일</div>
+<div class="timeline-title">✅ 기본 플랫폼 완성</div>
+<p class="timeline-desc">모든 직원이 로그인해서 AI를 사용할 수 있는 상태. 보안 점검 완료.</p>
+</div>
+
+<div class="timeline-item" style="background: #e8f5e9; padding: 12px 16px; border-radius: 8px; margin-left: -10px;">
+<div class="timeline-date" style="color: #2e7d32;">🎯 2026년 5월 중순</div>
+<div class="timeline-title" style="color: #1b5e20;">회계 자동화 완성 (이사님 요청)</div>
+<p class="timeline-desc">은행 거래내역 파일을 올리면 AI가 자동으로 정리. 세금계산서와 매칭. 엑셀 리포트 자동 생성.</p>
+</div>
+
+<div class="timeline-item">
+<div class="timeline-date">2026년 여름 이후</div>
+<div class="timeline-title">🚀 추가 업무 확장</div>
+<p class="timeline-desc">마케팅, 디자인, 신사업팀 업무 자동화 순차 추가. 카카오톡 연동, 멀티 AI 지원 검토.</p>
+</div>
+
+</div>
+
+<div class="page-break"></div>
+
+<h2>🔒 보안 & 안전성</h2>
+
+<div class="info-box">
+<h4>💬 "회사 데이터가 외부로 나가지 않나요?"</h4>
+<p>회사 서버(Tencent 클라우드, 한국 리전 선택 가능)에 모든 데이터를 저장합니다. AI에게 질문할 때만 텍스트가 전송되며, 민감 정보는 AI에 보내지 않도록 설계합니다. 데이터는 회사 자산으로 관리됩니다.</p>
+</div>
+
+<div class="info-box">
+<h4>🔑 "누구나 모든 정보를 볼 수 있나요?"</h4>
+<p>아닙니다. 직급(관리자/팀장/일반 직원)과 부서별로 접근 권한이 다릅니다. 예를 들어 회계팀 일반 직원은 회계 데이터만, 관리자만 전체 시스템 설정에 접근 가능합니다.</p>
+</div>
+
+<div class="info-box">
+<h4>💰 "비용이 통제되나요?"</h4>
+<p>부서별로 월 AI 사용량을 추적하고 상한선을 설정할 수 있습니다. 간단한 질문은 저렴한 AI 모델(Haiku)로, 복잡한 분석만 비싼 모델(Sonnet/Opus)로 자동 분류되어 비용을 절감합니다.</p>
+</div>
+
+<div class="info-box">
+<h4>👤 "담당자가 퇴사하면 어떻게 되나요?"</h4>
+<p>처음부터 회사 명의의 GitHub Organization과 회사 명의 API 키를 사용합니다. 인수인계 시 소유권만 이전하면 전체 시스템을 넘길 수 있도록 설계되었습니다.</p>
+</div>
+
+<h2>💰 예상 비용</h2>
+
+<table>
+<thead><tr><th>항목</th><th>월 비용</th><th>설명</th></tr></thead>
+<tbody>
+<tr><td>Claude AI API</td><td>15만원 ~ 30만원</td><td>40명 × 일평균 5회 사용 기준. 사용량에 따라 변동</td></tr>
+<tr><td>서버 (Tencent CVM)</td><td>5만원 내외</td><td>이미 구매한 4vCPU/8GB 서버</td></tr>
+<tr><td>기타 (도메인, SSL 등)</td><td>월 1만원 미만</td><td>연 1~2만원 수준</td></tr>
+<tr><td><strong>총 예상</strong></td><td><strong>월 약 20~36만원</strong></td><td>비개발자 전원 구독 대비 <strong>약 90% 절감</strong></td></tr>
+</tbody>
+</table>
+
+<div class="highlight-box">
+<h4>💡 비교: 전 직원 AI 구독 시</h4>
+<p>40명에게 Claude Pro나 ChatGPT Plus를 개인 구독시키면 월 약 <strong>100만~150만원</strong>이 들고, 회사 데이터 관리도 어렵습니다. 공용 API 방식으로 비용과 관리 모두 유리합니다.</p>
+</div>
+
+<h2>🎯 지금까지 결정된 것</h2>
+
+<table>
+<thead><tr><th>항목</th><th>결정 내용</th></tr></thead>
+<tbody>
+<tr><td>서버</td><td>Tencent 클라우드 (이미 준비됨, 4vCPU/8GB)</td></tr>
+<tr><td>AI 엔진</td><td>Claude 중심 → 추후 OpenAI, Gemini 추가</td></tr>
+<tr><td>사용 방식</td><td>웹사이트 로그인 방식 (메신저는 추후 검토)</td></tr>
+<tr><td>개발 방식</td><td>1인 담당자 + AI(Claude Code)로 구축</td></tr>
+<tr><td>배포 방식</td><td>코드 저장 시 서버에 자동 반영 (수동 배포 불필요)</td></tr>
+<tr><td>GitHub 관리</td><td>회사 명의 Organization 사용 (퇴사 시 인수인계 용이)</td></tr>
+<tr><td>아키텍처</td><td>장기 유지보수 가능한 견고한 설계 선택 (Clean Architecture)</td></tr>
+</tbody>
+</table>
+
+<h2>⚠️ 아직 결정되지 않은 것</h2>
+
+<div class="warn-box">
+<ul style="margin: 0;">
+<li><strong>메신저 연동</strong> — 잔디 유지 또는 슬랙 전환 검토 중. 3단계(가을 이후)에서 결정.</li>
+<li><strong>NAS 연동</strong> — 사내 NAS에 클라우드 서버에서 접근 가능한지 확인 필요.</li>
+<li><strong>업무별 자동화 우선순위</strong> — 마케팅팀 등 업무 리스트 회의 예정.</li>
+</ul>
+</div>
+
+<h2>📊 기대 효과</h2>
+
+<div class="card-grid">
+<div class="card">
+<h4>⏰ 시간 절감</h4>
+<p>반복 업무(은행 내역 정리, DM 초안 등)를 AI가 처리 → 직원당 주 3~5시간 절약 예상</p>
+</div>
+<div class="card">
+<h4>📈 품질 향상</h4>
+<p>AI가 가이드라인 준수 자동 검토, 누락 방지. 사람이 놓치기 쉬운 부분 보완</p>
+</div>
+<div class="card">
+<h4>💾 데이터 자산화</h4>
+<p>AI 사용 이력이 회사 자산으로 축적 → 향후 분석/개선 기반 마련</p>
+</div>
+<div class="card">
+<h4>🎨 업무 표준화</h4>
+<p>부서별 표준 프롬프트 템플릿 → 누구나 같은 품질의 AI 업무 수행 가능</p>
+</div>
+</div>
+
+<h2>📞 문의</h2>
+
+<div class="info-box">
+<p><strong>담당:</strong> TK101 (junki7853)<br>
+<strong>현재 진행 단계:</strong> 기술 설계 완료, 1단계 구축 착수 직전<br>
+<strong>다음 중요 일정:</strong> 4월 21일 월요일 이사님 미팅 (기초 구축 진척 보고)</p>
+</div>
+
+<div class="footer">
+TK101 Global Korea Inc. · 사내 AI 자동화 플랫폼 프로젝트 · 2026-04-16
+</div>
+
+</body>
+</html>
