@@ -123,9 +123,23 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           # 키 포맷 검증 (디버깅용)
           ssh-keygen -l -f ~/.ssh/deploy_key || echo "⚠️ Key format invalid"
-          # known_hosts 사전 등록은 불필요 (이후 ssh 명령들이 StrictHostKeyChecking=no 사용)
-          # 단, 실패해도 진행하도록 || true 추가
-          ssh-keyscan -H "${{ secrets.CVM_HOST }}" >> ~/.ssh/known_hosts 2>&1 || echo "⚠️ ssh-keyscan failed (non-fatal, StrictHostKeyChecking=no will be used)"
+
+      - name: Network diagnostics (temp debugging)
+        run: |
+          echo "=== Runner public IP ==="
+          curl -s ifconfig.me; echo
+          echo "=== CVM_HOST length check (should not be 0) ==="
+          HOST="${{ secrets.CVM_HOST }}"
+          echo "Length: ${#HOST}"
+          echo "Starts with: $(echo "$HOST" | head -c 3)..."
+          echo "=== DNS / IP resolve ==="
+          getent hosts "$HOST" || echo "(no DNS — raw IP?)"
+          echo "=== TCP port 22 reachability (5s timeout) ==="
+          timeout 5 bash -c "</dev/tcp/$HOST/22" && echo "✅ Port 22 reachable" || echo "❌ Port 22 NOT reachable"
+          echo "=== Try other common SSH ports ==="
+          for p in 2222 2200 22022; do
+            timeout 3 bash -c "</dev/tcp/$HOST/$p" 2>/dev/null && echo "✅ Port $p open" || echo "❌ Port $p closed"
+          done
 
       - name: Generate .env.prod from secrets
         run: |
