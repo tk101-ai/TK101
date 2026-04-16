@@ -1,0 +1,22 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint (ruff)
+        working-directory: backend
+        run: |
+          pip install --user --quiet ruff
+          ~/.local/bin/ruff check .
+          ~/.local/bin/ruff format --check .
+
+      - name: Build and deploy
+        run: docker compose up -d --build
