@@ -71,7 +71,7 @@ services:
     ports:
       - "3001:3000"
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-tk101}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tk101}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tk101}:${POSTGRES_PASSWORD}@postgres:5432/langfuse
       NEXTAUTH_URL: ${LANGFUSE_URL:-http://localhost:3001}
       NEXTAUTH_SECRET: ${LANGFUSE_SECRET:?LANGFUSE_SECRET required}
       SALT: ${LANGFUSE_SALT:?LANGFUSE_SALT required}
