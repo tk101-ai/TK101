@@ -31,11 +31,18 @@ jobs:
       - name: Pull latest images
         run: docker compose pull
 
+      - name: Verify .env
+        run: cat -A .env
+
       - name: Deploy services
-        run: docker compose up -d --remove-orphans
+        run: docker compose up -d --force-recreate --remove-orphans
 
       - name: Health check
         run: |
           echo "Waiting for services to start..."
-          sleep 15
+          sleep 30
           docker compose ps
+          echo "--- Langfuse logs ---"
+          docker compose logs langfuse --tail 30
+          echo "--- Open WebUI logs ---"
+          docker compose logs open-webui --tail 30
