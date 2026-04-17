@@ -11,13 +11,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Lint (ruff via docker)
-        working-directory: backend
+      - name: Create .env from secrets
         run: |
-          docker run --rm -v "$PWD":/src -w /src \
-            ghcr.io/astral-sh/ruff:latest check --no-cache .
-          docker run --rm -v "$PWD":/src -w /src \
-            ghcr.io/astral-sh/ruff:latest format --check --no-cache .
+          cat > .env << 'ENVEOF'
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+          N8N_AUTH_USER=${{ secrets.N8N_AUTH_USER }}
+          N8N_AUTH_PASSWORD=${{ secrets.N8N_AUTH_PASSWORD }}
+          N8N_ENCRYPTION_KEY=${{ secrets.N8N_ENCRYPTION_KEY }}
+          WEBUI_SECRET_KEY=${{ secrets.WEBUI_SECRET_KEY }}
+          LANGFUSE_URL=${{ secrets.LANGFUSE_URL }}
+          LANGFUSE_SECRET=${{ secrets.LANGFUSE_SECRET }}
+          LANGFUSE_SALT=${{ secrets.LANGFUSE_SALT }}
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          ENVEOF
 
-      - name: Build and deploy
-        run: docker compose up -d --build
+      - name: Pull latest images
+        run: docker compose pull
+
+      - name: Deploy services
+        run: docker compose up -d --remove-orphans
+
+      - name: Health check
+        run: |
+          echo "Waiting for services to start..."
+          sleep 15
+          docker compose ps
