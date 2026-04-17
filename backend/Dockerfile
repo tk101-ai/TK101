@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /srv
 
 COPY pyproject.toml ./
-RUN pip install --no-deps $(python -c "\
+RUN pip install $(python -c "\
 import tomllib, pathlib; \
 d = tomllib.loads(pathlib.Path('pyproject.toml').read_text()); \
 print(' '.join(d['project']['dependencies']))")
