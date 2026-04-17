@@ -19,6 +19,10 @@ router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 @router.post("/transactions", response_model=UploadLogRead, status_code=status.HTTP_201_CREATED)
 async def upload_transactions(
     account_id: str = Query(...),
+    bank_format: str | None = Query(
+        None,
+        description="은행 형식 (kb/ibk/nh/shinhan/woori/hana). 미지정시 계좌의 은행명으로 자동감지",
+    ),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -26,12 +30,19 @@ async def upload_transactions(
     if current_user.role not in ("admin", "accountant"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
 
-    # Verify account exists
+    # Fetch account (need bank_name for parser)
     result = await db.execute(select(Account).where(Account.id == account_id))
-    if result.scalar_one_or_none() is None:
+    account = result.scalar_one_or_none()
+    if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
 
-    contents = await file.read()
+    # Use explicit bank_format override, otherwise fall back to account's bank_name
+    detected_format = bank_format or account.bank_name
+
+    MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+    contents = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="파일 크기 초과 (최대 10MB)")
     file_bytes = io.BytesIO(contents)
 
     log = UploadLog(
@@ -44,23 +55,31 @@ async def upload_transactions(
     db.add(log)
     await db.flush()
 
+    ALLOWED_TXN_FIELDS = {"transaction_date", "amount", "balance", "counterpart_name", "description", "transaction_type"}
+
     try:
-        parsed = parse_bank_excel(file_bytes)
+        parsed = parse_bank_excel(file_bytes, bank_name=detected_format)
         transactions = []
         for row in parsed:
-            txn = Transaction(
-                account_id=account_id,
-                upload_log_id=log.id,
-                **row,
-            )
+            safe_row = {k: v for k, v in row.items() if k in ALLOWED_TXN_FIELDS}
+            txn = Transaction(account_id=account_id, upload_log_id=log.id, **safe_row)
             transactions.append(txn)
 
         db.add_all(transactions)
         log.row_count = len(transactions)
         log.status = "completed"
+    except ValueError as e:
+        log.status = "failed"
+        log.error_detail = {"error": str(e), "type": "validation"}
+        await db.commit()
+        await db.refresh(log)
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         log.status = "failed"
         log.error_detail = {"error": str(e)}
+        await db.commit()
+        await db.refresh(log)
+        raise HTTPException(status_code=500, detail="파일 처리 중 오류가 발생했습니다")
 
     await db.commit()
     await db.refresh(log)
@@ -72,5 +91,8 @@ async def list_uploads(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(UploadLog).order_by(UploadLog.created_at.desc()))
+    query = select(UploadLog).order_by(UploadLog.created_at.desc())
+    if current_user.role != "admin":
+        query = query.where(UploadLog.user_id == current_user.id)
+    result = await db.execute(query)
     return result.scalars().all()
