@@ -4,10 +4,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-WORKDIR /app
+WORKDIR /srv
 
 COPY pyproject.toml ./
-RUN pip install .
+RUN pip install --no-deps $(python -c "\
+import tomllib, pathlib; \
+d = tomllib.loads(pathlib.Path('pyproject.toml').read_text()); \
+print(' '.join(d['project']['dependencies']))")
 
 COPY alembic.ini ./
 COPY alembic ./alembic
