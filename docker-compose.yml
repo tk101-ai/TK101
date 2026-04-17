@@ -57,7 +57,6 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       WEBUI_AUTH: "true"
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?WEBUI_SECRET_KEY required}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-tk101}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tk101}
     volumes:
       - webui_data:/app/backend/data
     depends_on:
@@ -66,7 +65,7 @@ services:
 
   # --- Langfuse (LLM observability) ---
   langfuse:
-    image: langfuse/langfuse:latest
+    image: langfuse/langfuse:2
     container_name: tk101-langfuse
     restart: unless-stopped
     ports:
