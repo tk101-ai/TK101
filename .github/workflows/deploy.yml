@@ -13,7 +13,7 @@ jobs:
 
       - name: Create .env from secrets
         run: |
-          cat > .env << 'ENVEOF'
+          cat > .env <<'ENVEOF'
           POSTGRES_USER=${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB=${{ secrets.POSTGRES_DB }}
@@ -26,6 +26,7 @@ jobs:
           LANGFUSE_SALT=${{ secrets.LANGFUSE_SALT }}
           ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
           ENVEOF
+          sed -i 's/^[[:space:]]*//' .env
 
       - name: Pull latest images
         run: docker compose pull
