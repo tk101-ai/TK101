@@ -1,17 +1,21 @@
-name: deploy
+name: "TK101 배포 v0.2.0"
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+env:
+  VERSION: "0.2.0"
+
 jobs:
   deploy:
+    name: "서버 배포 — 빌드 및 서비스 재시작"
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create .env from secrets
+      - name: "환경변수 생성 (.env)"
         run: |
           cat > .env <<'ENVEOF'
           POSTGRES_USER=${{ secrets.POSTGRES_USER }}
@@ -29,35 +33,35 @@ jobs:
           ENVEOF
           sed -i 's/^[[:space:]]*//' .env
 
-      - name: Pull latest images
+      - name: "이미지 다운로드"
         run: docker compose pull
 
-      - name: Verify .env
+      - name: "환경변수 검증"
         run: cat -A .env
 
-      - name: Ensure langfuse database exists
+      - name: "Langfuse DB 확인/생성"
         run: |
           docker compose up -d postgres
           sleep 5
           docker compose exec -T postgres psql -U ${POSTGRES_USER:-tk101} -tc "SELECT 1 FROM pg_database WHERE datname = 'langfuse'" | grep -q 1 || \
             docker compose exec -T postgres psql -U ${POSTGRES_USER:-tk101} -c "CREATE DATABASE langfuse"
 
-      - name: Deploy services
+      - name: "전체 서비스 배포 (v${{ env.VERSION }})"
         run: docker compose up -d --build --force-recreate --remove-orphans
 
-      - name: Health check
+      - name: "서비스 상태 확인"
         run: |
-          echo "Waiting for services to start..."
+          echo "서비스 시작 대기 중..."
           sleep 30
           docker compose ps
-          echo "--- Langfuse logs ---"
+          echo "--- Langfuse 로그 ---"
           docker compose logs langfuse --tail 30
-          echo "--- Backend logs ---"
+          echo "--- Backend 로그 ---"
           docker compose logs backend --tail 30
-          echo "--- Open WebUI logs ---"
+          echo "--- Open WebUI 로그 ---"
           docker compose logs open-webui --tail 30
 
-      - name: Reset admin password
+      - name: "관리자 비밀번호 초기화"
         run: |
           docker compose exec -T backend python -c "
           import asyncio
@@ -78,3 +82,6 @@ jobs:
 
           asyncio.run(reset())
           "
+
+      - name: "배포 완료 (v${{ env.VERSION }})"
+        run: echo "TK101 v${{ env.VERSION }} 배포 완료"
