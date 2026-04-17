@@ -1,17 +1,25 @@
 import { Layout, Menu } from "antd";
-import { BankOutlined, DashboardOutlined, LogoutOutlined, SwapOutlined } from "@ant-design/icons";
+import { BankOutlined, DashboardOutlined, FileTextOutlined, LogoutOutlined, SwapOutlined, TeamOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import type { User } from "../api/auth";
 
 const { Content, Sider } = Layout;
 
-const menuItems = [
+const baseMenuItems = [
   { key: "/", icon: <DashboardOutlined />, label: "대시보드" },
   { key: "/transactions", icon: <SwapOutlined />, label: "거래내역" },
+  { key: "/tax-invoices", icon: <FileTextOutlined />, label: "세금계산서" },
   { key: "/accounts", icon: <BankOutlined />, label: "계좌 관리" },
 ];
 
+const adminMenuItems = [
+  { key: "/users", icon: <TeamOutlined />, label: "사용자 관리" },
+];
+
 export default function AppLayout({ user, onLogout }: { user: User; onLogout: () => void }) {
+  const menuItems = user.role === "admin"
+    ? [...baseMenuItems, ...adminMenuItems]
+    : baseMenuItems;
   const navigate = useNavigate();
   const location = useLocation();
 

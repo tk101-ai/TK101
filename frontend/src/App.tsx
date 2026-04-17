@@ -7,6 +7,8 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
 import Accounts from "./pages/Accounts";
+import TaxInvoices from "./pages/TaxInvoices";
+import Users from "./pages/Users";
 
 function App() {
   const { user, loading, logout, checkAuth } = useAuth();
@@ -29,6 +31,8 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/transactions" element={<Transactions />} />
               <Route path="/accounts" element={<Accounts />} />
+              <Route path="/tax-invoices" element={<TaxInvoices />} />
+              <Route path="/users" element={<Users />} />
             </Route>
           ) : (
             <Route path="*" element={<Navigate to="/login" />} />
