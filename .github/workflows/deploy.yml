@@ -42,11 +42,6 @@ jobs:
           docker compose exec -T postgres psql -U ${POSTGRES_USER:-tk101} -tc "SELECT 1 FROM pg_database WHERE datname = 'langfuse'" | grep -q 1 || \
             docker compose exec -T postgres psql -U ${POSTGRES_USER:-tk101} -c "CREATE DATABASE langfuse"
 
-      - name: Fix admin password
-        run: |
-          docker compose exec -T postgres psql -U ${POSTGRES_USER:-tk101} -d ${POSTGRES_DB:-tk101} -c \
-            "UPDATE users SET hashed_password = '\$2b\$12\$DL9nlDxfrgLQ.AiBxbFFw.nRWFv.5vJpX1ju3hIC7FJt9OaZA9tuG' WHERE email = 'admin@tk101.co.kr'" || true
-
       - name: Deploy services
         run: docker compose up -d --build --force-recreate --remove-orphans
 
@@ -61,3 +56,25 @@ jobs:
           docker compose logs backend --tail 30
           echo "--- Open WebUI logs ---"
           docker compose logs open-webui --tail 30
+
+      - name: Reset admin password
+        run: |
+          docker compose exec -T backend python -c "
+          import asyncio
+          from app.database import async_session
+          from app.models.user import User
+          from app.services.auth import hash_password
+          from sqlalchemy import select, update
+
+          async def reset():
+              async with async_session() as db:
+                  result = await db.execute(
+                      update(User)
+                      .where(User.email == 'admin@tk101.co.kr')
+                      .values(hashed_password=hash_password('admin123'))
+                  )
+                  await db.commit()
+                  print(f'Updated {result.rowcount} row(s)')
+
+          asyncio.run(reset())
+          "
