@@ -25,6 +25,7 @@ jobs:
           LANGFUSE_SECRET=${{ secrets.LANGFUSE_SECRET }}
           LANGFUSE_SALT=${{ secrets.LANGFUSE_SALT }}
           ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
           ENVEOF
           sed -i 's/^[[:space:]]*//' .env
 
@@ -42,7 +43,7 @@ jobs:
             docker compose exec -T postgres psql -U ${POSTGRES_USER:-tk101} -c "CREATE DATABASE langfuse"
 
       - name: Deploy services
-        run: docker compose up -d --force-recreate --remove-orphans
+        run: docker compose up -d --build --force-recreate --remove-orphans
 
       - name: Health check
         run: |
@@ -51,5 +52,7 @@ jobs:
           docker compose ps
           echo "--- Langfuse logs ---"
           docker compose logs langfuse --tail 30
+          echo "--- Backend logs ---"
+          docker compose logs backend --tail 30
           echo "--- Open WebUI logs ---"
           docker compose logs open-webui --tail 30

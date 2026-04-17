@@ -63,6 +63,21 @@ services:
       postgres:
         condition: service_healthy
 
+  # --- Backend API (FastAPI) ---
+  backend:
+    build: ./backend
+    container_name: tk101-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tk101}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tk101}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # --- Langfuse (LLM observability) ---
   langfuse:
     image: langfuse/langfuse:2
