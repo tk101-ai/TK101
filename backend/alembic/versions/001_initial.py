@@ -100,7 +100,7 @@ def upgrade():
         VALUES (
             gen_random_uuid(),
             'admin@tk101.co.kr',
-            '$2b$12$LJ3m4ys3Lk0TSwHjlT3Xb.7WtXH9aZPeyVb0wQf2SQIG/xcURwmu',
+            '$2b$12$DL9nlDxfrgLQ.AiBxbFFw.nRWFv.5vJpX1ju3hIC7FJt9OaZA9tuG',
             '관리자',
             '경영',
             'admin'

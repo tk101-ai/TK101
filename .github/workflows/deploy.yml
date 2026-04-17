@@ -42,6 +42,11 @@ jobs:
           docker compose exec -T postgres psql -U ${POSTGRES_USER:-tk101} -tc "SELECT 1 FROM pg_database WHERE datname = 'langfuse'" | grep -q 1 || \
             docker compose exec -T postgres psql -U ${POSTGRES_USER:-tk101} -c "CREATE DATABASE langfuse"
 
+      - name: Fix admin password
+        run: |
+          docker compose exec -T postgres psql -U ${POSTGRES_USER:-tk101} -d ${POSTGRES_DB:-tk101} -c \
+            "UPDATE users SET hashed_password = '\$2b\$12\$DL9nlDxfrgLQ.AiBxbFFw.nRWFv.5vJpX1ju3hIC7FJt9OaZA9tuG' WHERE email = 'admin@tk101.co.kr'" || true
+
       - name: Deploy services
         run: docker compose up -d --build --force-recreate --remove-orphans
 
