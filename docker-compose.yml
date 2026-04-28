@@ -74,6 +74,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tk101}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tk101}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173}
+      GOOGLE_YOUTUBE_API_KEY: ${GOOGLE_YOUTUBE_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

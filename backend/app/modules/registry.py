@@ -9,7 +9,7 @@ ALL_MODULES: list[str] = [m.value for m in Module]
 DEPARTMENT_MODULES: dict[str, list[str]] = {
     Department.ADMIN.value: [Module.DASHBOARD.value],
     Department.FINANCE.value: [Module.DASHBOARD.value, Module.FINANCE.value],
-    Department.MARKETING_1.value: [Module.DASHBOARD.value],
+    Department.MARKETING_1.value: [Module.DASHBOARD.value, Module.MARKETING_SNS.value],
     Department.MARKETING_2.value: [Module.DASHBOARD.value],
     Department.NEW_BUSINESS.value: [Module.DASHBOARD.value],
     Department.NEW_MEDIA.value: [Module.DASHBOARD.value],

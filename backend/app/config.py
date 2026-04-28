@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     cors_origins: str = "http://localhost:5173"
+    google_youtube_api_key: str | None = None
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

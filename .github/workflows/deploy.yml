@@ -30,6 +30,7 @@ jobs:
           LANGFUSE_SALT=${{ secrets.LANGFUSE_SALT }}
           ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
           JWT_SECRET=${{ secrets.JWT_SECRET }}
+          GOOGLE_YOUTUBE_API_KEY=${{ secrets.GOOGLE_YOUTUBE_API_KEY }}
           ENVEOF
           sed -i 's/^[[:space:]]*//' .env
 

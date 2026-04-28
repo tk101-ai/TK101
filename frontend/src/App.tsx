@@ -10,6 +10,10 @@ import Transactions from "./pages/Transactions";
 import Accounts from "./pages/Accounts";
 import TaxInvoices from "./pages/TaxInvoices";
 import Users from "./pages/Users";
+import SnsAccounts from "./pages/marketing/SnsAccounts";
+import SnsPosts from "./pages/marketing/SnsPosts";
+import SnsWeeklySnapshots from "./pages/marketing/SnsWeeklySnapshots";
+import SnsExcelImport from "./pages/marketing/SnsExcelImport";
 
 function App() {
   const { user, loading, logout, checkAuth } = useAuth();
@@ -59,6 +63,38 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="users">
                     <Users />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/sns/accounts"
+                element={
+                  <ProtectedRoute user={user} module="marketing_sns">
+                    <SnsAccounts />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/sns/posts"
+                element={
+                  <ProtectedRoute user={user} module="marketing_sns">
+                    <SnsPosts />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/sns/snapshots"
+                element={
+                  <ProtectedRoute user={user} module="marketing_sns">
+                    <SnsWeeklySnapshots />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/sns/import"
+                element={
+                  <ProtectedRoute user={user} module="marketing_sns">
+                    <SnsExcelImport />
                   </ProtectedRoute>
                 }
               />

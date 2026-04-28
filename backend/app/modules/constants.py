@@ -31,3 +31,4 @@ class Module(str, Enum):
     DASHBOARD = "dashboard"
     FINANCE = "finance"
     USERS = "users"
+    MARKETING_SNS = "marketing_sns"

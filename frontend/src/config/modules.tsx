@@ -1,4 +1,13 @@
-import { BankOutlined, DashboardOutlined, FileTextOutlined, SwapOutlined, TeamOutlined } from "@ant-design/icons";
+import {
+  BankOutlined,
+  CloudUploadOutlined,
+  DashboardOutlined,
+  FileTextOutlined,
+  RiseOutlined,
+  ShareAltOutlined,
+  SwapOutlined,
+  TeamOutlined,
+} from "@ant-design/icons";
 import type { ReactNode } from "react";
 
 export const DEPARTMENTS = {
@@ -42,6 +51,10 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "transactions", path: "/transactions", label: "거래내역", icon: <SwapOutlined />, module: "finance" },
   { key: "tax-invoices", path: "/tax-invoices", label: "세금계산서", icon: <FileTextOutlined />, module: "finance" },
   { key: "accounts", path: "/accounts", label: "계좌 관리", icon: <BankOutlined />, module: "finance" },
+  { key: "sns-posts", path: "/sns/posts", label: "SNS 콘텐츠", icon: <FileTextOutlined />, module: "marketing_sns" },
+  { key: "sns-snapshots", path: "/sns/snapshots", label: "주간 팔로워", icon: <RiseOutlined />, module: "marketing_sns" },
+  { key: "sns-accounts", path: "/sns/accounts", label: "SNS 계정", icon: <ShareAltOutlined />, module: "marketing_sns" },
+  { key: "sns-import", path: "/sns/import", label: "엑셀 가져오기", icon: <CloudUploadOutlined />, module: "marketing_sns" },
   { key: "users", path: "/users", label: "사용자 관리", icon: <TeamOutlined />, module: "users" },
 ];
 

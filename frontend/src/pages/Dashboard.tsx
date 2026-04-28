@@ -1,6 +1,7 @@
 import { useAuth } from "../hooks/useAuth";
 import FinanceDashboard from "./dashboards/FinanceDashboard";
 import AdminDashboard from "./dashboards/AdminDashboard";
+import Marketing1Dashboard from "./dashboards/Marketing1Dashboard";
 import PlaceholderDashboard from "./dashboards/PlaceholderDashboard";
 import { DEPARTMENTS, type DepartmentKey } from "../config/modules";
 
@@ -40,6 +41,7 @@ export default function Dashboard() {
 
   if (dept === "finance") return <FinanceDashboard />;
   if (dept === "admin") return <AdminDashboard />;
+  if (dept === "marketing_1") return <Marketing1Dashboard />;
 
   return (
     <PlaceholderDashboard

@@ -1,0 +1,96 @@
+{
+  "name": "YouTube Daily Collection",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * *"
+            }
+          ]
+        }
+      },
+      "id": "1f3b6f8a-1111-4d2a-9c91-aa0001000001",
+      "name": "Schedule (03:00 KST daily)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 320]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "account_id",
+              "value": "<YOUR_ACCOUNT_ID>"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1f3b6f8a-2222-4d2a-9c91-aa0001000002",
+      "name": "Set account_id",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [480, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://backend:8000/api/sns/collect/{{$json.account_id}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.TK101_INTERNAL_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "1f3b6f8a-3333-4d2a-9c91-aa0001000003",
+      "name": "Trigger backend collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 320]
+    }
+  ],
+  "connections": {
+    "Schedule (03:00 KST daily)": {
+      "main": [
+        [
+          {
+            "node": "Set account_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set account_id": {
+      "main": [
+        [
+          {
+            "node": "Trigger backend collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["sns", "youtube"]
+}
