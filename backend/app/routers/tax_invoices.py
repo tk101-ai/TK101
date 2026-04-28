@@ -5,12 +5,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import require_admin, require_module
 from app.models.tax_invoice import TaxInvoice
-from app.models.user import User
 from app.schemas.tax_invoice import TaxInvoiceRead
 
-router = APIRouter(prefix="/api/tax-invoices", tags=["tax-invoices"])
+router = APIRouter(
+    prefix="/api/tax-invoices",
+    tags=["tax-invoices"],
+    dependencies=[Depends(require_module("finance"))],
+)
 
 
 @router.get("", response_model=list[TaxInvoiceRead])
@@ -21,7 +24,6 @@ async def list_invoices(
     match_status: str | None = Query(None),
     limit: int = Query(100, le=1000),
     offset: int = Query(0),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(TaxInvoice).order_by(TaxInvoice.issue_date.desc())
@@ -37,15 +39,12 @@ async def list_invoices(
     return result.scalars().all()
 
 
-@router.patch("/{invoice_id}/transaction")
+@router.patch("/{invoice_id}/transaction", dependencies=[Depends(require_admin)])
 async def link_invoice_to_transaction(
     invoice_id: str,
     transaction_id: str = Query(...),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if current_user.role not in ("admin", "accountant"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
     result = await db.execute(select(TaxInvoice).where(TaxInvoice.id == invoice_id))
     invoice = result.scalar_one_or_none()
     if invoice is None:

@@ -3,6 +3,7 @@ import koKR from "antd/locale/ko_KR";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import AppLayout from "./components/AppLayout";
+import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
@@ -29,10 +30,38 @@ function App() {
           {user ? (
             <Route element={<AppLayout user={user} onLogout={logout} />}>
               <Route path="/" element={<Dashboard />} />
-              <Route path="/transactions" element={<Transactions />} />
-              <Route path="/accounts" element={<Accounts />} />
-              <Route path="/tax-invoices" element={<TaxInvoices />} />
-              <Route path="/users" element={<Users />} />
+              <Route
+                path="/transactions"
+                element={
+                  <ProtectedRoute user={user} module="finance">
+                    <Transactions />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/accounts"
+                element={
+                  <ProtectedRoute user={user} module="finance">
+                    <Accounts />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/tax-invoices"
+                element={
+                  <ProtectedRoute user={user} module="finance">
+                    <TaxInvoices />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/users"
+                element={
+                  <ProtectedRoute user={user} module="users">
+                    <Users />
+                  </ProtectedRoute>
+                }
+              />
             </Route>
           ) : (
             <Route path="*" element={<Navigate to="/login" />} />

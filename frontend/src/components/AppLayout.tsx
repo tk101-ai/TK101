@@ -1,27 +1,22 @@
 import { Layout, Menu } from "antd";
-import { BankOutlined, DashboardOutlined, FileTextOutlined, LogoutOutlined, SwapOutlined, TeamOutlined } from "@ant-design/icons";
+import { LogoutOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import type { User } from "../api/auth";
+import { NAV_ITEMS, getDepartmentLabel } from "../config/modules";
 
 const { Content, Sider } = Layout;
 
-const baseMenuItems = [
-  { key: "/", icon: <DashboardOutlined />, label: "대시보드" },
-  { key: "/transactions", icon: <SwapOutlined />, label: "거래내역" },
-  { key: "/tax-invoices", icon: <FileTextOutlined />, label: "세금계산서" },
-  { key: "/accounts", icon: <BankOutlined />, label: "계좌 관리" },
-];
-
-const adminMenuItems = [
-  { key: "/users", icon: <TeamOutlined />, label: "사용자 관리" },
-];
-
 export default function AppLayout({ user, onLogout }: { user: User; onLogout: () => void }) {
-  const menuItems = user.role === "admin"
-    ? [...baseMenuItems, ...adminMenuItems]
-    : baseMenuItems;
   const navigate = useNavigate();
   const location = useLocation();
+
+  const menuItems = NAV_ITEMS
+    .filter((item) => user.modules.includes(item.module))
+    .map((item) => ({
+      key: item.path,
+      icon: item.icon,
+      label: item.label,
+    }));
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -38,7 +33,7 @@ export default function AppLayout({ user, onLogout }: { user: User; onLogout: ()
         />
         <div style={{ position: "absolute", bottom: 16, width: "100%", textAlign: "center" }}>
           <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 12, marginBottom: 8 }}>
-            {user.name} ({user.department || "N/A"})
+            {user.name} ({getDepartmentLabel(user.department)})
           </div>
           <LogoutOutlined
             style={{ color: "rgba(255,255,255,0.6)", fontSize: 18, cursor: "pointer" }}

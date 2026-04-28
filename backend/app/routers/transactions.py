@@ -8,12 +8,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import require_module
 from app.models.transaction import Transaction
-from app.models.user import User
 from app.schemas.transaction import MemoUpdate, TransactionRead
 
-router = APIRouter(prefix="/api/transactions", tags=["transactions"])
+router = APIRouter(
+    prefix="/api/transactions",
+    tags=["transactions"],
+    dependencies=[Depends(require_module("finance"))],
+)
 
 
 def _build_query(
@@ -54,7 +57,6 @@ async def list_transactions(
     keyword: str | None = Query(None),
     limit: int = Query(100, le=1000),
     offset: int = Query(0),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     query = _build_query(account_id, date_from, date_to, transaction_type, match_status, keyword)
@@ -63,12 +65,7 @@ async def list_transactions(
 
 
 @router.patch("/{transaction_id}/memo", response_model=TransactionRead)
-async def update_memo(
-    transaction_id: str,
-    body: MemoUpdate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+async def update_memo(transaction_id: str, body: MemoUpdate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Transaction).where(Transaction.id == transaction_id))
     txn = result.scalar_one_or_none()
     if txn is None:
@@ -79,6 +76,9 @@ async def update_memo(
     return txn
 
 
+DOWNLOAD_MAX_ROWS = 50_000
+
+
 @router.get("/download")
 async def download_excel(
     account_id: str | None = Query(None),
@@ -87,11 +87,10 @@ async def download_excel(
     transaction_type: str | None = Query(None),
     match_status: str | None = Query(None),
     keyword: str | None = Query(None),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     query = _build_query(account_id, date_from, date_to, transaction_type, match_status, keyword)
-    result = await db.execute(query)
+    result = await db.execute(query.limit(DOWNLOAD_MAX_ROWS))
     rows = result.scalars().all()
 
     wb = Workbook()

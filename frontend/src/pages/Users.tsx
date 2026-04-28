@@ -1,32 +1,19 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button, Form, Input, message, Modal, Select, Switch, Table, Tag } from "antd";
 import { PlusOutlined, EditOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
-import { Navigate } from "react-router-dom";
-import { useAuth } from "../hooks/useAuth";
 import { getUsers, createUser, updateUser, type User } from "../api/users";
-
-const ROLE_OPTIONS = [
-  { value: "admin", label: "관리자" },
-  { value: "accountant", label: "경리" },
-  { value: "viewer", label: "열람자" },
-];
-
-const ROLE_COLOR: Record<string, string> = {
-  admin: "red",
-  accountant: "blue",
-  viewer: "default",
-};
-
-const ROLE_LABEL: Record<string, string> = {
-  admin: "관리자",
-  accountant: "경리",
-  viewer: "열람자",
-};
+import {
+  DEPARTMENT_OPTIONS,
+  ROLE_OPTIONS,
+  ROLE_TAG_COLOR,
+  getDepartmentLabel,
+  getRoleLabel,
+  type RoleKey,
+} from "../config/modules";
 
 export default function Users() {
-  const { user: currentUser } = useAuth();
   const [data, setData] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [createModal, setCreateModal] = useState(false);
@@ -35,7 +22,7 @@ export default function Users() {
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getUsers();
@@ -45,17 +32,11 @@ export default function Users() {
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    if (currentUser?.role === "admin") {
-      fetchData();
-    }
   }, []);
 
-  if (!currentUser || currentUser.role !== "admin") {
-    return <Navigate to="/" replace />;
-  }
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleCreate = async (values: Record<string, string>) => {
     try {
@@ -108,13 +89,18 @@ export default function Users() {
   const columns: ColumnsType<User> = [
     { title: "이름", dataIndex: "name", width: 120 },
     { title: "이메일", dataIndex: "email", width: 200 },
-    { title: "부서", dataIndex: "department", width: 120 },
+    {
+      title: "부서",
+      dataIndex: "department",
+      width: 130,
+      render: (v: string) => getDepartmentLabel(v),
+    },
     {
       title: "역할",
       dataIndex: "role",
       width: 100,
       render: (role: string) => (
-        <Tag color={ROLE_COLOR[role] ?? "default"}>{ROLE_LABEL[role] ?? role}</Tag>
+        <Tag color={ROLE_TAG_COLOR[role as RoleKey] ?? "default"}>{getRoleLabel(role)}</Tag>
       ),
     },
     {
@@ -158,8 +144,9 @@ export default function Users() {
         onOk={() => createForm.submit()}
         okText="등록"
         cancelText="취소"
+        destroyOnClose
       >
-        <Form form={createForm} onFinish={handleCreate} layout="vertical">
+        <Form form={createForm} onFinish={handleCreate} layout="vertical" initialValues={{ role: "member" }}>
           <Form.Item name="name" label="이름" rules={[{ required: true, message: "이름을 입력하세요" }]}>
             <Input placeholder="이름" />
           </Form.Item>
@@ -183,8 +170,8 @@ export default function Users() {
           >
             <Input.Password placeholder="비밀번호" />
           </Form.Item>
-          <Form.Item name="department" label="부서">
-            <Input placeholder="부서명" />
+          <Form.Item name="department" label="부서" rules={[{ required: true, message: "부서를 선택하세요" }]}>
+            <Select options={DEPARTMENT_OPTIONS} placeholder="부서 선택" />
           </Form.Item>
           <Form.Item name="role" label="역할" rules={[{ required: true, message: "역할을 선택하세요" }]}>
             <Select options={ROLE_OPTIONS} placeholder="역할 선택" />
@@ -199,13 +186,14 @@ export default function Users() {
         onOk={() => editForm.submit()}
         okText="저장"
         cancelText="취소"
+        destroyOnClose
       >
         <Form form={editForm} onFinish={handleEdit} layout="vertical">
           <Form.Item name="name" label="이름" rules={[{ required: true, message: "이름을 입력하세요" }]}>
             <Input placeholder="이름" />
           </Form.Item>
-          <Form.Item name="department" label="부서">
-            <Input placeholder="부서명" />
+          <Form.Item name="department" label="부서" rules={[{ required: true, message: "부서를 선택하세요" }]}>
+            <Select options={DEPARTMENT_OPTIONS} placeholder="부서 선택" />
           </Form.Item>
           <Form.Item name="role" label="역할" rules={[{ required: true, message: "역할을 선택하세요" }]}>
             <Select options={ROLE_OPTIONS} placeholder="역할 선택" />
