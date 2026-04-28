@@ -1,13 +1,13 @@
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import require_admin
 from app.models.user import User
-from app.schemas.user import UserCreate, UserRead, UserUpdate
+from app.schemas.user import DepartmentStat, UserCreate, UserRead, UserUpdate
 from app.services.auth import hash_password
 
 router = APIRouter(
@@ -21,6 +21,16 @@ router = APIRouter(
 async def list_users(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).order_by(User.created_at.desc()))
     return result.scalars().all()
+
+
+@router.get("/stats", response_model=list[DepartmentStat])
+async def department_stats(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(User.department, func.count().label("count"))
+        .where(User.is_active.is_(True))
+        .group_by(User.department)
+    )
+    return [DepartmentStat(department=row.department, count=row.count) for row in result.all()]
 
 
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)

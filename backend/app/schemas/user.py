@@ -35,3 +35,8 @@ class UserUpdate(BaseModel):
     department: Department | None = None
     role: UserRole | None = None
     is_active: bool | None = None
+
+
+class DepartmentStat(BaseModel):
+    department: Department
+    count: int
