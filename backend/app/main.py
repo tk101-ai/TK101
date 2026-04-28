@@ -30,6 +30,7 @@ app.include_router(uploads.router)
 app.include_router(matching.router)
 app.include_router(tax_invoices.router)
 app.include_router(sns.router)
+app.include_router(sns.internal_router)
 
 
 @app.get("/health")

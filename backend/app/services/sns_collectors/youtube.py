@@ -6,16 +6,70 @@ Collects channel statistics (subscriber count) and recent uploads
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timezone
+from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 import httpx
 
 from app.config import settings
 from app.services.sns_collectors.base import BaseCollector, CollectedPost
 
+if TYPE_CHECKING:
+    from app.models.sns import SocialAccount
+
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
 HTTP_TIMEOUT_SECONDS = 15.0
 MAX_PLAYLIST_ITEMS = 50
+
+# YouTube channel IDs always start with "UC" and are 24 chars total.
+_CHANNEL_ID_PATTERN = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
+
+
+def extract_youtube_handle(*candidates: str | None) -> str | None:
+    """Pull a @handle out of any of the provided strings.
+
+    Accepts raw handle ("SeoulCityOfficial"), @handle, or full URL like
+    ``https://www.youtube.com/@SeoulCityOfficial``. Returns the handle
+    without the leading @, or None if no candidate looked like a handle.
+    """
+    for raw in candidates:
+        if not raw:
+            continue
+        text = raw.strip()
+        if not text:
+            continue
+        if text.startswith("@"):
+            return text[1:]
+        if "youtube.com" in text or "youtu.be" in text:
+            try:
+                path = urlparse(text).path or ""
+            except ValueError:
+                continue
+            for segment in path.split("/"):
+                if segment.startswith("@"):
+                    return segment[1:]
+            # /channel/UC... case is handled by extract_youtube_channel_id
+            continue
+        if not text.startswith("http"):
+            return text.lstrip("@")
+    return None
+
+
+def extract_youtube_channel_id(*candidates: str | None) -> str | None:
+    """Pick a UC... channel ID out of any of the provided strings."""
+    for raw in candidates:
+        if not raw:
+            continue
+        text = raw.strip()
+        if _CHANNEL_ID_PATTERN.match(text):
+            return text
+        if "youtube.com" in text:
+            for segment in (urlparse(text).path or "").split("/"):
+                if _CHANNEL_ID_PATTERN.match(segment):
+                    return segment
+    return None
 
 
 class YouTubeCollector(BaseCollector):
@@ -30,6 +84,55 @@ class YouTubeCollector(BaseCollector):
             )
         self.channel_id = channel_id
         self._api_key = resolved_key
+
+    @classmethod
+    async def from_account(cls, account: "SocialAccount") -> "YouTubeCollector":
+        """Build a collector from a SocialAccount row.
+
+        Resolution order:
+          1. account.external_id if it already looks like a channel ID.
+          2. UC... channel ID embedded in handle / page_url.
+          3. @handle from handle / page_url, resolved via channels?forHandle.
+
+        Raises ValueError when no usable identifier is found.
+        """
+        channel_id = extract_youtube_channel_id(
+            account.external_id, account.handle, account.page_url
+        )
+        if channel_id is None:
+            handle = extract_youtube_handle(account.handle, account.page_url)
+            if handle is None:
+                raise ValueError(
+                    "YouTube 채널 ID 또는 @핸들이 필요합니다. 계정의 외부 ID, 핸들, 또는 페이지 URL에 입력해 주세요."
+                )
+            resolved = await cls.resolve_handle(handle)
+            if resolved is None:
+                raise ValueError(f"YouTube 핸들 '@{handle}' 에 해당하는 채널을 찾지 못했습니다.")
+            channel_id = resolved
+        return cls(channel_id=channel_id)
+
+    @classmethod
+    async def resolve_handle(cls, handle: str, api_key: str | None = None) -> str | None:
+        """Resolve a YouTube @handle to its UC... channel ID."""
+        normalized = handle.lstrip("@").strip()
+        if not normalized:
+            return None
+        resolved_key = api_key or settings.google_youtube_api_key
+        if not resolved_key:
+            raise RuntimeError("YouTube API key is not configured.")
+        params = {
+            "part": "id",
+            "forHandle": f"@{normalized}",
+            "key": resolved_key,
+        }
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+            response = await client.get(f"{YOUTUBE_API_BASE}/channels", params=params)
+            response.raise_for_status()
+            data = response.json()
+        items = data.get("items") or []
+        if not items:
+            return None
+        return items[0].get("id")
 
     async def fetch_followers(self) -> int:
         """Return the channel's subscriber count.

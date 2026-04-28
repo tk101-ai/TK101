@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Form, Input, message, Modal, Select, Switch, Table, Tag } from "antd";
-import { EditOutlined, PlusOutlined } from "@ant-design/icons";
+import { Button, Form, Input, message, Modal, Select, Space, Switch, Table, Tag } from "antd";
+import { EditOutlined, PlusOutlined, SyncOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import {
@@ -10,12 +10,15 @@ import {
   LANGUAGE_OPTIONS,
   listAccounts,
   PLATFORM_OPTIONS,
+  triggerCollect,
   updateAccount,
   type Language,
   type Platform,
   type SnsAccount,
 } from "../../api/sns";
 import { useAuth } from "../../hooks/useAuth";
+
+const COLLECTABLE_PLATFORMS: ReadonlySet<Platform> = new Set<Platform>(["youtube"]);
 
 interface AccountFormValues {
   platform: Platform;
@@ -37,6 +40,7 @@ export default function SnsAccounts() {
   const [editing, setEditing] = useState<SnsAccount | null>(null);
   const [createForm] = Form.useForm<AccountFormValues>();
   const [editForm] = Form.useForm<AccountFormValues>();
+  const [collectingId, setCollectingId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -91,6 +95,28 @@ export default function SnsAccounts() {
       fetchData();
     } catch {
       message.error("수정 실패");
+    }
+  };
+
+  const handleCollect = async (record: SnsAccount) => {
+    setCollectingId(record.id);
+    try {
+      const res = await triggerCollect(record.id);
+      const { posts_added, posts_updated, snapshots_added, snapshots_updated } = res.data;
+      message.success(
+        `수집 완료 — 게시물 ${posts_added}건 추가/${posts_updated}건 갱신, 팔로워 스냅샷 ${
+          snapshots_added + snapshots_updated
+        }건`,
+      );
+      fetchData();
+    } catch (err) {
+      const detail =
+        err && typeof err === "object" && "response" in err
+          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+          : null;
+      message.error(detail ? `수집 실패: ${detail}` : "수집 실패");
+    } finally {
+      setCollectingId(null);
     }
   };
 
@@ -156,9 +182,26 @@ export default function SnsAccounts() {
       ? [
           {
             title: "",
-            width: 60,
+            width: 160,
             render: (_: unknown, record: SnsAccount) => (
-              <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)} />
+              <Space size="small">
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<SyncOutlined spin={collectingId === record.id} />}
+                  loading={collectingId === record.id}
+                  disabled={!COLLECTABLE_PLATFORMS.has(record.platform) || !record.is_active}
+                  onClick={() => handleCollect(record)}
+                  title={
+                    !COLLECTABLE_PLATFORMS.has(record.platform)
+                      ? "이 플랫폼은 자동 수집을 아직 지원하지 않습니다"
+                      : "지금 수집"
+                  }
+                >
+                  수집
+                </Button>
+                <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)} />
+              </Space>
             ),
           },
         ]

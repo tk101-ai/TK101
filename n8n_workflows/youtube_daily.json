@@ -1,5 +1,5 @@
 {
-  "name": "YouTube Daily Collection",
+  "name": "SNS Weekly Collection (Mon 05:00 KST)",
   "nodes": [
     {
       "parameters": {
@@ -7,45 +7,27 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 18 * * *"
+              "expression": "0 20 * * 0"
             }
           ]
         }
       },
       "id": "1f3b6f8a-1111-4d2a-9c91-aa0001000001",
-      "name": "Schedule (03:00 KST daily)",
+      "name": "Schedule (Mon 05:00 KST = Sun 20:00 UTC)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
       "position": [240, 320]
     },
     {
       "parameters": {
-        "values": {
-          "string": [
-            {
-              "name": "account_id",
-              "value": "<YOUR_ACCOUNT_ID>"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "1f3b6f8a-2222-4d2a-9c91-aa0001000002",
-      "name": "Set account_id",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.2,
-      "position": [480, 320]
-    },
-    {
-      "parameters": {
         "method": "POST",
-        "url": "=http://backend:8000/api/sns/collect/{{$json.account_id}}",
+        "url": "http://backend:8000/api/internal/sns/collect-all",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "=Bearer {{$env.TK101_INTERNAL_TOKEN}}"
+              "name": "X-Internal-Token",
+              "value": "={{$env.TK101_INTERNAL_TOKEN}}"
             },
             {
               "name": "Content-Type",
@@ -54,33 +36,22 @@
           ]
         },
         "options": {
-          "timeout": 60000
+          "timeout": 120000
         }
       },
       "id": "1f3b6f8a-3333-4d2a-9c91-aa0001000003",
-      "name": "Trigger backend collection",
+      "name": "Trigger collect-all",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [720, 320]
+      "position": [480, 320]
     }
   ],
   "connections": {
-    "Schedule (03:00 KST daily)": {
+    "Schedule (Mon 05:00 KST = Sun 20:00 UTC)": {
       "main": [
         [
           {
-            "node": "Set account_id",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Set account_id": {
-      "main": [
-        [
-          {
-            "node": "Trigger backend collection",
+            "node": "Trigger collect-all",
             "type": "main",
             "index": 0
           }
@@ -90,7 +61,8 @@
   },
   "active": false,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "timezone": "Asia/Seoul"
   },
-  "tags": ["sns", "youtube"]
+  "tags": ["sns", "weekly"]
 }

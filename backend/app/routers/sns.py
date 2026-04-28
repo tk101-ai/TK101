@@ -7,7 +7,7 @@ from sqlalchemy import Integer, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_admin, require_module
+from app.dependencies import require_admin, require_internal_token, require_module
 from app.models.sns import SocialAccount, SocialPost, SocialWeeklySnapshot
 from app.schemas.sns import (
     AccountCreate,
@@ -480,17 +480,12 @@ def _current_iso_week_parts(today: date | None = None) -> tuple[int, int, int]:
     return today.year, today.month, week_of_month
 
 
-@router.post(
-    "/collect/{account_id}",
-    response_model=IngestResponse,
-    dependencies=[Depends(require_admin)],
-)
-async def collect(account_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
-    account = result.scalar_one_or_none()
-    if account is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="계정을 찾을 수 없습니다")
+async def _collect_for_account(db: AsyncSession, account: SocialAccount) -> IngestResponse:
+    """Run the appropriate collector for an account and persist results.
 
+    Currently supports youtube only. The resolved channel_id is written back to
+    account.external_id so subsequent calls skip handle resolution.
+    """
     if account.platform != "youtube":
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -502,7 +497,16 @@ async def collect(account_id: str, db: AsyncSession = Depends(get_db)):
     except ImportError as exc:
         raise HTTPException(status_code=500, detail=f"수집기 로딩 실패: {exc}")
 
-    collector = YouTubeCollector(account)
+    try:
+        collector = await YouTubeCollector.from_account(account)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    # Persist the resolved channel_id so we don't pay the resolution call next time.
+    if account.external_id != collector.channel_id:
+        account.external_id = collector.channel_id
 
     try:
         collected_posts = await collector.fetch_posts()
@@ -542,6 +546,75 @@ async def collect(account_id: str, db: AsyncSession = Depends(get_db)):
     except Exception as exc:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"수집 데이터 저장 실패: {exc}")
+
+    return IngestResponse(
+        posts_added=posts_added,
+        posts_updated=posts_updated,
+        snapshots_added=snapshots_added,
+        snapshots_updated=snapshots_updated,
+    )
+
+
+@router.post(
+    "/collect/{account_id}",
+    response_model=IngestResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def collect(account_id: str, db: AsyncSession = Depends(get_db)):
+    """관리자가 단일 계정을 수동 트리거. SnsAccounts 페이지의 '지금 수집' 버튼이 사용."""
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
+    account = result.scalar_one_or_none()
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="계정을 찾을 수 없습니다")
+    return await _collect_for_account(db, account)
+
+
+# ---------------- 내부(시스템) 라우터 ----------------
+
+internal_router = APIRouter(
+    prefix="/api/internal/sns",
+    tags=["sns-internal"],
+    dependencies=[Depends(require_internal_token)],
+)
+
+
+@internal_router.post("/collect-all", response_model=IngestResponse)
+async def collect_all_internal(db: AsyncSession = Depends(get_db)):
+    """n8n 등 내부 시스템에서 호출. 자동 수집 가능한 모든 활성 계정 일괄 처리.
+
+    현재는 platform=youtube 계정만 자동 수집 대상. 다른 플랫폼은 조용히 스킵.
+    Collector 추가 시 SUPPORTED_PLATFORMS 확장.
+    """
+    SUPPORTED_PLATFORMS = ("youtube",)
+
+    accounts_q = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.is_active.is_(True),
+            SocialAccount.platform.in_(SUPPORTED_PLATFORMS),
+        )
+    )
+    accounts = accounts_q.scalars().all()
+
+    posts_added = 0
+    posts_updated = 0
+    snapshots_added = 0
+    snapshots_updated = 0
+    failures: list[str] = []
+
+    for account in accounts:
+        try:
+            result = await _collect_for_account(db, account)
+            posts_added += result.posts_added
+            posts_updated += result.posts_updated
+            snapshots_added += result.snapshots_added
+            snapshots_updated += result.snapshots_updated
+        except HTTPException as exc:
+            failures.append(f"{account.platform}/{account.language}: {exc.detail}")
+            await db.rollback()
+
+    if failures and (posts_added + posts_updated + snapshots_added + snapshots_updated) == 0:
+        # All accounts failed — surface the first error.
+        raise HTTPException(status_code=502, detail="; ".join(failures))
 
     return IngestResponse(
         posts_added=posts_added,

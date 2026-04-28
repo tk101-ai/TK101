@@ -1,9 +1,12 @@
-from fastapi import Depends, HTTPException, status
+import secrets
+
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.models.user import User
 from app.modules.constants import UserRole
@@ -54,3 +57,22 @@ def require_module(module: str):
 
     checker.__name__ = f"require_module_{module}"
     return checker
+
+
+async def require_internal_token(x_internal_token: str | None = Header(None, alias="X-Internal-Token")) -> None:
+    """System-to-system authentication for n8n / cron callers.
+
+    Compares X-Internal-Token header against settings.internal_api_token using
+    constant-time comparison to avoid timing leaks.
+    """
+    expected = settings.internal_api_token
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="내부 API 토큰이 설정되지 않았습니다",
+        )
+    if not x_internal_token or not secrets.compare_digest(x_internal_token, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="내부 인증 실패",
+        )
