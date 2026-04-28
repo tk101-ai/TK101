@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Form, Input, message, Modal, Select, Space, Switch, Table, Tag } from "antd";
-import { EditOutlined, PlusOutlined, SyncOutlined } from "@ant-design/icons";
+import { Button, Dropdown, Form, Input, message, Modal, Select, Space, Switch, Table, Tag } from "antd";
+import {
+  CloudDownloadOutlined,
+  DeleteOutlined,
+  DownOutlined,
+  EditOutlined,
+  PlusOutlined,
+  SyncOutlined,
+} from "@ant-design/icons";
+import type { MenuProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import {
@@ -10,6 +18,7 @@ import {
   LANGUAGE_OPTIONS,
   listAccounts,
   PLATFORM_OPTIONS,
+  resetAccountPosts,
   triggerCollect,
   updateAccount,
   type Language,
@@ -19,6 +28,13 @@ import {
 import { useAuth } from "../../hooks/useAuth";
 
 const COLLECTABLE_PLATFORMS: ReadonlySet<Platform> = new Set<Platform>(["youtube"]);
+
+function extractDetail(err: unknown): string | null {
+  if (err && typeof err === "object" && "response" in err) {
+    return (err as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? null;
+  }
+  return null;
+}
 
 interface AccountFormValues {
   platform: Platform;
@@ -98,26 +114,82 @@ export default function SnsAccounts() {
     }
   };
 
-  const handleCollect = async (record: SnsAccount) => {
+  const handleCollect = async (record: SnsAccount, full = false) => {
     setCollectingId(record.id);
     try {
-      const res = await triggerCollect(record.id);
+      const res = await triggerCollect(record.id, { full });
       const { posts_added, posts_updated, snapshots_added, snapshots_updated } = res.data;
+      const label = full ? "전체 동기화" : "수집";
       message.success(
-        `수집 완료 — 게시물 ${posts_added}건 추가/${posts_updated}건 갱신, 팔로워 스냅샷 ${
+        `${label} 완료 — 게시물 ${posts_added}건 추가/${posts_updated}건 갱신, 팔로워 스냅샷 ${
           snapshots_added + snapshots_updated
         }건`,
       );
       fetchData();
     } catch (err) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : null;
+      const detail = extractDetail(err);
       message.error(detail ? `수집 실패: ${detail}` : "수집 실패");
     } finally {
       setCollectingId(null);
     }
+  };
+
+  const handleResetPosts = (record: SnsAccount) => {
+    Modal.confirm({
+      title: "콘텐츠 데이터 초기화",
+      content: (
+        <div>
+          <p>
+            <strong>
+              {getPlatformLabel(record.platform)} ({getLanguageLabel(record.language)})
+            </strong>{" "}
+            계정의 모든 콘텐츠를 삭제합니다.
+          </p>
+          <p style={{ color: "rgba(0,0,0,0.45)", margin: 0 }}>
+            주간 팔로워 스냅샷은 보존됩니다. 삭제 후 "전체 동기화"로 다시 채울 수 있습니다.
+          </p>
+        </div>
+      ),
+      okText: "초기화",
+      okButtonProps: { danger: true },
+      cancelText: "취소",
+      onOk: async () => {
+        setCollectingId(record.id);
+        try {
+          const res = await resetAccountPosts(record.id);
+          message.success(`초기화 완료 — ${res.data.deleted}건 삭제됨`);
+          fetchData();
+        } catch (err) {
+          const detail = extractDetail(err);
+          message.error(detail ? `초기화 실패: ${detail}` : "초기화 실패");
+        } finally {
+          setCollectingId(null);
+        }
+      },
+    });
+  };
+
+  const buildActionMenu = (record: SnsAccount): MenuProps => {
+    const collectable = COLLECTABLE_PLATFORMS.has(record.platform) && record.is_active;
+    return {
+      items: [
+        {
+          key: "full-sync",
+          label: "전체 동기화 (페이지네이션, 느림)",
+          icon: <CloudDownloadOutlined />,
+          disabled: !collectable,
+          onClick: () => handleCollect(record, true),
+        },
+        { type: "divider" },
+        {
+          key: "reset-posts",
+          label: "콘텐츠 데이터 초기화",
+          icon: <DeleteOutlined />,
+          danger: true,
+          onClick: () => handleResetPosts(record),
+        },
+      ],
+    };
   };
 
   const openEdit = (record: SnsAccount) => {
@@ -182,27 +254,33 @@ export default function SnsAccounts() {
       ? [
           {
             title: "",
-            width: 160,
-            render: (_: unknown, record: SnsAccount) => (
-              <Space size="small">
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<SyncOutlined spin={collectingId === record.id} />}
-                  loading={collectingId === record.id}
-                  disabled={!COLLECTABLE_PLATFORMS.has(record.platform) || !record.is_active}
-                  onClick={() => handleCollect(record)}
-                  title={
-                    !COLLECTABLE_PLATFORMS.has(record.platform)
-                      ? "이 플랫폼은 자동 수집을 아직 지원하지 않습니다"
-                      : "지금 수집"
-                  }
-                >
-                  수집
-                </Button>
-                <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)} />
-              </Space>
-            ),
+            width: 220,
+            render: (_: unknown, record: SnsAccount) => {
+              const collectable = COLLECTABLE_PLATFORMS.has(record.platform) && record.is_active;
+              return (
+                <Space size="small">
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<SyncOutlined spin={collectingId === record.id} />}
+                    loading={collectingId === record.id}
+                    disabled={!collectable}
+                    onClick={() => handleCollect(record, false)}
+                    title={
+                      !COLLECTABLE_PLATFORMS.has(record.platform)
+                        ? "이 플랫폼은 자동 수집을 아직 지원하지 않습니다"
+                        : "최근 50개 수집"
+                    }
+                  >
+                    수집
+                  </Button>
+                  <Dropdown menu={buildActionMenu(record)} placement="bottomRight" trigger={["click"]}>
+                    <Button size="small" icon={<DownOutlined />} disabled={collectingId === record.id} />
+                  </Dropdown>
+                  <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)} />
+                </Space>
+              );
+            },
           },
         ]
       : []),

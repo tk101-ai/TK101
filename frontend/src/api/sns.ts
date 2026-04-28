@@ -156,8 +156,11 @@ export const importMarketing1Excel = (file: File) => {
   });
 };
 
-export const triggerCollect = (accountId: string) =>
-  api.post<SnsIngestResponse>(`/api/sns/collect/${accountId}`);
+export const triggerCollect = (accountId: string, options: { full?: boolean } = {}) =>
+  api.post<SnsIngestResponse>(`/api/sns/collect/${accountId}`, null, { params: options });
+
+export const resetAccountPosts = (accountId: string) =>
+  api.delete<{ deleted: number }>(`/api/sns/accounts/${accountId}/posts`);
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
   facebook: "페이스북",

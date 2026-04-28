@@ -162,23 +162,32 @@ class YouTubeCollector(BaseCollector):
         self,
         since: date | None = None,
         until: date | None = None,
+        full: bool = False,
     ) -> list[CollectedPost]:
-        """Fetch recent uploads for the channel.
+        """Fetch uploads for the channel.
 
         Workflow:
           1. Resolve the channel's uploads playlist via channels?part=contentDetails.
-          2. Fetch up to MAX_PLAYLIST_ITEMS recent items from that playlist.
-          3. Batch-fetch full statistics + snippet for those video IDs.
+          2. Fetch playlist items. full=False reads only the first page (50 items),
+             full=True paginates with nextPageToken until exhausted.
+          3. Batch-fetch full statistics + snippet for those video IDs in
+             groups of MAX_PLAYLIST_ITEMS (videos.list cap).
           4. Filter by [since, until] (inclusive) using publishedAt date.
         """
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
             uploads_playlist_id = await self._resolve_uploads_playlist(client)
             if uploads_playlist_id is None:
                 return []
-            video_ids = await self._fetch_recent_video_ids(client, uploads_playlist_id)
+            max_pages = None if full else 1
+            video_ids = await self._fetch_video_ids(
+                client, uploads_playlist_id, max_pages=max_pages
+            )
             if not video_ids:
                 return []
-            videos = await self._fetch_video_details(client, video_ids)
+            videos: list[dict] = []
+            for chunk_start in range(0, len(video_ids), MAX_PLAYLIST_ITEMS):
+                chunk = video_ids[chunk_start : chunk_start + MAX_PLAYLIST_ITEMS]
+                videos.extend(await self._fetch_video_details(client, chunk))
 
         posts: list[CollectedPost] = []
         for video in videos:
@@ -208,6 +217,48 @@ class YouTubeCollector(BaseCollector):
         related = content_details.get("relatedPlaylists") or {}
         return related.get("uploads")
 
+    async def _fetch_video_ids(
+        self,
+        client: httpx.AsyncClient,
+        playlist_id: str,
+        max_pages: int | None = 1,
+    ) -> list[str]:
+        """Walk the uploads playlist with pagination.
+
+        max_pages=None pages until nextPageToken is exhausted.
+        max_pages=1 reads only the first 50 (legacy quick-collect behavior).
+        """
+        video_ids: list[str] = []
+        page_token: str | None = None
+        pages_fetched = 0
+        while True:
+            params: dict = {
+                "part": "contentDetails",
+                "playlistId": playlist_id,
+                "maxResults": MAX_PLAYLIST_ITEMS,
+                "key": self._api_key,
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            response = await client.get(
+                f"{YOUTUBE_API_BASE}/playlistItems", params=params
+            )
+            response.raise_for_status()
+            data = response.json()
+            for item in data.get("items") or []:
+                content_details = item.get("contentDetails") or {}
+                video_id = content_details.get("videoId")
+                if video_id:
+                    video_ids.append(video_id)
+            pages_fetched += 1
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+            if max_pages is not None and pages_fetched >= max_pages:
+                break
+        return video_ids
+
+    # Backwards-compatible alias kept in case any caller still imports the old name.
     async def _fetch_recent_video_ids(
         self,
         client: httpx.AsyncClient,

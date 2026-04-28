@@ -3,7 +3,7 @@ import os
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from sqlalchemy import Integer, and_, func, select
+from sqlalchemy import Integer, and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -480,11 +480,19 @@ def _current_iso_week_parts(today: date | None = None) -> tuple[int, int, int]:
     return today.year, today.month, week_of_month
 
 
-async def _collect_for_account(db: AsyncSession, account: SocialAccount) -> IngestResponse:
+async def _collect_for_account(
+    db: AsyncSession,
+    account: SocialAccount,
+    full: bool = False,
+) -> IngestResponse:
     """Run the appropriate collector for an account and persist results.
 
     Currently supports youtube only. The resolved channel_id is written back to
     account.external_id so subsequent calls skip handle resolution.
+
+    full=True paginates through every uploaded video (use for first sync /
+    backfill). full=False (default) reads only the most recent 50 — the
+    cheap path used by the weekly cron.
     """
     if account.platform != "youtube":
         raise HTTPException(
@@ -509,7 +517,7 @@ async def _collect_for_account(db: AsyncSession, account: SocialAccount) -> Inge
         account.external_id = collector.channel_id
 
     try:
-        collected_posts = await collector.fetch_posts()
+        collected_posts = await collector.fetch_posts(full=full)
         followers = await collector.fetch_followers()
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"외부 API 호출 실패: {exc}")
@@ -560,13 +568,39 @@ async def _collect_for_account(db: AsyncSession, account: SocialAccount) -> Inge
     response_model=IngestResponse,
     dependencies=[Depends(require_admin)],
 )
-async def collect(account_id: str, db: AsyncSession = Depends(get_db)):
-    """관리자가 단일 계정을 수동 트리거. SnsAccounts 페이지의 '지금 수집' 버튼이 사용."""
+async def collect(
+    account_id: str,
+    full: bool = Query(False, description="True면 전체 페이지네이션, False면 최근 50개만"),
+    db: AsyncSession = Depends(get_db),
+):
+    """관리자가 단일 계정을 수동 트리거. SnsAccounts 페이지의 '지금 수집'/'전체 동기화' 버튼이 사용."""
     result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
     account = result.scalar_one_or_none()
     if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="계정을 찾을 수 없습니다")
-    return await _collect_for_account(db, account)
+    return await _collect_for_account(db, account, full=full)
+
+
+@router.delete(
+    "/accounts/{account_id}/posts",
+    dependencies=[Depends(require_admin)],
+    status_code=status.HTTP_200_OK,
+)
+async def reset_account_posts(account_id: str, db: AsyncSession = Depends(get_db)):
+    """해당 계정의 모든 콘텐츠를 삭제. 주간 팔로워 스냅샷은 보존.
+
+    엑셀 import 데이터를 비우고 자동 수집 결과로 다시 채우려는 케이스 등에 사용.
+    """
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
+    account = result.scalar_one_or_none()
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="계정을 찾을 수 없습니다")
+    delete_result = await db.execute(
+        delete(SocialPost).where(SocialPost.account_id == account_id)
+    )
+    deleted = delete_result.rowcount or 0
+    await db.commit()
+    return {"deleted": deleted}
 
 
 # ---------------- 내부(시스템) 라우터 ----------------
