@@ -14,6 +14,7 @@ import SnsAccounts from "./pages/marketing/SnsAccounts";
 import SnsPosts from "./pages/marketing/SnsPosts";
 import SnsWeeklySnapshots from "./pages/marketing/SnsWeeklySnapshots";
 import SnsExcelImport from "./pages/marketing/SnsExcelImport";
+import NasSearch from "./pages/nas/Search";
 
 function App() {
   const { user, loading, logout, checkAuth } = useAuth();
@@ -95,6 +96,14 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="marketing_sns">
                     <SnsExcelImport />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/nas/search"
+                element={
+                  <ProtectedRoute user={user} module="nas_search">
+                    <NasSearch />
                   </ProtectedRoute>
                 }
               />

@@ -4,7 +4,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import accounts, auth, matching, sns, tax_invoices, transactions, uploads, users
+from app.routers import (
+    accounts,
+    auth,
+    matching,
+    nas_search,
+    sns,
+    tax_invoices,
+    transactions,
+    uploads,
+    users,
+)
 
 
 @asynccontextmanager
@@ -31,6 +41,7 @@ app.include_router(matching.router)
 app.include_router(tax_invoices.router)
 app.include_router(sns.router)
 app.include_router(sns.internal_router)
+app.include_router(nas_search.router)
 
 
 @app.get("/health")

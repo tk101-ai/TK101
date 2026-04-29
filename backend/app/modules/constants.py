@@ -32,3 +32,4 @@ class Module(str, Enum):
     FINANCE = "finance"
     USERS = "users"
     MARKETING_SNS = "marketing_sns"
+    NAS_SEARCH = "nas_search"

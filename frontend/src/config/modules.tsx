@@ -4,6 +4,7 @@ import {
   DashboardOutlined,
   FileTextOutlined,
   RiseOutlined,
+  SearchOutlined,
   ShareAltOutlined,
   SwapOutlined,
   TeamOutlined,
@@ -55,6 +56,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "sns-snapshots", path: "/sns/snapshots", label: "주간 팔로워", icon: <RiseOutlined />, module: "marketing_sns" },
   { key: "sns-accounts", path: "/sns/accounts", label: "SNS 계정", icon: <ShareAltOutlined />, module: "marketing_sns" },
   { key: "sns-import", path: "/sns/import", label: "엑셀 가져오기", icon: <CloudUploadOutlined />, module: "marketing_sns" },
+  { key: "nas-search", path: "/nas/search", label: "자료 검색", icon: <SearchOutlined />, module: "nas_search" },
   { key: "users", path: "/users", label: "사용자 관리", icon: <TeamOutlined />, module: "users" },
 ];
 

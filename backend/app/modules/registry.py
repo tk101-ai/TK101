@@ -6,14 +6,23 @@ ALL_MODULES: list[str] = [m.value for m in Module]
 
 # Department -> accessible modules. Used for non-admin role users.
 # Future: replace with permission table; this remains the default fallback.
+# NAS_SEARCH 모듈은 전 직원에게 부여(전사 자료 검색용 PoC).
 DEPARTMENT_MODULES: dict[str, list[str]] = {
-    Department.ADMIN.value: [Module.DASHBOARD.value],
-    Department.FINANCE.value: [Module.DASHBOARD.value, Module.FINANCE.value],
-    Department.MARKETING_1.value: [Module.DASHBOARD.value, Module.MARKETING_SNS.value],
-    Department.MARKETING_2.value: [Module.DASHBOARD.value],
-    Department.NEW_BUSINESS.value: [Module.DASHBOARD.value],
-    Department.NEW_MEDIA.value: [Module.DASHBOARD.value],
-    Department.DESIGN.value: [Module.DASHBOARD.value],
+    Department.ADMIN.value: [Module.DASHBOARD.value, Module.NAS_SEARCH.value],
+    Department.FINANCE.value: [
+        Module.DASHBOARD.value,
+        Module.FINANCE.value,
+        Module.NAS_SEARCH.value,
+    ],
+    Department.MARKETING_1.value: [
+        Module.DASHBOARD.value,
+        Module.MARKETING_SNS.value,
+        Module.NAS_SEARCH.value,
+    ],
+    Department.MARKETING_2.value: [Module.DASHBOARD.value, Module.NAS_SEARCH.value],
+    Department.NEW_BUSINESS.value: [Module.DASHBOARD.value, Module.NAS_SEARCH.value],
+    Department.NEW_MEDIA.value: [Module.DASHBOARD.value, Module.NAS_SEARCH.value],
+    Department.DESIGN.value: [Module.DASHBOARD.value, Module.NAS_SEARCH.value],
 }
 
 

@@ -5,6 +5,7 @@ from app.models.transaction import Transaction
 from app.models.tax_invoice import TaxInvoice
 from app.models.upload_log import UploadLog
 from app.models.sns import SocialAccount, SocialWeeklySnapshot, SocialPost
+from app.models.nas_file import NasFile, NasTextChunk
 
 __all__ = [
     "Base",
@@ -16,4 +17,6 @@ __all__ = [
     "SocialAccount",
     "SocialWeeklySnapshot",
     "SocialPost",
+    "NasFile",
+    "NasTextChunk",
 ]
