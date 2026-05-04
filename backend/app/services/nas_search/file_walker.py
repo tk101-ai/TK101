@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -89,22 +90,9 @@ def _stat_file(path: str) -> WalkedFile | None:
     )
 
 
-async def walk_changed_files(
-    db: AsyncSession,
-    root: str,
-    *,
-    full_rescan: bool = False,
-    max_file_mb: int = 50,
-) -> list[WalkedFile]:
-    """root 아래에서 새 파일 또는 변경된 파일만 반환.
-
-    full_rescan=True면 모든 지원 파일을 변경 대상으로 처리.
-    """
-    if not os.path.isdir(root):
-        logger.warning("NAS 마운트 경로가 디렉토리가 아님: %s", root)
-        return []
-
-    max_bytes = max_file_mb * 1024 * 1024
+def _collect_candidates(root: str, max_bytes: int) -> list[WalkedFile]:
+    """sync 헬퍼: walk + stat + hash. SSHFS 위에서는 매우 느릴 수 있어
+    이벤트 루프를 막지 않도록 caller가 asyncio.to_thread로 감싸야 한다."""
     candidates: list[WalkedFile] = []
     for path in _iter_candidate_files(root):
         wf = _stat_file(path)
@@ -118,6 +106,27 @@ async def walk_changed_files(
             )
             continue
         candidates.append(wf)
+    return candidates
+
+
+async def walk_changed_files(
+    db: AsyncSession,
+    root: str,
+    *,
+    full_rescan: bool = False,
+    max_file_mb: int = 50,
+) -> list[WalkedFile]:
+    """root 아래에서 새 파일 또는 변경된 파일만 반환.
+
+    full_rescan=True면 모든 지원 파일을 변경 대상으로 처리.
+    """
+    if not await asyncio.to_thread(os.path.isdir, root):
+        logger.warning("NAS 마운트 경로가 디렉토리가 아님: %s", root)
+        return []
+
+    max_bytes = max_file_mb * 1024 * 1024
+    # SSHFS 네트워크 I/O가 이벤트 루프를 막지 않도록 워커 스레드에서 walk 수행.
+    candidates = await asyncio.to_thread(_collect_candidates, root, max_bytes)
 
     if full_rescan:
         return candidates

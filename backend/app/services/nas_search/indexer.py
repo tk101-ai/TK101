@@ -94,7 +94,8 @@ async def _upsert_nas_file(db: AsyncSession, wf: WalkedFile) -> NasFile:
 
 async def _process_one(db: AsyncSession, wf: WalkedFile) -> None:
     """파일 1건을 트랜잭션으로 처리. 실패 시 last_error 기록 후 caller에 예외 전파."""
-    text = extract_text(wf.path)
+    # PDF/DOCX/PPTX 파싱은 sync + SSHFS 네트워크 I/O라 이벤트 루프를 막지 않게 스레드로.
+    text = await asyncio.to_thread(extract_text, wf.path)
     nas_file = await _upsert_nas_file(db, wf)
 
     if not text:
