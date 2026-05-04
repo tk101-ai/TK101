@@ -31,11 +31,20 @@ class NasIndexProgress(BaseModel):
 
 
 class NasIndexRunRequest(BaseModel):
-    """인덱싱 트리거 요청. 추후 path/depth 등 옵션 확장 여지."""
+    """인덱싱 트리거 요청. subdir로 NAS 하위 폴더만 부분 인덱싱 가능."""
 
     full_rescan: bool = Field(
         default=False,
         description="True면 file_hash 무관하게 전체 재인덱싱",
+    )
+    subdir: str | None = Field(
+        default=None,
+        description=(
+            "NAS_MOUNT_PATH 기준 상대 경로 (예: 'MARKETING/04_업무 메뉴얼'). "
+            "지정 시 그 하위만 walk. 비어있으면 전체. "
+            "검색/다운로드는 항상 root 기준이라 이전 인덱싱 자료는 그대로 검색됨."
+        ),
+        max_length=500,
     )
 
 

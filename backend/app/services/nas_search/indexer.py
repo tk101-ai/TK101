@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -145,19 +146,39 @@ async def _record_failure(path: str, message: str) -> None:
             await db.commit()
 
 
-async def _run_pipeline(*, full_rescan: bool) -> None:
+def _resolve_scan_root(root: str, subdir: str | None) -> str:
+    """root + subdir이 root 안에 있는지 검증 후 절대 경로 반환. path traversal 방어."""
+    if not subdir:
+        return root
+    candidate = os.path.realpath(os.path.join(root, subdir))
+    root_real = os.path.realpath(root)
+    try:
+        if os.path.commonpath([candidate, root_real]) != root_real:
+            raise ValueError(f"subdir이 root를 벗어남: {subdir}")
+    except ValueError as exc:
+        raise ValueError(f"subdir 경로 검증 실패: {subdir}") from exc
+    return candidate
+
+
+async def _run_pipeline(*, full_rescan: bool, subdir: str | None) -> None:
     """실제 인덱싱 본체. 락은 caller가 잡는다."""
     root = settings.nas_mount_path
+    scan_root = _resolve_scan_root(root, subdir)
     async with async_session() as db:
         targets = await walk_changed_files(
             db,
-            root,
+            scan_root,
             full_rescan=full_rescan,
             max_file_mb=settings.nas_index_max_file_mb,
         )
 
     INDEX_PROGRESS.reset(total=len(targets))
-    logger.info("NAS 인덱싱 시작 — 대상 %d개 파일 (root=%s)", len(targets), root)
+    logger.info(
+        "NAS 인덱싱 시작 — 대상 %d개 파일 (scan_root=%s, full_rescan=%s)",
+        len(targets),
+        scan_root,
+        full_rescan,
+    )
 
     for wf in targets:
         INDEX_PROGRESS.current_path = wf.path
@@ -178,16 +199,19 @@ async def _run_pipeline(*, full_rescan: bool) -> None:
             INDEX_PROGRESS.processed += 1
 
 
-async def run_indexing(*, full_rescan: bool = False) -> None:
+async def run_indexing(
+    *, full_rescan: bool = False, subdir: str | None = None
+) -> None:
     """라우터 백그라운드 태스크에서 호출하는 진입점.
 
+    subdir 지정 시 NAS_MOUNT_PATH 하위 일부만 walk (검색/다운로드는 root 기준 그대로).
     동시 1개만 실행. 이미 진행 중이면 RuntimeError.
     """
     if _index_lock.locked():
         raise RuntimeError("이미 인덱싱이 진행 중입니다")
     async with _index_lock:
         try:
-            await _run_pipeline(full_rescan=full_rescan)
+            await _run_pipeline(full_rescan=full_rescan, subdir=subdir)
         finally:
             INDEX_PROGRESS.finish()
             logger.info(

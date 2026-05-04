@@ -101,7 +101,7 @@ async def start_indexing(
 
     async def _runner() -> None:
         try:
-            await run_indexing(full_rescan=body.full_rescan)
+            await run_indexing(full_rescan=body.full_rescan, subdir=body.subdir)
         except Exception:  # noqa: BLE001
             logger.exception("NAS 인덱싱 백그라운드 태스크 실패")
 
