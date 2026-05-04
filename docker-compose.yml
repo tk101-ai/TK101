@@ -75,6 +75,12 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173}
       GOOGLE_YOUTUBE_API_KEY: ${GOOGLE_YOUTUBE_API_KEY:-}
+      NAS_MOUNT_PATH: ${NAS_MOUNT_PATH:-/mnt/nas}
+    volumes:
+      # 호스트 NAS SSHFS 마운트를 컨테이너에 read-only bind. 호스트 fstab은 ro 마운트 권장.
+      - ${NAS_MOUNT_PATH:-/mnt/nas}:/mnt/nas:ro
+      # multilingual-e5-large(~2.2GB) 캐시. 컨테이너 재시작 시 재다운로드 방지.
+      - hf_cache:/root/.cache/huggingface
     depends_on:
       postgres:
         condition: service_healthy
@@ -113,3 +119,4 @@ volumes:
   postgres_data:
   n8n_data:
   webui_data:
+  hf_cache:
