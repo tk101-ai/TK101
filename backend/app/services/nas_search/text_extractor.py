@@ -21,16 +21,20 @@ def extract_text(path: str) -> str:
     ext = Path(path).suffix.lower()
     try:
         if ext == ".pdf":
-            return _extract_pdf(path)
-        if ext == ".docx":
-            return _extract_docx(path)
-        if ext == ".pptx":
-            return _extract_pptx(path)
+            text = _extract_pdf(path)
+        elif ext == ".docx":
+            text = _extract_docx(path)
+        elif ext == ".pptx":
+            text = _extract_pptx(path)
+        else:
+            logger.debug("지원하지 않는 확장자: %s", path)
+            return ""
     except Exception as exc:  # noqa: BLE001 - 외부 라이브러리 다양한 예외 흡수
         logger.warning("텍스트 추출 실패: %s (%s)", path, exc)
         return ""
-    logger.debug("지원하지 않는 확장자: %s", path)
-    return ""
+    # PostgreSQL UTF8 컬럼은 NULL byte(\x00)를 거부 — 일부 PDF 폰트 인코딩에서
+    # "단어1\x00단어2" 형태로 섞여 들어와 INSERT 실패 → 파일 단위 인덱싱 실패.
+    return text.replace("\x00", "") if text else ""
 
 
 def _extract_pdf(path: str) -> str:

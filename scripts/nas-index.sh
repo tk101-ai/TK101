@@ -55,8 +55,14 @@ echo "응답: $BODY"
 echo
 echo "[진행률 폴링 — ${POLL_INTERVAL}초 간격]"
 START=$(date +%s)
+# 매 폴링마다 토큰 새로 발급 — JWT 60분 만료 영향 없음. 발급 비용은 미미(~50ms).
 while true; do
-  STATUS=$(curl -fsS -H "Authorization: Bearer $TOKEN" "${API}/api/nas/index/status" 2>/dev/null) || {
+  POLL_TOKEN=$(./scripts/admin-token.sh 2>/dev/null) || {
+    echo "WARN: 토큰 발급 실패. 5초 후 재시도."
+    sleep 5
+    continue
+  }
+  STATUS=$(curl -fsS -H "Authorization: Bearer $POLL_TOKEN" "${API}/api/nas/index/status" 2>/dev/null) || {
     echo "WARN: 진행률 조회 실패. 5초 후 재시도."
     sleep 5
     continue
