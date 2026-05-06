@@ -26,3 +26,7 @@ Thumbs.db
 # Logs / local
 *.log
 .bkit/
+
+# Claude Code worktrees (병렬 에이전트 격리 작업 폴더 — commit 대상 아님)
+.claude/worktrees/
+
