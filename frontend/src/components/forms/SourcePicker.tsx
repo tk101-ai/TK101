@@ -196,7 +196,7 @@ export default function SourcePicker({
               <div>
                 <Upload.Dragger
                   multiple
-                  accept=".pdf,.docx,.xlsx,.csv,.txt,.png,.jpg,.jpeg"
+                  accept=".pdf,.docx,.xlsx,.csv,.txt,.pptx"
                   fileList={fileList}
                   beforeUpload={() => false}
                   onChange={({ fileList: fl }) => setFileList(fl)}
@@ -209,7 +209,7 @@ export default function SourcePicker({
                   </p>
                   <p className="ant-upload-text">자료 파일을 끌어다 놓거나 클릭해 선택</p>
                   <p className="ant-upload-hint" style={{ fontSize: 12 }}>
-                    PDF / DOCX / XLSX / CSV / TXT / 이미지 (30일 자동 삭제)
+                    PDF / DOCX / PPTX / XLSX / CSV / TXT (30일 자동 삭제 · 이미지는 Phase 1+)
                   </p>
                 </Upload.Dragger>
                 <div style={{ marginTop: 8, color: "#8c8c8c", fontSize: 12 }}>
