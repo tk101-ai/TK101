@@ -28,12 +28,12 @@ export default function FormUploadPage() {
       const res = await analyzeFormTemplate(file);
       if (res.cache_hit) {
         message.success(
-          `캐시 히트 — 기존 양식 v${res.template.version} 재사용 (분석 토큰 0)`,
+          `캐시 히트 — 기존 양식 v${res.version} 재사용 (분석 토큰 0)`,
         );
       } else {
-        message.success(`변수 ${res.template.variables.length}개 자동 감지 완료`);
+        message.success(`변수 ${res.variables.length}개 자동 감지 완료`);
       }
-      navigate(`/forms/templates/${res.template.id}/review`);
+      navigate(`/forms/templates/${res.template_id}/review`);
     } catch (err) {
       const msg =
         (err as { response?: { data?: { detail?: string } } }).response?.data?.detail ??

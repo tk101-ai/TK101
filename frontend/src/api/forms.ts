@@ -46,18 +46,25 @@ export interface FormTemplate {
 }
 
 export interface FormTemplateAnalyzeResponse {
-  template: FormTemplate;
+  template_id: string;
+  file_hash: string;
+  name: string;
+  version: number;
+  variables: FormVariable[];
   cache_hit: boolean;
+  cost_usd?: number;
 }
 
 export interface FormTemplateListItem {
   id: string;
   name: string;
   version: number;
-  file_format: FormFileFormat;
+  file_hash?: string;
+  file_format?: FormFileFormat;
   department_tags: string[];
   usage_count: number;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export type FormJobStatus =
@@ -226,7 +233,15 @@ export async function analyzeFormTemplate(
         : "docx";
     const tpl = buildMockTemplate(file.name.replace(/\.[^.]+$/, ""), fmt);
     mockStore.templates.set(tpl.id, tpl);
-    return { template: tpl, cache_hit: false };
+    return {
+      template_id: tpl.id,
+      file_hash: tpl.file_hash,
+      name: tpl.name,
+      version: tpl.version,
+      variables: tpl.variables,
+      cache_hit: false,
+      cost_usd: 0,
+    };
   }
   const fd = new FormData();
   fd.append("file", file);

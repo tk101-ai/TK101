@@ -43,7 +43,7 @@ export default function FormLibraryPage() {
         <Space>
           <a onClick={() => navigate(`/forms/templates/${row.id}/review`)}>{v}</a>
           <Tag>v{row.version}</Tag>
-          <Tag color="blue">{row.file_format.toUpperCase()}</Tag>
+          <Tag color="blue">{(row.file_format ?? "docx").toUpperCase()}</Tag>
         </Space>
       ),
     },
@@ -67,7 +67,10 @@ export default function FormLibraryPage() {
       title: "수정일",
       dataIndex: "updated_at",
       width: 180,
-      render: (v: string) => new Date(v).toLocaleString("ko-KR"),
+      render: (v: string | undefined, row) => {
+        const dt = v ?? row.created_at;
+        return dt ? new Date(dt).toLocaleString("ko-KR") : "-";
+      },
     },
   ];
 
