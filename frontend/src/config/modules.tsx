@@ -2,6 +2,7 @@ import {
   BankOutlined,
   CloudUploadOutlined,
   DashboardOutlined,
+  EditOutlined,
   FileTextOutlined,
   RiseOutlined,
   SearchOutlined,
@@ -69,6 +70,8 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { key: "dashboard", path: "/", label: "대시보드", icon: <DashboardOutlined />, module: "dashboard", category: "common" },
   { key: "nas-search", path: "/nas/search", label: "자료 검색", icon: <SearchOutlined />, module: "nas_search", category: "common" },
+  { key: "forms-new", path: "/forms/new", label: "문서 자동 작성 (v0.1)", icon: <EditOutlined />, module: "form_filler", category: "common" },
+  { key: "forms-library", path: "/forms/library", label: "양식 라이브러리", icon: <FileTextOutlined />, module: "form_filler", category: "common" },
   { key: "transactions", path: "/transactions", label: "거래내역", icon: <SwapOutlined />, module: "finance", category: "finance" },
   { key: "tax-invoices", path: "/tax-invoices", label: "세금계산서", icon: <FileTextOutlined />, module: "finance", category: "finance" },
   { key: "accounts", path: "/accounts", label: "계좌 관리", icon: <BankOutlined />, module: "finance", category: "finance" },

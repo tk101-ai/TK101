@@ -15,6 +15,11 @@ import SnsPosts from "./pages/marketing/SnsPosts";
 import SnsWeeklySnapshots from "./pages/marketing/SnsWeeklySnapshots";
 import SnsExcelImport from "./pages/marketing/SnsExcelImport";
 import NasSearch from "./pages/nas/Search";
+import FormUploadPage from "./pages/forms/FormUploadPage";
+import FormReviewPage from "./pages/forms/FormReviewPage";
+import FormLibraryPage from "./pages/forms/FormLibraryPage";
+import JobNewPage from "./pages/forms/JobNewPage";
+import JobMappingPage from "./pages/forms/JobMappingPage";
 
 function App() {
   const { user, loading, logout, checkAuth } = useAuth();
@@ -104,6 +109,46 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="nas_search">
                     <NasSearch />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/forms/new"
+                element={
+                  <ProtectedRoute user={user} module="form_filler">
+                    <FormUploadPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/forms/library"
+                element={
+                  <ProtectedRoute user={user} module="form_filler">
+                    <FormLibraryPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/forms/templates/:id/review"
+                element={
+                  <ProtectedRoute user={user} module="form_filler">
+                    <FormReviewPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/forms/jobs/:id/sources"
+                element={
+                  <ProtectedRoute user={user} module="form_filler">
+                    <JobNewPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/forms/jobs/:id/review"
+                element={
+                  <ProtectedRoute user={user} module="form_filler">
+                    <JobMappingPage />
                   </ProtectedRoute>
                 }
               />
