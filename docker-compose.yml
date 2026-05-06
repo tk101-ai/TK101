@@ -88,6 +88,8 @@ services:
       - ${NAS_MOUNT_PATH:-/mnt/nas}:/mnt/nas:ro
       # multilingual-e5-large(~2.2GB) 캐시. 컨테이너 재시작 시 재다운로드 방지.
       - hf_cache:/root/.cache/huggingface
+      # T5 양식 산출물 + 사용자 업로드 (NAS는 ro라 별도 volume 사용).
+      - form_filler_data:/var/lib/form_filler
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,3 +129,4 @@ volumes:
   n8n_data:
   webui_data:
   hf_cache:
+  form_filler_data:

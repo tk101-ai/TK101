@@ -33,9 +33,10 @@ class Settings(BaseSettings):
     form_filler_max_variables: int = 50
     # 사용자 업로드 자료 보존 기간 (FR-03). 30일 후 cron으로 hard delete.
     form_filler_upload_retention_days: int = 30
-    # 출력 .docx + 사용자 업로드 자료 저장 루트. NAS_OUTPUTS 권장 (FR-06).
-    form_filler_output_root: str = "/mnt/nas/NAS_OUTPUTS/form_filler"
-    form_filler_upload_root: str = "/mnt/nas/NAS_OUTPUTS/form_filler/uploads"
+    # 출력 .docx + 사용자 업로드 자료 저장 루트.
+    # NAS는 T2 정책상 read-only 마운트라 별도 docker volume 사용 (form_filler_data).
+    form_filler_output_root: str = "/var/lib/form_filler/outputs"
+    form_filler_upload_root: str = "/var/lib/form_filler/uploads"
     # 단일 양식 업로드 한도 (FR-01).
     form_filler_max_form_mb: int = 50
     # Langfuse (관측성, NFR-07). 없으면 트레이스만 비활성화하고 기능은 동작.
