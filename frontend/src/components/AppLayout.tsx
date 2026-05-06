@@ -2,7 +2,7 @@ import { Layout, Menu } from "antd";
 import { LogoutOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import type { User } from "../api/auth";
-import { NAV_ITEMS, getDepartmentLabel } from "../config/modules";
+import { buildSidebarMenuItems, getDepartmentLabel } from "../config/modules";
 
 const { Content, Sider } = Layout;
 
@@ -10,13 +10,7 @@ export default function AppLayout({ user, onLogout }: { user: User; onLogout: ()
   const navigate = useNavigate();
   const location = useLocation();
 
-  const menuItems = NAV_ITEMS
-    .filter((item) => user.modules.includes(item.module))
-    .map((item) => ({
-      key: item.path,
-      icon: item.icon,
-      label: item.label,
-    }));
+  const menuItems = buildSidebarMenuItems(user.modules);
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -29,7 +23,11 @@ export default function AppLayout({ user, onLogout }: { user: User; onLogout: ()
           mode="inline"
           selectedKeys={[location.pathname]}
           items={menuItems}
-          onClick={({ key }) => navigate(key)}
+          onClick={({ key }) => {
+            // group 헤더 키(`group-finance` 등)는 라우트가 없으므로 무시.
+            if (typeof key === "string" && key.startsWith("group-")) return;
+            navigate(key);
+          }}
         />
         <div style={{ position: "absolute", bottom: 16, width: "100%", textAlign: "center" }}>
           <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 12, marginBottom: 8 }}>
