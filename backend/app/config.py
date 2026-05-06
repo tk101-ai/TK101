@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     # Claude API. 시크릿은 환경 변수에서 주입(commit 절대 금지).
     anthropic_api_key: str | None = None
     # 양식 분석/매핑은 Sonnet, 단일 변수 재생성은 Haiku로 라우팅 (PRD 6.3, FR-09).
-    form_filler_sonnet_model: str = "claude-sonnet-4-6-20250929"
-    form_filler_haiku_model: str = "claude-haiku-4-5-20251022"
+    form_filler_sonnet_model: str = "claude-sonnet-4-6"
+    form_filler_haiku_model: str = "claude-haiku-4-5-20251001"
     # 매핑 confidence < 0.5인 변수는 자동 채움 거부 → 누락 보강 큐 (PRD FR-04, NFR-04 #2).
     form_filler_min_confidence: float = 0.5
     # 양식 분석에서 50개 이상 변수 추출 시 사용자 경고 (PRD FR-01 수용 기준).

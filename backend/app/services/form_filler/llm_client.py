@@ -37,11 +37,11 @@ class LLMResponse:
 # 모델별 단가 (USD/1M tokens). PRD NFR-02 가정.
 _MODEL_PRICING: dict[str, tuple[float, float]] = {
     # Sonnet 4.6: input $3.00, output $15.00
-    "claude-sonnet-4-6-20250929": (3.00, 15.00),
-    "claude-sonnet-4-5-20250929": (3.00, 15.00),  # 호환
+    "claude-sonnet-4-6": (3.00, 15.00),
+    "claude-sonnet-4-5": (3.00, 15.00),  # 호환
     # Haiku 4.5: input $1.00, output $5.00
-    "claude-haiku-4-5-20251022": (1.00, 5.00),
-    "claude-haiku-4-5-20250714": (1.00, 5.00),  # 호환
+    "claude-haiku-4-5-20251001": (1.00, 5.00),
+    "claude-haiku-4-5": (1.00, 5.00),  # 호환
 }
 
 
