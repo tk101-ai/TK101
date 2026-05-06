@@ -76,6 +76,13 @@ services:
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173}
       GOOGLE_YOUTUBE_API_KEY: ${GOOGLE_YOUTUBE_API_KEY:-}
       NAS_MOUNT_PATH: ${NAS_MOUNT_PATH:-/mnt/nas}
+      # T5 범용 문서 자동 작성기 (v0.8.0) ----------------------------------------
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+      # Langfuse (콘솔에서 키 발급 후 GitHub Secrets 등록 시 자동 반영)
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
     volumes:
       # 호스트 NAS SSHFS 마운트를 컨테이너에 read-only bind. 호스트 fstab은 ro 마운트 권장.
       - ${NAS_MOUNT_PATH:-/mnt/nas}:/mnt/nas:ro
