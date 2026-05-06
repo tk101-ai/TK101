@@ -33,3 +33,6 @@ class Module(str, Enum):
     USERS = "users"
     MARKETING_SNS = "marketing_sns"
     NAS_SEARCH = "nas_search"
+    # T5 트랙: 범용 문서 자동 작성기 (PRD T5_범용문서자동작성기 FR-10).
+    # MVP 단계는 P-AI 1명 + 검수 강제 모델, 부서 cap은 Phase 2.
+    FORM_FILLER = "form_filler"

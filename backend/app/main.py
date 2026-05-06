@@ -7,6 +7,7 @@ from app.config import settings
 from app.routers import (
     accounts,
     auth,
+    forms,
     matching,
     nas_search,
     sns,
@@ -42,6 +43,7 @@ app.include_router(tax_invoices.router)
 app.include_router(sns.router)
 app.include_router(sns.internal_router)
 app.include_router(nas_search.router)
+app.include_router(forms.router)
 
 
 @app.get("/health")

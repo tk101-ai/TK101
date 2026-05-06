@@ -7,22 +7,45 @@ ALL_MODULES: list[str] = [m.value for m in Module]
 # Department -> accessible modules. Used for non-admin role users.
 # Future: replace with permission table; this remains the default fallback.
 # NAS_SEARCH 모듈은 전 직원에게 부여(전사 자료 검색용 PoC).
+# FORM_FILLER (T5 트랙)도 전 직원에게 부여 — 범용 문서 자동 작성기는 부서 무관 인프라.
 DEPARTMENT_MODULES: dict[str, list[str]] = {
-    Department.ADMIN.value: [Module.DASHBOARD.value, Module.NAS_SEARCH.value],
+    Department.ADMIN.value: [
+        Module.DASHBOARD.value,
+        Module.NAS_SEARCH.value,
+        Module.FORM_FILLER.value,
+    ],
     Department.FINANCE.value: [
         Module.DASHBOARD.value,
         Module.FINANCE.value,
         Module.NAS_SEARCH.value,
+        Module.FORM_FILLER.value,
     ],
     Department.MARKETING_1.value: [
         Module.DASHBOARD.value,
         Module.MARKETING_SNS.value,
         Module.NAS_SEARCH.value,
+        Module.FORM_FILLER.value,
     ],
-    Department.MARKETING_2.value: [Module.DASHBOARD.value, Module.NAS_SEARCH.value],
-    Department.NEW_BUSINESS.value: [Module.DASHBOARD.value, Module.NAS_SEARCH.value],
-    Department.NEW_MEDIA.value: [Module.DASHBOARD.value, Module.NAS_SEARCH.value],
-    Department.DESIGN.value: [Module.DASHBOARD.value, Module.NAS_SEARCH.value],
+    Department.MARKETING_2.value: [
+        Module.DASHBOARD.value,
+        Module.NAS_SEARCH.value,
+        Module.FORM_FILLER.value,
+    ],
+    Department.NEW_BUSINESS.value: [
+        Module.DASHBOARD.value,
+        Module.NAS_SEARCH.value,
+        Module.FORM_FILLER.value,
+    ],
+    Department.NEW_MEDIA.value: [
+        Module.DASHBOARD.value,
+        Module.NAS_SEARCH.value,
+        Module.FORM_FILLER.value,
+    ],
+    Department.DESIGN.value: [
+        Module.DASHBOARD.value,
+        Module.NAS_SEARCH.value,
+        Module.FORM_FILLER.value,
+    ],
 }
 
 
