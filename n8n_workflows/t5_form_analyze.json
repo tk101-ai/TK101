@@ -1,0 +1,69 @@
+{
+  "name": "T5 양식 분석 (v0.1)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "t5-form-analyze",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "1f3b6f8a-5001-4d2a-9c91-aa0005000001",
+      "name": "Webhook (양식 분석 트리거)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [240, 320],
+      "webhookId": "t5-form-analyze"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/forms/templates/analyze",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Token",
+              "value": "={{$env.TK101_INTERNAL_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body || $json) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "1f3b6f8a-5001-4d2a-9c91-aa0005000002",
+      "name": "양식 분석 호출 (templates/analyze)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 320]
+    }
+  ],
+  "connections": {
+    "Webhook (양식 분석 트리거)": {
+      "main": [
+        [
+          {
+            "node": "양식 분석 호출 (templates/analyze)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Seoul"
+  },
+  "tags": ["t5", "forms", "analyze"]
+}

@@ -1,0 +1,111 @@
+{
+  "name": "T5 자료 매핑 (v0.1)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "t5-form-map",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "1f3b6f8a-5002-4d2a-9c91-aa0005000001",
+      "name": "Webhook (자료 매핑 트리거)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [240, 320],
+      "webhookId": "t5-form-map"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://backend:8000/api/forms/jobs/{{$json.body?.job_id || $json.job_id}}/run_mapping",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Token",
+              "value": "={{$env.TK101_INTERNAL_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ callback_url: ($json.body?.callback_url || $json.callback_url || null) }) }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "1f3b6f8a-5002-4d2a-9c91-aa0005000002",
+      "name": "매핑 실행 (jobs/{id}/run_mapping)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.callback_url || $('Webhook (자료 매핑 트리거)').item.json.body?.callback_url || ''}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Token",
+              "value": "={{$env.TK101_INTERNAL_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "1f3b6f8a-5002-4d2a-9c91-aa0005000003",
+      "name": "결과 콜백 (callback_url)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 320]
+    }
+  ],
+  "connections": {
+    "Webhook (자료 매핑 트리거)": {
+      "main": [
+        [
+          {
+            "node": "매핑 실행 (jobs/{id}/run_mapping)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "매핑 실행 (jobs/{id}/run_mapping)": {
+      "main": [
+        [
+          {
+            "node": "결과 콜백 (callback_url)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Seoul"
+  },
+  "tags": ["t5", "forms", "mapping", "async"]
+}

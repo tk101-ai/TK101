@@ -1,0 +1,68 @@
+{
+  "name": "T5 만료 자료 자동 삭제 (v0.1)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * *"
+            }
+          ]
+        }
+      },
+      "id": "1f3b6f8a-5003-4d2a-9c91-aa0005000001",
+      "name": "Schedule (매일 03:00 KST = 18:00 UTC)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/forms/cleanup",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Token",
+              "value": "={{$env.TK101_INTERNAL_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "1f3b6f8a-5003-4d2a-9c91-aa0005000002",
+      "name": "만료 자료 삭제 호출 (forms/cleanup)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 320]
+    }
+  ],
+  "connections": {
+    "Schedule (매일 03:00 KST = 18:00 UTC)": {
+      "main": [
+        [
+          {
+            "node": "만료 자료 삭제 호출 (forms/cleanup)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Seoul"
+  },
+  "tags": ["t5", "forms", "cleanup", "daily"]
+}
