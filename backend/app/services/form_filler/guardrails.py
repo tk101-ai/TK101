@@ -54,6 +54,8 @@ def strip_json_fences(text: str) -> str:
 def parse_strict_json(raw: str) -> dict:
     """LLM 응답을 strict JSON으로 파싱. 펜스 제거 + 첫 번째 { 부터 마지막 } 까지 best-effort.
 
+    응답이 max_tokens에서 잘린 경우 2차로 마지막 완성된 객체까지 복구 시도.
+
     실패 시 ValueError. 호출자는 재시도 1회 후 폴백을 결정.
     """
     cleaned = strip_json_fences(raw)
@@ -61,11 +63,47 @@ def parse_strict_json(raw: str) -> dict:
         raise ValueError("빈 응답")
     # 일부 모델이 prelude를 붙이는 경우 첫 { 와 마지막 } 사이만 발췌.
     first = cleaned.find("{")
+    if first == -1:
+        raise ValueError("JSON 객체 시작 없음")
     last = cleaned.rfind("}")
-    if first == -1 or last == -1 or last <= first:
-        raise ValueError("JSON 객체 경계 탐지 실패")
-    snippet = cleaned[first : last + 1]
-    return json.loads(snippet)
+    # 1차 시도: 정상 JSON.
+    if last > first:
+        snippet = cleaned[first : last + 1]
+        try:
+            return json.loads(snippet)
+        except json.JSONDecodeError:
+            pass  # 잘림 가능성 → 2차 시도
+
+    # 2차 시도: 응답 잘림 복구 (variables/mappings 배열 가정).
+    # 마지막 완성된 `},` 까지 살리고 `]}` 로 닫음.
+    for key in ("variables", "mappings"):
+        marker = f'"{key}":'
+        idx = cleaned.find(marker)
+        if idx == -1:
+            continue
+        bracket_open = cleaned.find("[", idx)
+        if bracket_open == -1:
+            continue
+        last_complete = cleaned.rfind("},", bracket_open)
+        if last_complete == -1:
+            # 배열 안 객체가 1개도 완성 안 된 경우 빈 배열로 응답.
+            logger.warning("LLM 응답 잘림: %s 배열 첫 객체도 미완성", key)
+            return {key: []}
+        partial_inner = cleaned[bracket_open + 1 : last_complete + 1]
+        snippet = "{" + f'"{key}": [' + partial_inner + "]}"
+        try:
+            parsed = json.loads(snippet)
+            logger.warning(
+                "LLM 응답 잘림 복구: %s %d개 추출 (원본 %d byte)",
+                key,
+                len(parsed.get(key, [])),
+                len(cleaned),
+            )
+            return parsed
+        except json.JSONDecodeError:
+            continue
+
+    raise ValueError(f"JSON 파싱 + 부분 복구 모두 실패 (원본 {len(cleaned)} byte)")
 
 
 def is_uuid_like(value: str | None) -> bool:
