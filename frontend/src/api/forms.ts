@@ -120,11 +120,26 @@ export interface FormMapping {
   updated_at: string;
 }
 
+// Backend `JobDetail` 응답: flat 잡 필드 + nested template/sources/mappings.
+// 프론트는 detail.template.name, detail.sources.length 등 직접 접근.
 export interface FormJobDetail {
-  job: FormJob;
-  template: FormTemplate;
+  id: string;
+  template_id: string | null;
+  template: FormTemplate | null;
   sources: FormDataSource[];
+  status: FormJobStatus;
+  department: string | null;
+  cost_usd: number;
+  total_tokens_in: number;
+  total_tokens_out: number;
+  langfuse_trace_id: string | null;
+  error_message: string | null;
+  output_path: string | null;
   mappings: FormMapping[];
+  created_at: string;
+  completed_at: string | null;
+  // mock 호환 - 일부 코드에서 detail.job 사용 가능성 대비.
+  job?: FormJob;
 }
 
 export interface FormRevision {

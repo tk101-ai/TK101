@@ -161,9 +161,23 @@ class MappingPayload(BaseModel):
     manual_override: bool = False
 
 
+class SourceBrief(BaseModel):
+    id: uuid.UUID
+    job_id: uuid.UUID
+    kind: str
+    nas_file_id: uuid.UUID | None = None
+    upload_path: str | None = None
+    nas_chunk_ids: list[uuid.UUID] = Field(default_factory=list)
+    extracted_text: str | None = None
+    display_name: str | None = None
+    created_at: datetime
+
+
 class JobDetail(BaseModel):
     id: uuid.UUID
     template_id: uuid.UUID | None
+    template: TemplateDetail | None = None  # frontend nested 접근 (detail.template.name 등)
+    sources: list[SourceBrief] = Field(default_factory=list)
     status: str
     department: str | None
     cost_usd: float = 0.0
@@ -1213,9 +1227,49 @@ async def _purge_job_mappings(db: AsyncSession, job_id: uuid.UUID) -> None:
 
 async def _build_job_detail(db: AsyncSession, job: Any) -> JobDetail:
     mappings = await _fetch_job_mappings(db, job.id)
+
+    # template 채움 — frontend가 detail.template.name, .variables 등을 직접 접근.
+    template_detail = None
+    if job.template_id:
+        tpl_row = await db.get(FormTemplate, job.template_id)
+        if tpl_row is not None:
+            template_detail = TemplateDetail(
+                id=tpl_row.id,
+                name=tpl_row.name,
+                version=int(tpl_row.version or 1),
+                file_hash=tpl_row.file_hash,
+                department_tags=list(tpl_row.department_tags or []),
+                usage_count=int(tpl_row.usage_count or 0),
+                created_at=tpl_row.created_at,
+                variables=[VariableSchema(**v) for v in (tpl_row.variables or [])],
+                file_path=tpl_row.file_path,
+                file_format=tpl_row.file_format or "docx",
+            )
+
+    # sources 채움 — frontend가 detail.sources.length 등 직접 접근.
+    src_stmt = select(FormDataSource).where(FormDataSource.job_id == job.id)
+    src_result = await db.execute(src_stmt)
+    src_rows = src_result.scalars().all()
+    sources_list = [
+        SourceBrief(
+            id=s.id,
+            job_id=s.job_id,
+            kind=s.kind,
+            nas_file_id=s.nas_file_id,
+            upload_path=s.upload_path,
+            nas_chunk_ids=list(s.nas_chunk_ids or []),
+            extracted_text=s.extracted_text,
+            display_name=None,
+            created_at=s.created_at,
+        )
+        for s in src_rows
+    ]
+
     return JobDetail(
         id=job.id,
         template_id=job.template_id,
+        template=template_detail,
+        sources=sources_list,
         status=job.status,
         department=job.department,
         cost_usd=float(job.cost_usd or 0),
