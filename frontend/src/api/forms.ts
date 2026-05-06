@@ -122,23 +122,27 @@ export interface FormMapping {
 
 // Backend `JobDetail` 응답: flat 잡 필드 + nested template/sources/mappings.
 // 프론트는 detail.template.name, detail.sources.length 등 직접 접근.
+// template은 backend가 잡 생성 시 항상 채우므로 non-null로 간주.
 export interface FormJobDetail {
+  // flat 잡 필드 (FormJob 호환)
   id: string;
   template_id: string | null;
-  template: FormTemplate | null;
-  sources: FormDataSource[];
-  status: FormJobStatus;
+  user_id?: string;
   department: string | null;
+  status: FormJobStatus;
+  output_path: string | null;
   cost_usd: number;
   total_tokens_in: number;
   total_tokens_out: number;
   langfuse_trace_id: string | null;
   error_message: string | null;
-  output_path: string | null;
-  mappings: FormMapping[];
   created_at: string;
   completed_at: string | null;
-  // mock 호환 - 일부 코드에서 detail.job 사용 가능성 대비.
+  // nested
+  template: FormTemplate;
+  sources: FormDataSource[];
+  mappings: FormMapping[];
+  // mock 호환 (deprecated, 일부 페이지가 detail.job.X 사용)
   job?: FormJob;
 }
 
@@ -362,10 +366,11 @@ export async function getFormJob(id: string): Promise<FormJobDetail> {
     const tpl = job.template_id ? mockStore.templates.get(job.template_id) : undefined;
     if (!tpl) throw new Error("template not found (mock)");
     return {
-      job,
+      ...job,
       template: tpl,
       sources: mockStore.sources.get(id) ?? [],
       mappings: mockStore.mappings.get(id) ?? [],
+      job,
     };
   }
   const res = await api.get<FormJobDetail>(`/api/forms/jobs/${id}`);

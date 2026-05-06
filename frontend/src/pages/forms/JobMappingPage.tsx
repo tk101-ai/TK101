@@ -143,18 +143,18 @@ export default function JobMappingPage() {
         <Space size="large">
           <Statistic
             title="누적 비용 (USD)"
-            value={detail.job.cost_usd}
+            value={detail.cost_usd}
             precision={4}
             valueStyle={{ fontSize: 14 }}
           />
           <Statistic
             title="토큰 in/out"
-            value={`${detail.job.total_tokens_in}/${detail.job.total_tokens_out}`}
+            value={`${detail.total_tokens_in}/${detail.total_tokens_out}`}
             valueStyle={{ fontSize: 14 }}
           />
-          {detail.job.langfuse_trace_id && (
+          {detail.langfuse_trace_id && (
             <Tag color="purple" style={{ marginTop: 8 }}>
-              Langfuse {detail.job.langfuse_trace_id.slice(0, 8)}…
+              Langfuse {detail.langfuse_trace_id.slice(0, 8)}…
             </Tag>
           )}
         </Space>
