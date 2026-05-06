@@ -22,11 +22,11 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database import get_db
+from app.database import async_session, get_db
 from app.dependencies import require_admin, require_module
 from app.models.nas_file import NasFile, NasTextChunk
 from app.modules.constants import Module
@@ -40,7 +40,8 @@ from app.schemas.nas_file import (
     NasStatus,
 )
 from app.services.nas_search import INDEX_PROGRESS, is_indexing, run_indexing
-from app.services.nas_search.embedder import embed_query
+from app.services.nas_search.embedder import embed_passages, embed_query
+from app.services.nas_search.indexer import build_filename_header
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,91 @@ async def start_indexing(
     )
 
 
+@router.post(
+    "/index/backfill_filenames",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_admin)],
+)
+async def start_filename_backfill(
+    background_tasks: BackgroundTasks,
+) -> NasIndexRunResponse:
+    """v0.6.7 — 모든 nas_files에 파일명 청크(chunk_index=-1) 1개를 추가/갱신.
+
+    본문 인덱싱은 건드리지 않고 파일명+상대경로 단일 청크만 처리.
+    이미 존재하는 chunk_index=-1은 새 임베딩으로 덮어쓰기 (idempotent).
+    분당 약 100~200개 처리 예상 (12,050개 → 1~2시간).
+    """
+    if is_indexing():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="인덱싱 또는 backfill이 이미 진행 중입니다",
+        )
+
+    async def _runner() -> None:
+        try:
+            await _run_filename_backfill()
+        except Exception:  # noqa: BLE001
+            logger.exception("파일명 backfill 실패")
+
+    background_tasks.add_task(_runner)
+    started_at = datetime.now(tz=timezone.utc)
+    INDEX_PROGRESS.running = True
+    INDEX_PROGRESS.started_at = started_at
+    INDEX_PROGRESS.current_path = "(backfill_filenames)"
+    return NasIndexRunResponse(task_id=started_at.isoformat(), status="running")
+
+
+async def _run_filename_backfill() -> None:
+    """모든 nas_files를 순회. chunk_index=-1 파일명 청크 추가/갱신."""
+    async with async_session() as db:
+        files = (await db.execute(select(NasFile))).scalars().all()
+
+    INDEX_PROGRESS.reset(total=len(files))
+    INDEX_PROGRESS.current_path = "(backfill_filenames)"
+    logger.info("파일명 backfill 시작 — 대상 %d개", len(files))
+
+    try:
+        for f in files:
+            try:
+                content = build_filename_header(f.name, f.path, settings.nas_mount_path)
+                if not content or content == "()":
+                    INDEX_PROGRESS.processed += 1
+                    continue
+                vec = await asyncio.to_thread(embed_passages, [content])
+                async with async_session() as db2:
+                    await db2.execute(
+                        delete(NasTextChunk).where(
+                            NasTextChunk.file_id == f.id,
+                            NasTextChunk.chunk_index == -1,
+                        )
+                    )
+                    db2.add(
+                        NasTextChunk(
+                            file_id=f.id,
+                            chunk_index=-1,
+                            content=content,
+                            embedding=vec[0].tolist(),
+                            token_count=len(content),
+                        )
+                    )
+                    await db2.commit()
+            except Exception as exc:  # noqa: BLE001
+                INDEX_PROGRESS.errors += 1
+                INDEX_PROGRESS.last_error = f"{f.path}: {exc}"
+                logger.exception("backfill 실패: %s", f.path)
+            finally:
+                INDEX_PROGRESS.processed += 1
+                INDEX_PROGRESS.current_path = f.path
+    finally:
+        INDEX_PROGRESS.finish()
+        logger.info(
+            "파일명 backfill 종료 — 처리 %d/%d, 실패 %d",
+            INDEX_PROGRESS.processed,
+            INDEX_PROGRESS.total,
+            INDEX_PROGRESS.errors,
+        )
+
+
 @router.get("/index/status", response_model=NasIndexProgress)
 async def get_index_status() -> NasIndexProgress:
     return NasIndexProgress(
@@ -151,8 +237,13 @@ async def search_text(
         logger.exception("쿼리 임베딩 실패")
         raise HTTPException(status_code=500, detail=f"쿼리 임베딩 실패: {exc}")
 
-    # cosine distance를 distance 컬럼으로 받는다. 점수는 1 - distance.
+    # cosine distance를 distance 컬럼으로 받는다. 점수는 (1 - distance) + 파일명 가산점.
     distance = NasTextChunk.embedding.cosine_distance(query_vec.tolist()).label("distance")
+    # v0.6.7 하이브리드 검색: 파일명 ILIKE 매칭 시 +0.2 가산점.
+    name_bonus = case(
+        (NasFile.name.ilike(f"%{body.query}%"), 0.2),
+        else_=0.0,
+    ).label("name_bonus")
     over_limit = body.limit * 5  # 파일 그룹핑 손실 보정
 
     stmt = (
@@ -166,6 +257,7 @@ async def search_text(
             NasFile.mtime,
             NasTextChunk.content,
             distance,
+            name_bonus,
         )
         .join(NasTextChunk, NasTextChunk.file_id == NasFile.id)
         .order_by(distance.asc())
@@ -187,13 +279,15 @@ async def search_text(
             mime_type=row.mime_type,
             size=row.size_bytes,
             mtime=row.mtime,
-            score=float(1.0 - row.distance),
+            score=float((1.0 - row.distance) + (row.name_bonus or 0.0)),
             snippet=_build_snippet(row.content or ""),
         )
         if len(seen) >= body.limit:
             break
 
-    return NasSearchResponse(results=list(seen.values()))
+    # 가산점 적용 후 재정렬 (파일명 매치된 결과를 상위로).
+    sorted_hits = sorted(seen.values(), key=lambda h: h.score, reverse=True)
+    return NasSearchResponse(results=sorted_hits)
 
 
 def _is_path_within_root(target: str, root: str) -> bool:

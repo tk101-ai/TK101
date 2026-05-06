@@ -93,21 +93,36 @@ async def _upsert_nas_file(db: AsyncSession, wf: WalkedFile) -> NasFile:
     return nas_file
 
 
+def path_relative_to_root(path: str, root: str) -> str:
+    """NAS 마운트 root 기준 상대 경로. Windows backslash 정규화."""
+    try:
+        return os.path.relpath(path, root).replace("\\", "/")
+    except ValueError:
+        return os.path.basename(path)
+
+
+def build_filename_header(name: str | None, path: str, root: str) -> str:
+    """파일명 + 상대경로 헤더 청크 (v0.6.7).
+
+    본문 추출 실패 파일도 파일명만으로 검색 가능하게 하기 위함.
+    """
+    rel = path_relative_to_root(path, root)
+    return f"{name or ''} ({rel})".strip()
+
+
 async def _process_one(db: AsyncSession, wf: WalkedFile) -> None:
     """파일 1건을 트랜잭션으로 처리. 실패 시 last_error 기록 후 caller에 예외 전파."""
     # PDF/DOCX/PPTX 파싱은 sync + SSHFS 네트워크 I/O라 이벤트 루프를 막지 않게 스레드로.
     text = await asyncio.to_thread(extract_text, wf.path)
     nas_file = await _upsert_nas_file(db, wf)
 
-    if not text:
-        nas_file.indexed_at = datetime.now(tz=timezone.utc)
-        nas_file.last_error = "텍스트 추출 결과가 비어있음"
-        # 기존 청크는 정리.
-        await db.execute(delete(NasTextChunk).where(NasTextChunk.file_id == nas_file.id))
-        return
+    # v0.6.7: 파일명 + 상대경로를 본문 앞에 prepend.
+    # 본문 추출 실패해도 파일명만으로도 검색 결과에 노출됨 (7,648개 추출 실패 파일 회수).
+    filename_header = build_filename_header(wf.name, wf.path, settings.nas_mount_path)
+    full_text = f"{filename_header}\n\n{text}" if text else filename_header
 
     chunks = chunk_text(
-        text,
+        full_text,
         chunk_chars=max(500, settings.nas_index_chunk_size * 3),
         overlap_chars=max(50, settings.nas_index_chunk_overlap * 3),
     )
@@ -133,7 +148,7 @@ async def _process_one(db: AsyncSession, wf: WalkedFile) -> None:
             )
         )
     nas_file.indexed_at = datetime.now(tz=timezone.utc)
-    nas_file.last_error = None
+    nas_file.last_error = None if text else "본문 추출 실패 — 파일명 청크만 색인됨 (v0.6.7)"
 
 
 async def _record_failure(path: str, message: str) -> None:
