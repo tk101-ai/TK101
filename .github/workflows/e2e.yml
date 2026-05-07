@@ -1,6 +1,7 @@
 name: "TK101 E2E 검증 v0.1.0"
 
 on:
+  # 1) 수동 실행 — 시나리오 선택 가능
   workflow_dispatch:
     inputs:
       scenario:
@@ -13,6 +14,17 @@ on:
           - "S1 — 양식 자동 작성 전체 플로우"
           - "S2 — 다중 업로드 부분 실패"
 
+  # 2) 배포 워크플로우 성공 후 자동 실행 — main push 흐름의 자동 회귀 검증
+  workflow_run:
+    workflows: ["TK101 배포 v0.2.0"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
 env:
   E2E_VERSION: "0.1.0"
   E2E_BASE_URL: "http://43.155.202.112:8080"
@@ -22,6 +34,8 @@ jobs:
     name: "Playwright E2E 실행 (v${{ env.E2E_VERSION }})"
     runs-on: self-hosted
     timeout-minutes: 30
+    # 배포 실패 시 E2E 의미 없음 — 성공한 배포 또는 수동 실행에만 트리거.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     defaults:
       run:
         working-directory: tests/e2e
@@ -71,7 +85,8 @@ jobs:
             exit 1
           fi
 
-      - name: "E2E 시나리오 실행 — ${{ github.event.inputs.scenario || '전체 (스케줄/디폴트)' }}"
+      - name: "E2E 시나리오 실행 — ${{ github.event.inputs.scenario || '전체 (자동 트리거)' }}"
+        id: run_e2e
         env:
           E2E_BASE_URL: ${{ env.E2E_BASE_URL }}
           CI: "true"
@@ -91,6 +106,61 @@ jobs:
             tests/e2e/playwright-report/
             tests/e2e/test-results/
           retention-days: 14
+
+      - name: "검증 실패 시 자동 이슈 생성 (Phase 2 Fixer 에이전트가 처리)"
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.sha;
+            const shortSha = sha.substring(0, 7);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const trigger = context.eventName === 'workflow_run'
+              ? `자동 (배포 후) — ${context.payload.workflow_run.head_commit?.message?.split('\n')[0] || '커밋 메시지 없음'}`
+              : `수동 (${context.payload.inputs?.scenario || '전체'})`;
+
+            const title = `[E2E 실패] ${shortSha} — 자동 회귀 검증 실패`;
+            const body = [
+              '## E2E 자동 검증 실패',
+              '',
+              `- **Commit**: \`${sha}\``,
+              `- **트리거**: ${trigger}`,
+              `- **워크플로우 실행 ID**: ${context.runId}`,
+              `- **HTML 리포트·트레이스**: [Actions 결과 페이지](${runUrl})`,
+              '',
+              '## 다음 단계',
+              '',
+              'Phase 2 Fixer 에이전트가 셋업되면 이 이슈를 자동으로 진단·수정합니다.',
+              '현재는 수동 처리 — 위 Actions 링크에서 실패 트레이스 확인 후 수정 PR.',
+            ].join('\n');
+
+            // 같은 커밋으로 이미 열린 이슈가 있으면 코멘트로 누적, 없으면 신규.
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'e2e-failure',
+              state: 'open',
+              per_page: 50,
+            });
+            const existing = open.find((i) => i.title.includes(shortSha));
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `재실행 결과 또 실패 — [Run #${context.runId}](${runUrl})`,
+              });
+              core.info(`기존 이슈 #${existing.number}에 코멘트 추가`);
+            } else {
+              const { data: created } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['e2e-failure', 'auto-generated'],
+              });
+              core.info(`신규 이슈 #${created.number} 생성`);
+            }
 
       - name: "검증 완료 (v${{ env.E2E_VERSION }})"
         if: always()
