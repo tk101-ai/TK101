@@ -70,17 +70,20 @@ export default function JobNewPage() {
 
   const handlePickUpload = async (files: File[]) => {
     setBusy(true);
-    try {
-      for (const f of files) {
-        await uploadJobSource(id, f);
-      }
-      message.success(`${files.length}개 자료 업로드 완료`);
-      await refresh();
-    } catch {
-      message.error("자료 업로드 실패");
-    } finally {
-      setBusy(false);
+    const results = await Promise.allSettled(
+      files.map((f) => uploadJobSource(id, f)),
+    );
+    const ok = results.filter((r) => r.status === "fulfilled").length;
+    const failed = files.length - ok;
+    if (failed === 0) {
+      message.success(`${ok}개 자료 업로드 완료`);
+    } else if (ok === 0) {
+      message.error(`자료 업로드 실패 (${failed}개)`);
+    } else {
+      message.warning(`${ok}개 성공 · ${failed}개 실패`);
     }
+    await refresh();
+    setBusy(false);
   };
 
   const handleRunMapping = async () => {
