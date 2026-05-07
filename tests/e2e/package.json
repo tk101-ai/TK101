@@ -1,0 +1,19 @@
+{
+  "name": "tk101-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TK101 라이브 환경 E2E 자동 검증",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:s1": "playwright test specs/s1_full_flow.spec.ts",
+    "test:s2": "playwright test specs/s2_partial_failure.spec.ts",
+    "test:debug": "playwright test --debug",
+    "report": "playwright show-report",
+    "install:browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "typescript": "^5.4.0"
+  }
+}

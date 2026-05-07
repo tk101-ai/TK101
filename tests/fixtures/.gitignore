@@ -1,0 +1,9 @@
+# 사용자가 준비하는 PDF 더미 (git에 commit하지 않음)
+*.pdf
+*.docx
+*.xlsx
+*.pptx
+
+# 단, README와 텍스트 픽스처는 추적
+!README.md
+!*.txt

@@ -1,0 +1,97 @@
+name: "TK101 E2E 검증 v0.1.0"
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "실행할 시나리오"
+        required: true
+        default: "전체"
+        type: choice
+        options:
+          - "전체"
+          - "S1 — 양식 자동 작성 전체 플로우"
+          - "S2 — 다중 업로드 부분 실패"
+
+env:
+  E2E_VERSION: "0.1.0"
+  E2E_BASE_URL: "http://43.155.202.112:8080"
+
+jobs:
+  playwright:
+    name: "Playwright E2E 실행 (v${{ env.E2E_VERSION }})"
+    runs-on: self-hosted
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: tests/e2e
+    steps:
+      - name: "체크아웃"
+        uses: actions/checkout@v4
+
+      - name: "Node.js 20 셋업"
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: "node_modules 캐시"
+        uses: actions/cache@v4
+        with:
+          path: tests/e2e/node_modules
+          key: ${{ runner.os }}-e2e-npm-${{ hashFiles('tests/e2e/package-lock.json', 'tests/e2e/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-e2e-npm-
+
+      - name: "Playwright 브라우저 캐시"
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/e2e/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: "의존성 설치"
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: "Playwright 브라우저 설치 (chromium + 시스템 의존성)"
+        run: npx playwright install --with-deps chromium
+
+      - name: "라이브 헬스체크"
+        run: |
+          set -e
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ env.E2E_BASE_URL }}/")
+          echo "라이브 응답 코드: $STATUS"
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "302" ]; then
+            echo "라이브가 정상 응답하지 않음 — 검증 중단"
+            exit 1
+          fi
+
+      - name: "E2E 시나리오 실행 — ${{ github.event.inputs.scenario || '전체 (스케줄/디폴트)' }}"
+        env:
+          E2E_BASE_URL: ${{ env.E2E_BASE_URL }}
+          CI: "true"
+        run: |
+          case "${{ github.event.inputs.scenario || '전체' }}" in
+            "S1"*) npx playwright test specs/s1_full_flow.spec.ts ;;
+            "S2"*) npx playwright test specs/s2_partial_failure.spec.ts ;;
+            *) npx playwright test ;;
+          esac
+
+      - name: "결과 아티팩트 업로드 (HTML 리포트 + 트레이스)"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report-${{ github.run_id }}
+          path: |
+            tests/e2e/playwright-report/
+            tests/e2e/test-results/
+          retention-days: 14
+
+      - name: "검증 완료 (v${{ env.E2E_VERSION }})"
+        if: always()
+        run: echo "TK101 E2E v${{ env.E2E_VERSION }} 실행 완료 — 아티팩트에서 HTML 리포트·트레이스·스크린샷 확인"

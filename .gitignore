@@ -30,3 +30,9 @@ Thumbs.db
 # Claude Code worktrees (병렬 에이전트 격리 작업 폴더 — commit 대상 아님)
 .claude/worktrees/
 
+# E2E 결과물 (Playwright 리포트·트레이스·로컬 node_modules)
+tests/e2e/node_modules/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+tests/e2e/playwright/.cache/
+
