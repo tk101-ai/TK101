@@ -2,7 +2,7 @@ import api from "./client";
 
 export type NasFileType = "document" | "image";
 
-export type NasFileKind = "pdf" | "word" | "ppt";
+export type NasFileKind = "pdf" | "word" | "ppt" | "hwp" | "excel";
 
 export interface NasSearchParams {
   query: string;

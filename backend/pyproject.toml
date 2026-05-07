@@ -23,6 +23,12 @@ dependencies = [
     "python-pptx>=1.0",
     "sentence-transformers>=3.0",
     "numpy>=1.26",
+    # NAS 자료 검색 v0.7.0 — 한글/엑셀 추출 -----------------------------------
+    # olefile: HWP5 OLE 컨테이너에서 PrvText(미리보기 텍스트) 스트림 직접 추출.
+    # pyhwp는 최신 Python 호환 이슈가 있어 채택하지 않고, PrvText만 사용 (검색용으로 충분).
+    # HWPX는 zip+xml 표준 포맷이라 표준 라이브러리(zipfile/xml.etree)로 처리.
+    # XLSX는 openpyxl read_only 모드로 셀 값만 텍스트화.
+    "olefile>=0.47",
     # T5 범용 문서 자동 작성기 (v0.8.0) ----------------------------------------
     "anthropic>=0.40",
     "langfuse>=2.50",

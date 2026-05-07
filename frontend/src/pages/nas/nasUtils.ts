@@ -34,12 +34,14 @@ export function formatDateTime(value: string | null | undefined): string {
   return `${date} ${hh}:${mi}`;
 }
 
-export function fileIconType(mimeType: string, fileType: string): "pdf" | "doc" | "ppt" | "xls" | "image" | "file" {
+export function fileIconType(mimeType: string, fileType: string): "pdf" | "doc" | "ppt" | "xls" | "hwp" | "image" | "file" {
   if (fileType === "image") return "image";
   const m = mimeType.toLowerCase();
   if (m.includes("pdf")) return "pdf";
   if (m.includes("word") || m.includes("officedocument.wordprocessing")) return "doc";
   if (m.includes("powerpoint") || m.includes("presentation")) return "ppt";
   if (m.includes("excel") || m.includes("spreadsheet")) return "xls";
+  // 한글: HWP5(application/x-hwp)와 HWPX(application/vnd.hancom.hwpx) 둘 다 hancom 서명 포함.
+  if (m.includes("hwp") || m.includes("hancom")) return "hwp";
   return "file";
 }

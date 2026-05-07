@@ -2,7 +2,7 @@
 
 전략:
 - NAS_MOUNT_PATH 하위를 재귀 탐색
-- 지원 확장자(.pdf .docx .pptx)만 yield
+- 지원 확장자(.pdf .docx .pptx .hwp .hwpx .xlsx)만 yield
 - size/mtime/hash로 변경 여부 판정 → 미변경 파일은 스킵
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ from app.models.nas_file import NasFile
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_DOCUMENT_EXTS = {".pdf", ".docx", ".pptx"}
+SUPPORTED_DOCUMENT_EXTS = {".pdf", ".docx", ".pptx", ".hwp", ".hwpx", ".xlsx"}
 HASH_SAMPLE_BYTES = 1024 * 1024  # 처음 1MB만 SHA1 해시 (큰 파일 비용 회피)
 
 # Synology / macOS 메타 디렉토리 — 인덱싱 대상 아님.
@@ -61,6 +61,14 @@ class WalkedFile:
             ),
             ".pptx": (
                 "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ),
+            # 한글: HWP5(OLE 컨테이너)와 HWPX(OOXML 스타일 zip)가 별개 MIME.
+            # 검색 라우터의 file_kind="hwp" 필터는 둘 다 매칭하도록 평탄화.
+            ".hwp": "application/x-hwp",
+            ".hwpx": "application/vnd.hancom.hwpx",
+            # 엑셀: 매크로(.xlsm)/구버전(.xls)은 인덱싱 대상 제외 (xlsx만).
+            ".xlsx": (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             ),
         }.get(ext)
 

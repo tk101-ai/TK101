@@ -26,6 +26,8 @@ const FILE_KIND_OPTIONS: FileKindOption[] = [
   { key: "pdf", label: "PDF" },
   { key: "word", label: "Word" },
   { key: "ppt", label: "PPT" },
+  { key: "hwp", label: "한글" },
+  { key: "excel", label: "엑셀" },
 ];
 
 interface PeriodOption {

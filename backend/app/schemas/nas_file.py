@@ -80,9 +80,12 @@ class NasSearchRequest(BaseModel):
 
     query: str = Field(min_length=1, max_length=500)
     limit: int = Field(default=20, ge=1, le=50)
-    file_kinds: list[Literal["pdf", "word", "ppt"]] | None = Field(
+    file_kinds: list[Literal["pdf", "word", "ppt", "hwp", "excel"]] | None = Field(
         default=None,
-        description="형식 필터. mime_type IN 매핑으로 변환됨.",
+        description=(
+            "형식 필터. mime_type IN 매핑으로 변환됨. "
+            "hwp는 HWP5(application/x-hwp)와 HWPX(application/vnd.hancom.hwpx) 둘 다 매칭."
+        ),
     )
     path_prefix: str | None = Field(
         default=None,

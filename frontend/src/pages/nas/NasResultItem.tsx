@@ -27,6 +27,9 @@ function pickIcon(mimeType: string, fileType: string): ReactNode {
       return <FilePptOutlined style={{ ...baseStyle, color: "#d4380d" }} />;
     case "xls":
       return <FileExcelOutlined style={{ ...baseStyle, color: "#389e0d" }} />;
+    case "hwp":
+      // 한글 전용 아이콘은 antd에 없어 일반 파일 아이콘 + 한글 브랜드 색(파랑)으로 식별.
+      return <FileOutlined style={{ ...baseStyle, color: "#0050b3" }} />;
     case "image":
       return <FileImageOutlined style={{ ...baseStyle, color: "#722ed1" }} />;
     default:

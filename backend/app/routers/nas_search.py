@@ -40,9 +40,16 @@ from app.schemas.nas_file import (
     NasStatus,
     NasTopFoldersResponse,
 )
-from app.services.nas_search import INDEX_PROGRESS, is_indexing, run_indexing
+from app.services.nas_search import (
+    INDEX_PROGRESS,
+    SUMMARY_PROGRESS,
+    is_indexing,
+    is_summarizing,
+    run_indexing,
+)
 from app.services.nas_search.embedder import embed_passages, embed_query
 from app.services.nas_search.indexer import build_filename_header
+from app.services.nas_search.summarizer import summarize_document
 
 logger = logging.getLogger(__name__)
 
@@ -54,12 +61,34 @@ router = APIRouter(
 
 SNIPPET_CHARS = 200
 
-# file_kinds → mime_type 매핑. PDF/DOCX/PPTX만 인덱싱 대상이므로 그 셋만 다룬다.
-FILE_KIND_MIME_MAP: dict[str, str] = {
+# file_kinds → mime_type(들) 매핑. v0.7.0부터 한글/엑셀 추가.
+# hwp는 HWP5(application/x-hwp)와 HWPX(application/vnd.hancom.hwpx) 두 MIME을 모두 매칭.
+# 단일 string 또는 tuple[str, ...] 모두 허용 (아래 _flatten_kind_mimes에서 평탄화).
+FILE_KIND_MIME_MAP: dict[str, str | tuple[str, ...]] = {
     "pdf": "application/pdf",
     "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "ppt": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "hwp": ("application/x-hwp", "application/vnd.hancom.hwpx"),
+    "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
+
+
+def _flatten_kind_mimes(kinds: list[str]) -> list[str]:
+    """file_kinds 리스트를 SQL IN 절에 들어갈 mime_type 평탄 리스트로 변환.
+
+    예: ["pdf", "hwp"] → ["application/pdf", "application/x-hwp", "application/vnd.hancom.hwpx"]
+    알 수 없는 kind는 무시.
+    """
+    out: list[str] = []
+    for kind in kinds:
+        mapped = FILE_KIND_MIME_MAP.get(kind)
+        if mapped is None:
+            continue
+        if isinstance(mapped, tuple):
+            out.extend(mapped)
+        else:
+            out.append(mapped)
+    return out
 
 
 def _mount_ok(path: str) -> bool:
@@ -238,6 +267,162 @@ async def get_index_status() -> NasIndexProgress:
     )
 
 
+# v0.7.x — Claude Haiku 4.5 기반 한국어 키워드 요약 backfill ----------------------
+# chunk_index=-2 청크로 임베딩 저장. 본 인덱싱(INDEX_PROGRESS)과 분리된 별도 진행률.
+# Anthropic API 호출이 자원 충돌 없이 본 인덱싱과 동시 실행 가능.
+
+# 요약 backfill 동시성 — 동시 호출 수. 너무 높이면 Anthropic rate limit 걸림.
+SUMMARY_CONCURRENCY = 3
+# 본문 텍스트가 너무 짧으면(파일명만 있는 경우 등) skip.
+SUMMARY_MIN_TEXT_CHARS = 30
+
+
+@router.post(
+    "/index/backfill_summaries",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_admin)],
+)
+async def start_summary_backfill(
+    background_tasks: BackgroundTasks,
+) -> NasIndexRunResponse:
+    """v0.7.x — 모든 nas_files에 키워드 요약 청크(chunk_index=-2)를 추가/갱신.
+
+    Claude Haiku 4.5 호출로 100~200자 한국어 키워드 요약을 생성해
+    본문/파일명 청크와 함께 cosine 매칭되도록 임베딩 저장.
+
+    비용 추산: 12K 파일 × Haiku 4.5 ≈ $15~20.
+    본 인덱싱과 별도 진행률(SUMMARY_PROGRESS) 사용 → 동시 실행 가능.
+    """
+    if is_summarizing():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이미 요약 backfill이 진행 중입니다",
+        )
+    if not settings.anthropic_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ANTHROPIC_API_KEY가 설정되지 않았습니다",
+        )
+
+    async def _runner() -> None:
+        try:
+            await _run_summary_backfill()
+        except Exception:  # noqa: BLE001
+            logger.exception("요약 backfill 실패")
+
+    background_tasks.add_task(_runner)
+    started_at = datetime.now(tz=timezone.utc)
+    SUMMARY_PROGRESS.running = True
+    SUMMARY_PROGRESS.started_at = started_at
+    SUMMARY_PROGRESS.current_path = "(backfill_summaries)"
+    return NasIndexRunResponse(task_id=started_at.isoformat(), status="running")
+
+
+@router.get("/index/summary_status", response_model=NasIndexProgress)
+async def get_summary_status() -> NasIndexProgress:
+    return NasIndexProgress(
+        running=SUMMARY_PROGRESS.running,
+        processed=SUMMARY_PROGRESS.processed,
+        total=SUMMARY_PROGRESS.total,
+        current_path=SUMMARY_PROGRESS.current_path,
+        errors=SUMMARY_PROGRESS.errors,
+        started_at=SUMMARY_PROGRESS.started_at,
+        finished_at=SUMMARY_PROGRESS.finished_at,
+        last_error=SUMMARY_PROGRESS.last_error,
+    )
+
+
+async def _load_file_text(file_id) -> str:
+    """파일의 본문 청크(chunk_index >= 0)를 join. -1/-2 메타 청크 제외."""
+    async with async_session() as db:
+        result = await db.execute(
+            select(NasTextChunk.content)
+            .where(
+                NasTextChunk.file_id == file_id,
+                NasTextChunk.chunk_index >= 0,
+            )
+            .order_by(NasTextChunk.chunk_index.asc())
+        )
+        contents = [row[0] for row in result.all() if row[0]]
+    return "\n\n".join(contents)
+
+
+async def _process_one_summary(file: NasFile, semaphore: asyncio.Semaphore) -> None:
+    """파일 1건 요약 + 임베딩 + DB upsert. 실패 시 SUMMARY_PROGRESS.errors++."""
+    async with semaphore:
+        SUMMARY_PROGRESS.current_path = file.path
+        try:
+            text = await _load_file_text(file.id)
+            if not text or len(text.strip()) < SUMMARY_MIN_TEXT_CHARS:
+                # 본문 짧으면 요약 가치 낮음 → skip.
+                return
+
+            summary = await summarize_document(text, file.name or "")
+            if not summary:
+                return
+
+            # 임베딩은 동기 CPU 작업 → 스레드.
+            vec = await asyncio.to_thread(embed_passages, [summary])
+            async with async_session() as db:
+                await db.execute(
+                    delete(NasTextChunk).where(
+                        NasTextChunk.file_id == file.id,
+                        NasTextChunk.chunk_index == -2,
+                    )
+                )
+                db.add(
+                    NasTextChunk(
+                        file_id=file.id,
+                        chunk_index=-2,
+                        content=summary,
+                        embedding=vec[0].tolist(),
+                        token_count=len(summary),
+                    )
+                )
+                await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            SUMMARY_PROGRESS.errors += 1
+            SUMMARY_PROGRESS.last_error = f"{file.path}: {exc}"
+            SUMMARY_PROGRESS.failures.append(SUMMARY_PROGRESS.last_error)
+            logger.exception("요약 backfill 실패: %s", file.path)
+        finally:
+            SUMMARY_PROGRESS.processed += 1
+
+
+async def _run_summary_backfill() -> None:
+    """모든 nas_files 순회 — Haiku 4.5 요약 → chunk_index=-2 청크 upsert.
+
+    동시성은 SUMMARY_CONCURRENCY로 제한 (Anthropic rate limit 보호).
+    실패해도 다음 파일로 진행. 본 인덱싱(INDEX_PROGRESS)과 분리된 진행률 사용.
+    """
+    async with async_session() as db:
+        files = (await db.execute(select(NasFile))).scalars().all()
+
+    SUMMARY_PROGRESS.reset(total=len(files))
+    SUMMARY_PROGRESS.current_path = "(backfill_summaries)"
+    logger.info(
+        "요약 backfill 시작 — 대상 %d개 (동시성=%d)",
+        len(files),
+        SUMMARY_CONCURRENCY,
+    )
+
+    semaphore = asyncio.Semaphore(SUMMARY_CONCURRENCY)
+    try:
+        # gather로 묶되 semaphore가 실제 동시성을 제한.
+        await asyncio.gather(
+            *(_process_one_summary(f, semaphore) for f in files),
+            return_exceptions=True,
+        )
+    finally:
+        SUMMARY_PROGRESS.finish()
+        logger.info(
+            "요약 backfill 종료 — 처리 %d/%d, 실패 %d",
+            SUMMARY_PROGRESS.processed,
+            SUMMARY_PROGRESS.total,
+            SUMMARY_PROGRESS.errors,
+        )
+
+
 def _build_snippet(content: str) -> str:
     if not content:
         return ""
@@ -286,7 +471,8 @@ async def search_text(
 
     # 필터 적용 — None인 필드는 건너뛴다(회귀 없음).
     if body.file_kinds:
-        mimes = [FILE_KIND_MIME_MAP[k] for k in body.file_kinds if k in FILE_KIND_MIME_MAP]
+        # hwp는 두 MIME(hwp + hwpx)으로 평탄화되므로 일반 리스트 컴프리헨션 대신 헬퍼 사용.
+        mimes = _flatten_kind_mimes(list(body.file_kinds))
         if mimes:
             stmt = stmt.where(NasFile.mime_type.in_(mimes))
 

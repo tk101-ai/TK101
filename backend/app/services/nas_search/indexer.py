@@ -61,9 +61,17 @@ class IndexProgress:
 # 모듈 전역 싱글톤. 프로세스가 살아있는 동안만 유효(다중 워커 환경은 추후 Redis로 이전).
 INDEX_PROGRESS = IndexProgress()
 
+# 요약 backfill 전용 진행률. 본 인덱싱(INDEX_PROGRESS)과 분리해 동시 실행 가능.
+# Anthropic API rate limit이 별도 자원이라 충돌 없음. 락도 별도(_summary_lock).
+SUMMARY_PROGRESS = IndexProgress()
+
 
 def is_indexing() -> bool:
     return INDEX_PROGRESS.running
+
+
+def is_summarizing() -> bool:
+    return SUMMARY_PROGRESS.running
 
 
 async def _upsert_nas_file(db: AsyncSession, wf: WalkedFile) -> NasFile:
