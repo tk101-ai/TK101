@@ -1,18 +1,14 @@
 name: "TK101 E2E 검증 v0.1.0"
 
 on:
-  # 1) 수동 실행 — 시나리오 선택 가능
+  # 1) 수동 실행 — 시나리오 키 입력 (all / s1 / s2)
   workflow_dispatch:
     inputs:
       scenario:
-        description: "실행할 시나리오"
-        required: true
-        default: "전체"
-        type: choice
-        options:
-          - "전체"
-          - "S1 — 양식 자동 작성 전체 플로우"
-          - "S2 — 다중 업로드 부분 실패"
+        description: "실행할 시나리오 키 (all / s1 / s2)"
+        required: false
+        default: "all"
+        type: string
 
   # 2) 배포 워크플로우 성공 후 자동 실행 — main push 흐름의 자동 회귀 검증
   workflow_run:
@@ -85,16 +81,17 @@ jobs:
             exit 1
           fi
 
-      - name: "E2E 시나리오 실행 — ${{ github.event.inputs.scenario || '전체 (자동 트리거)' }}"
+      - name: "E2E 시나리오 실행"
         id: run_e2e
         env:
           E2E_BASE_URL: ${{ env.E2E_BASE_URL }}
+          E2E_SCENARIO: ${{ github.event.inputs.scenario || 'all' }}
           CI: "true"
         run: |
-          case "${{ github.event.inputs.scenario || '전체' }}" in
-            "S1"*) npx playwright test specs/s1_full_flow.spec.ts ;;
-            "S2"*) npx playwright test specs/s2_partial_failure.spec.ts ;;
-            *) npx playwright test ;;
+          case "$E2E_SCENARIO" in
+            s1) npx playwright test specs/s1_full_flow.spec.ts ;;
+            s2) npx playwright test specs/s2_partial_failure.spec.ts ;;
+            *)  npx playwright test ;;
           esac
 
       - name: "결과 아티팩트 업로드 (HTML 리포트 + 트레이스)"
