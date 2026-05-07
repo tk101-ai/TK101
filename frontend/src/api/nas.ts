@@ -2,6 +2,21 @@ import api from "./client";
 
 export type NasFileType = "document" | "image";
 
+export type NasFileKind = "pdf" | "word" | "ppt";
+
+export interface NasSearchParams {
+  query: string;
+  limit: number;
+  file_kinds?: NasFileKind[];
+  path_prefix?: string;
+  mtime_from?: string;
+  mtime_to?: string;
+}
+
+export interface NasTopFoldersResponse {
+  folders: string[];
+}
+
 export interface NasStatus {
   mount_ok: boolean;
   mount_path: string;
@@ -50,8 +65,11 @@ export const runNasIndex = () =>
 export const getNasIndexStatus = () =>
   api.get<NasIndexStatus>("/api/nas/index/status");
 
-export const searchNasText = (query: string, limit: number = 20) =>
-  api.post<NasSearchResponse>("/api/nas/search/text", { query, limit });
+export const searchNasText = (params: NasSearchParams) =>
+  api.post<NasSearchResponse>("/api/nas/search/text", params);
+
+export const getNasTopFolders = () =>
+  api.get<NasTopFoldersResponse>("/api/nas/folders/top");
 
 /**
  * JWT Bearer 인증을 유지한 채 파일을 다운로드한다.

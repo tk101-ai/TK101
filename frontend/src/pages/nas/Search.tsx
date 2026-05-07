@@ -4,18 +4,30 @@ import { PictureOutlined } from "@ant-design/icons";
 import {
   getNasIndexStatus,
   getNasStatus,
+  getNasTopFolders,
   runNasIndex,
   searchNasText,
   type NasIndexStatus,
   type NasSearchHit,
+  type NasSearchParams,
   type NasStatus,
 } from "../../api/nas";
 import { useAuth } from "../../hooks/useAuth";
 import NasStatusHeader from "./NasStatusHeader";
 import NasResultItem from "./NasResultItem";
+import NasFilterBar, {
+  periodToMtimeFrom,
+  type NasFilterValue,
+} from "./NasFilterBar";
 
 const POLL_INTERVAL_MS = 5000;
 const SEARCH_LIMIT = 20;
+
+const DEFAULT_FILTER: NasFilterValue = {
+  fileKinds: [],
+  pathPrefix: null,
+  period: "all",
+};
 
 type SearchPhase = "idle" | "searching" | "done";
 
@@ -29,6 +41,8 @@ export default function NasSearch() {
   const [results, setResults] = useState<NasSearchHit[]>([]);
   const [phase, setPhase] = useState<SearchPhase>("idle");
   const [runDisabled, setRunDisabled] = useState(false);
+  const [folders, setFolders] = useState<string[]>([]);
+  const [filter, setFilter] = useState<NasFilterValue>(DEFAULT_FILTER);
 
   const pollRef = useRef<number | null>(null);
 
@@ -58,6 +72,16 @@ export default function NasSearch() {
     }
   }, []);
 
+  const fetchTopFolders = useCallback(async () => {
+    try {
+      const res = await getNasTopFolders();
+      setFolders(res.data.folders);
+    } catch {
+      // 폴더 목록 조회 실패는 무시 — 검색은 계속 동작해야 함
+      setFolders([]);
+    }
+  }, []);
+
   const startPolling = useCallback(() => {
     stopPolling();
     pollRef.current = window.setInterval(async () => {
@@ -76,11 +100,12 @@ export default function NasSearch() {
 
   useEffect(() => {
     fetchStatus();
+    fetchTopFolders();
     fetchIndexStatus().then((data) => {
       if (data?.running) startPolling();
     });
     return () => stopPolling();
-  }, [fetchStatus, fetchIndexStatus, startPolling, stopPolling]);
+  }, [fetchStatus, fetchIndexStatus, fetchTopFolders, startPolling, stopPolling]);
 
   const handleRunIndex = async () => {
     setRunDisabled(true);
@@ -105,6 +130,24 @@ export default function NasSearch() {
     }
   };
 
+  const buildSearchParams = useCallback(
+    (q: string): NasSearchParams => {
+      const params: NasSearchParams = { query: q, limit: SEARCH_LIMIT };
+      if (filter.fileKinds.length > 0) {
+        params.file_kinds = filter.fileKinds;
+      }
+      if (filter.pathPrefix) {
+        params.path_prefix = filter.pathPrefix;
+      }
+      const mtimeFrom = periodToMtimeFrom(filter.period);
+      if (mtimeFrom) {
+        params.mtime_from = mtimeFrom;
+      }
+      return params;
+    },
+    [filter],
+  );
+
   const handleSearch = async (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) {
@@ -113,7 +156,7 @@ export default function NasSearch() {
     }
     setPhase("searching");
     try {
-      const res = await searchNasText(trimmed, SEARCH_LIMIT);
+      const res = await searchNasText(buildSearchParams(trimmed));
       setResults(res.data.results);
       setPhase("done");
     } catch {
@@ -141,8 +184,10 @@ export default function NasSearch() {
         onChange={(e) => setQuery(e.target.value)}
         onSearch={handleSearch}
         loading={phase === "searching"}
-        style={{ marginBottom: 12 }}
+        style={{ marginBottom: 8 }}
       />
+
+      <NasFilterBar value={filter} onChange={setFilter} folders={folders} />
 
       <ImageSearchPlaceholder />
 

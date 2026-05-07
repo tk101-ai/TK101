@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -71,12 +72,41 @@ class NasSearchHit(NasFileInfo):
 
 
 class NasSearchRequest(BaseModel):
+    """텍스트 검색 요청.
+
+    필터 필드(file_kinds, path_prefix, mtime_from, mtime_to)는 모두 optional.
+    None이면 해당 필터를 적용하지 않는다(기존 동작 보존).
+    """
+
     query: str = Field(min_length=1, max_length=500)
     limit: int = Field(default=20, ge=1, le=50)
+    file_kinds: list[Literal["pdf", "word", "ppt"]] | None = Field(
+        default=None,
+        description="형식 필터. mime_type IN 매핑으로 변환됨.",
+    )
+    path_prefix: str | None = Field(
+        default=None,
+        max_length=500,
+        description="NAS_MOUNT_PATH 기준 상대 경로 prefix. (예: 'MARKETING/04_업무 메뉴얼')",
+    )
+    mtime_from: datetime | None = Field(
+        default=None,
+        description="수정시각 하한(포함). ISO8601.",
+    )
+    mtime_to: datetime | None = Field(
+        default=None,
+        description="수정시각 상한(포함). ISO8601.",
+    )
 
 
 class NasSearchResponse(BaseModel):
     results: list[NasSearchHit] = Field(default_factory=list)
+
+
+class NasTopFoldersResponse(BaseModel):
+    """NAS_MOUNT_PATH 직하 1단계 폴더 목록 응답."""
+
+    folders: list[str] = Field(default_factory=list)
 
 
 class NasIndexRunResponse(BaseModel):

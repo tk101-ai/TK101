@@ -38,6 +38,7 @@ from app.schemas.nas_file import (
     NasSearchRequest,
     NasSearchResponse,
     NasStatus,
+    NasTopFoldersResponse,
 )
 from app.services.nas_search import INDEX_PROGRESS, is_indexing, run_indexing
 from app.services.nas_search.embedder import embed_passages, embed_query
@@ -53,10 +54,31 @@ router = APIRouter(
 
 SNIPPET_CHARS = 200
 
+# file_kinds → mime_type 매핑. PDF/DOCX/PPTX만 인덱싱 대상이므로 그 셋만 다룬다.
+FILE_KIND_MIME_MAP: dict[str, str] = {
+    "pdf": "application/pdf",
+    "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "ppt": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+
 
 def _mount_ok(path: str) -> bool:
     """NAS 마운트가 디렉토리이고 읽기 가능한지 확인."""
     return os.path.isdir(path) and os.access(path, os.R_OK)
+
+
+def _resolve_path_prefix(relative: str, root: str) -> str:
+    """상대 경로 prefix를 NAS root와 join 후 정규화.
+
+    path traversal(`..`, 절대경로 등)을 차단하기 위해 결과가 root 밖으로
+    벗어나면 ValueError를 발생시킨다. 반환값은 절대경로 prefix.
+    """
+    candidate = os.path.normpath(os.path.join(root, relative))
+    root_norm = os.path.normpath(root)
+    # commonpath는 다른 드라이브에서 ValueError를 던질 수 있다 → 그대로 위임.
+    if os.path.commonpath([candidate, root_norm]) != root_norm:
+        raise ValueError("경로가 NAS 루트 밖입니다")
+    return candidate
 
 
 @router.get("/status", response_model=NasStatus)
@@ -260,9 +282,32 @@ async def search_text(
             name_bonus,
         )
         .join(NasTextChunk, NasTextChunk.file_id == NasFile.id)
-        .order_by(distance.asc())
-        .limit(over_limit)
     )
+
+    # 필터 적용 — None인 필드는 건너뛴다(회귀 없음).
+    if body.file_kinds:
+        mimes = [FILE_KIND_MIME_MAP[k] for k in body.file_kinds if k in FILE_KIND_MIME_MAP]
+        if mimes:
+            stmt = stmt.where(NasFile.mime_type.in_(mimes))
+
+    if body.path_prefix:
+        try:
+            absolute_prefix = _resolve_path_prefix(
+                body.path_prefix, settings.nas_mount_path
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"잘못된 path_prefix: {exc}",
+            )
+        stmt = stmt.where(NasFile.path.startswith(absolute_prefix))
+
+    if body.mtime_from is not None:
+        stmt = stmt.where(NasFile.mtime >= body.mtime_from)
+    if body.mtime_to is not None:
+        stmt = stmt.where(NasFile.mtime <= body.mtime_to)
+
+    stmt = stmt.order_by(distance.asc()).limit(over_limit)
     result = await db.execute(stmt)
     rows = result.all()
 
@@ -288,6 +333,38 @@ async def search_text(
     # 가산점 적용 후 재정렬 (파일명 매치된 결과를 상위로).
     sorted_hits = sorted(seen.values(), key=lambda h: h.score, reverse=True)
     return NasSearchResponse(results=sorted_hits)
+
+
+@router.get("/folders/top", response_model=NasTopFoldersResponse)
+async def list_top_folders(
+    db: AsyncSession = Depends(get_db),
+) -> NasTopFoldersResponse:
+    """NAS_MOUNT_PATH 직하 1단계 폴더만 distinct로 모아 반환.
+
+    nas_files.path는 절대 경로이므로 root prefix를 떼고 첫 세그먼트만 추출한다.
+    파일 12K 정도 규모는 Python set 처리로 충분.
+    """
+    root = os.path.normpath(settings.nas_mount_path)
+    rows = (await db.execute(select(NasFile.path))).scalars().all()
+
+    folders: set[str] = set()
+    for path in rows:
+        if not path:
+            continue
+        normalized = os.path.normpath(path)
+        try:
+            relative = os.path.relpath(normalized, root)
+        except ValueError:
+            # 다른 드라이브 등으로 relpath 계산 불가한 경우 skip.
+            continue
+        if relative.startswith("..") or relative in (".", ""):
+            continue
+        # OS별 separator 차이를 흡수.
+        first_segment = relative.replace("\\", "/").split("/", 1)[0].strip()
+        if first_segment:
+            folders.add(first_segment)
+
+    return NasTopFoldersResponse(folders=sorted(folders))
 
 
 def _is_path_within_root(target: str, root: str) -> bool:

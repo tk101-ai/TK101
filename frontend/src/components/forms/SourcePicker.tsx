@@ -51,7 +51,7 @@ export default function SourcePicker({
     }
     setSearching(true);
     try {
-      const res = await searchNasText(trimmed, 20);
+      const res = await searchNasText({ query: trimmed, limit: 20 });
       setResults(res.data.results);
     } catch {
       message.error("NAS 검색 실패");
