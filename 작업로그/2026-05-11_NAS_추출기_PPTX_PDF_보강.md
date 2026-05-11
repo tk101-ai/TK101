@@ -1,4 +1,4 @@
-# 2026-05-11 — NAS 추출기 PPTX/PDF 보강 (무료, v0.8.0)
+# 2026-05-11 — NAS 추출기 PPTX/PDF/XLSX 보강 (무료, v0.8.0)
 
 | 항목 | 값 |
 |------|-----|
@@ -66,6 +66,22 @@ return (pdf_extract(path) or "").strip()
   표/다단 레이아웃 회수율이 올라간다.
 - OCR이 아니므로 이미지 PDF는 여전히 빈 결과 (Phase 4 OCR은 별건).
 - 라이선스: MIT (PyMuPDF AGPL 회피).
+
+---
+
+## 4-1. XLSX 보강 상세 (2차 커밋)
+
+### Before
+read_only 모드로 셀 값만 join.
+
+### After
+1) **defined names (named range)** — read_only에서도 접근 가능. 항상 추출.
+2) **셀 코멘트** — read_only 미지원이라 2차 패스 (`read_only=False`)에서 추출.
+   - 큰 시트는 `max_row>5000` 또는 `max_column>200`이면 코멘트 스캔 스킵 (메모리/시간).
+3) **차트 제목** — `sheet._charts`의 title.tx.rich 트리 traversal.
+   openpyxl 버전마다 구조가 미묘하게 달라 방어적 helper(`_read_openpyxl_chart_title`)로 흡수.
+4) 2차 패스는 파일 크기 10MB 초과 시 통째 스킵 (메모리 폭주 방지).
+   1차 셀 값 추출은 이미 끝났으므로 손실 없음.
 
 ---
 

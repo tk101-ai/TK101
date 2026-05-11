@@ -281,17 +281,31 @@ def _extract_hwpx(path: str) -> str:
 
 
 def _extract_xlsx(path: str) -> str:
-    """XLSX 셀 값만 텍스트화.
+    """XLSX 셀 값 + 메타데이터(named range/코멘트/차트 제목) 텍스트화.
 
     - read_only=True + data_only=True: 수식 결과만, 메모리 효율 모드.
     - 시트당 XLSX_PER_SHEET_CHAR_LIMIT 도달 시 조기 종료 → 백만 셀 시트 폭주 차단.
     - 빈 셀/None은 스킵, 숫자는 str 변환.
+    - v0.8.0 보강: defined names(read_only에서도 접근 가능)는 항상 포함.
+      코멘트/차트 제목은 read_only가 지원 안 해서 작은 파일에 한해 2차 패스로 추출.
     """
     from openpyxl import load_workbook
 
     wb = load_workbook(path, read_only=True, data_only=True)
     try:
         all_parts: list[str] = []
+
+        # v0.8.0: 정의된 이름(named range) — 시트 안 상수/명명 영역의 이름은 검색에 유용.
+        # read_only 모드에서도 wb.defined_names 접근 가능.
+        try:
+            for dn in wb.defined_names:
+                # 버전에 따라 dn이 str일 수도, DefinedName 객체일 수도 있어 둘 다 처리.
+                name_val = dn if isinstance(dn, str) else getattr(dn, "name", None)
+                if name_val:
+                    all_parts.append(f"[정의된 이름] {name_val}")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("XLSX defined_names 추출 스킵: %s (%s)", path, exc)
+
         for sheet in wb.worksheets:
             sheet_chars = 0
             sheet_parts: list[str] = []
@@ -319,9 +333,101 @@ def _extract_xlsx(path: str) -> str:
                 # 시트별 헤더로 시트명도 검색 가능하게 prepend.
                 all_parts.append(f"[{sheet.title}]")
                 all_parts.extend(sheet_parts)
-        return "\n".join(all_parts).strip()
     finally:
         wb.close()
+
+    # v0.8.0 2차 패스: 코멘트/차트 제목 — read_only가 지원 안 해서 별도 워크북 오픈.
+    # 큰 파일은 메모리 폭주 위험 있어 스킵 (cell scan은 이미 끝났으니 손실 없음).
+    metadata_text = _extract_xlsx_metadata(path)
+    if metadata_text:
+        all_parts.append(metadata_text)
+
+    return "\n".join(all_parts).strip()
+
+
+# 2차 패스(non-read_only) 트리거 상한. 이보다 큰 XLSX는 코멘트/차트 메타 스킵.
+# read_only 모드 아닌 openpyxl은 전체 워크북을 메모리에 올려서 폭주 위험.
+XLSX_METADATA_MAX_BYTES = 10 * 1024 * 1024  # 10MB
+
+
+def _extract_xlsx_metadata(path: str) -> str:
+    """XLSX 코멘트 + 차트 제목 추출 (보강용 2차 패스).
+
+    read_only=False가 필요. 파일이 크면 메모리 폭주를 피해 그냥 빈 문자열.
+    실패는 항상 흡수 — 본 추출은 이미 1차 패스에서 끝났으므로 손실 없음.
+    """
+    import os
+
+    try:
+        if os.path.getsize(path) > XLSX_METADATA_MAX_BYTES:
+            logger.debug("XLSX 메타 2차 패스 스킵(파일 큼): %s", path)
+            return ""
+    except OSError:
+        return ""
+
+    from openpyxl import load_workbook
+
+    try:
+        wb = load_workbook(path, read_only=False, data_only=True)
+    except Exception as exc:  # noqa: BLE001 — 손상 파일 등 다양
+        logger.debug("XLSX 메타 워크북 로딩 실패: %s (%s)", path, exc)
+        return ""
+
+    parts: list[str] = []
+    try:
+        for sheet in wb.worksheets:
+            # 코멘트: sheet 안 cell.comment.text.
+            # openpyxl이 코멘트 인덱스를 유지 안 해서 셀 순회가 필요.
+            # 큰 시트는 비용이 크므로 max_row/max_col 가드.
+            try:
+                if sheet.max_row and sheet.max_row <= 5000 and sheet.max_column <= 200:
+                    for row in sheet.iter_rows():
+                        for cell in row:
+                            comment = getattr(cell, "comment", None)
+                            if comment and getattr(comment, "text", None):
+                                parts.append(f"[코멘트@{sheet.title}] {comment.text}")
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("XLSX 코멘트 스캔 스킵: %s/%s (%s)", path, sheet.title, exc)
+
+            # 차트 제목: sheet._charts는 비공식 API지만 가장 직접적인 접근.
+            try:
+                for chart in getattr(sheet, "_charts", []) or []:
+                    title_obj = getattr(chart, "title", None)
+                    title_text = _read_openpyxl_chart_title(title_obj)
+                    if title_text:
+                        parts.append(f"[차트@{sheet.title}] {title_text}")
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("XLSX 차트 제목 스캔 스킵: %s/%s (%s)", path, sheet.title, exc)
+    finally:
+        wb.close()
+
+    return "\n".join(parts).strip()
+
+
+def _read_openpyxl_chart_title(title_obj: object) -> str:
+    """openpyxl Chart.title 객체에서 실제 문자열만 뽑아낸다.
+
+    openpyxl title은 보통 Title 객체 안에 tx > rich > p > r > t 트리 또는 strRef.
+    버전마다 구조가 미묘하게 다르고 None일 수도 있어 방어적 traversal.
+    """
+    if title_obj is None:
+        return ""
+    if isinstance(title_obj, str):
+        return title_obj.strip()
+    # 흔한 경로: title.tx.rich.paragraphs[*].text[*].text
+    tx = getattr(title_obj, "tx", None)
+    rich = getattr(tx, "rich", None) if tx is not None else None
+    if rich is None:
+        return ""
+    paragraphs = getattr(rich, "paragraphs", None) or getattr(rich, "p", None) or []
+    fragments: list[str] = []
+    for p in paragraphs:
+        runs = getattr(p, "r", None) or []
+        for r in runs:
+            t = getattr(r, "t", None)
+            if t:
+                fragments.append(str(t))
+    return " ".join(fragments).strip()
 
 
 def chunk_text(
