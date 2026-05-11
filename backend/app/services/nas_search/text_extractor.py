@@ -8,6 +8,13 @@ v0.7.0 — 한글/엑셀 추가:
 - .hwp (HWP5 OLE): olefile로 PrvText 스트림(미리보기 ~10KB)만 추출. 본문 BinData는 복잡도 대비 가치 낮아 스킵.
 - .hwpx: zip+xml 표준 포맷이라 zipfile + xml.etree로 hp:t 텍스트 노드 추출.
 - .xlsx: openpyxl read_only 모드로 셀 값만 join. 큰 시트 폭주 방지를 위해 시트당 추출 길이 상한.
+
+v0.8.0 — 추출 품질 보강 (무료):
+- PPTX: shape.text만 보던 단순 경로에 그룹 도형 재귀, 발표자 노트, 표 cell, 차트 카테고리/시리즈를 추가.
+  디자인 PPT처럼 텍스트가 그룹 안에 묻혀있던 자료 회수율을 올린다.
+- PDF: pdfminer.six가 빈 결과를 반환한 경우 pdfplumber로 한 번 더 시도.
+  pdfplumber는 MIT 라이선스라 AGPL(PyMuPDF) 라이선스 이슈 없음.
+  OCR이 아니라 텍스트 레이어 추출 방식이 다른 두 엔진을 합쳐 회수율만 끌어올리는 목적.
 """
 from __future__ import annotations
 
@@ -17,6 +24,9 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 logger = logging.getLogger(__name__)
+
+# python-pptx의 MSO_SHAPE_TYPE.GROUP 값. import 비용 줄이려 상수로 박아둠.
+PPTX_GROUP_SHAPE_TYPE = 6
 
 # 문자 기반 청크 크기. token 환산은 모델별 편차가 커서 PoC에서는 단순화.
 DEFAULT_CHUNK_CHARS = 1500
@@ -59,9 +69,42 @@ def extract_text(path: str) -> str:
 
 
 def _extract_pdf(path: str) -> str:
+    """PDF 본문 추출.
+
+    1차: pdfminer.six (기존). 한국어/CJK 폰트에서 비교적 안정적.
+    2차 fallback: pdfplumber. pdfminer가 빈 결과를 돌려준 PDF 중에서도
+    텍스트 레이어가 살아있는 경우(특히 표/다단 레이아웃) 추출에 성공한다.
+    OCR이 아니라 텍스트 레이어 파싱 경로가 달라 회수율이 올라가는 효과.
+
+    둘 다 실패하면 빈 문자열 반환 → caller가 파일명 청크만 남긴다.
+    """
     from pdfminer.high_level import extract_text as pdf_extract
 
-    return (pdf_extract(path) or "").strip()
+    primary = (pdf_extract(path) or "").strip()
+    if primary:
+        return primary
+
+    # pdfminer가 빈 결과 → pdfplumber로 한 번 더 시도.
+    # pdfplumber 자체가 pdfminer.six를 깔고 그 위에서 레이아웃 분석을 다시 하므로
+    # 같은 폰트 인코딩 이슈가 재현될 수도 있지만, 표/다단 레이아웃 회수율이 의미있게 올라간다.
+    try:
+        import pdfplumber
+    except ImportError:
+        # 의존성 누락 시 조용히 1차 결과(빈 문자열) 반환. 운영 환경에서는 설치 보장.
+        logger.debug("pdfplumber 미설치 — PDF fallback 스킵: %s", path)
+        return ""
+
+    try:
+        parts: list[str] = []
+        with pdfplumber.open(path) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text() or ""
+                if page_text.strip():
+                    parts.append(page_text)
+        return "\n".join(parts).strip()
+    except Exception as exc:  # noqa: BLE001 — pdfplumber 내부 예외 종류가 다양
+        logger.debug("pdfplumber fallback 실패: %s (%s)", path, exc)
+        return ""
 
 
 def _extract_docx(path: str) -> str:
@@ -82,16 +125,81 @@ def _extract_docx(path: str) -> str:
 
 
 def _extract_pptx(path: str) -> str:
+    """PPTX 본문 추출 (v0.8.0 보강).
+
+    이전 버전은 `shape.text`만 읽어 그룹 도형/노트/표/차트 안의 텍스트가 인덱싱되지 않았다.
+    디자인 PPT가 대부분 그룹 도형을 사용해 7,600+개 추출 실패 파일의 상당수가 여기 해당.
+
+    이번 보강:
+    1) 그룹 도형 재귀 — `shape.shape_type == 6`이면 `shape.shapes`로 내려가 평탄화.
+    2) 발표자 노트 — `slide.notes_slide.notes_text_frame.text`.
+    3) 표 cell — `shape.has_table` 시 `shape.table` 순회.
+    4) 차트 — `shape.has_chart` 시 카테고리/시리즈 이름 정도만 (값까지는 검색 ROI 낮음).
+    """
     from pptx import Presentation
 
     prs = Presentation(path)
     parts: list[str] = []
+
     for slide in prs.slides:
-        for shape in slide.shapes:
+        _collect_pptx_shapes(slide.shapes, parts)
+
+        # 발표자 노트. notes_slide는 lazy property라 has_notes_slide로 먼저 검사.
+        if getattr(slide, "has_notes_slide", False):
+            notes_frame = getattr(slide.notes_slide, "notes_text_frame", None)
+            if notes_frame is not None and notes_frame.text:
+                parts.append(notes_frame.text)
+
+    return "\n".join(parts).strip()
+
+
+def _collect_pptx_shapes(shapes: object, parts: list[str]) -> None:
+    """슬라이드 shapes 트리를 재귀로 평탄화해 텍스트를 parts에 누적.
+
+    shape.shape_type이 GROUP이면 내부 shapes로 재귀. python-pptx의 GroupShape는
+    iterable이라 그대로 같은 함수로 재귀해도 동일하게 동작한다.
+    실패하는 도형 1개 때문에 전체 추출이 죽지 않도록 항목별 try/except로 흡수.
+    """
+    for shape in shapes:
+        try:
+            shape_type = getattr(shape, "shape_type", None)
+            if shape_type == PPTX_GROUP_SHAPE_TYPE:
+                inner = getattr(shape, "shapes", None)
+                if inner is not None:
+                    _collect_pptx_shapes(inner, parts)
+                continue
+
+            # 표: cell.text는 cell 안의 모든 paragraph를 합쳐주는 편의 속성.
+            if getattr(shape, "has_table", False):
+                for row in shape.table.rows:
+                    for cell in row.cells:
+                        if cell.text:
+                            parts.append(cell.text)
+                continue
+
+            # 차트: 카테고리 + 시리즈 이름. 값까지 넣으면 노이즈가 커져서 제외.
+            if getattr(shape, "has_chart", False):
+                try:
+                    chart = shape.chart
+                    for plot in chart.plots:
+                        for cat in plot.categories:
+                            if cat:
+                                parts.append(str(cat))
+                        for series in plot.series:
+                            name = getattr(series, "name", None)
+                            if name:
+                                parts.append(str(name))
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("PPTX 차트 추출 스킵: %s", exc)
+                continue
+
+            # 일반 텍스트 프레임.
             text = getattr(shape, "text", None)
             if text:
                 parts.append(text)
-    return "\n".join(parts).strip()
+        except Exception as exc:  # noqa: BLE001 — 도형 하나 때문에 전체가 죽지 않게.
+            logger.debug("PPTX shape 1개 추출 스킵: %s", exc)
+            continue
 
 
 def _extract_hwp(path: str) -> str:

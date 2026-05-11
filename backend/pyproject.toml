@@ -19,6 +19,9 @@ dependencies = [
     # NAS 자료 검색 (v0.6.0 PoC) ------------------------------------------------
     "pgvector>=0.3",
     "pdfminer.six>=20231228",
+    # v0.8.0 — PDF 추출 fallback. pdfminer가 빈 결과를 돌려준 PDF를 한 번 더 시도.
+    # MIT 라이선스라 AGPL(PyMuPDF) 회피. 표/다단 레이아웃 회수율 향상이 주 목적.
+    "pdfplumber>=0.11",
     "python-docx>=1.1",
     "python-pptx>=1.0",
     "sentence-transformers>=3.0",
