@@ -22,7 +22,9 @@ export function useAuth() {
   }, []);
 
   useEffect(() => {
-    checkAuth();
+    // 마운트 시 인증 상태 확인 → setUser/setLoading (의도된 패턴).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void checkAuth();
   }, [checkAuth]);
 
   const logout = () => {

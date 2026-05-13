@@ -71,7 +71,9 @@ export default function SnsAccounts() {
   }, []);
 
   useEffect(() => {
-    fetchData();
+    // 마운트/콜백 변경 시 SNS 계정 fetch (의도된 패턴).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchData();
   }, [fetchData]);
 
   const handleCreate = async (values: AccountFormValues) => {

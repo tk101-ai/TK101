@@ -11,14 +11,14 @@ from app.models.account import Account
 from app.models.transaction import Transaction
 from app.models.upload_log import UploadLog
 from app.models.user import User
-from app.modules.constants import UserRole
+from app.modules.constants import Module, UserRole
 from app.schemas.upload_log import UploadLogRead
 from app.services.excel import parse_bank_excel
 
 router = APIRouter(
     prefix="/api/uploads",
     tags=["uploads"],
-    dependencies=[Depends(require_module("finance"))],
+    dependencies=[Depends(require_module(Module.FINANCE.value))],
 )
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB

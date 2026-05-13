@@ -6,13 +6,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers import (
     accounts,
+    attachments,
     auth,
+    balance_snapshots,
+    bank_import,
+    categories,
+    counterparts,
     forms,
     matching,
     nas_search,
+    review_translation,
     sns,
     tax_invoices,
     transactions,
+    upload_history,
     uploads,
     users,
 )
@@ -37,6 +44,8 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(accounts.router)
 app.include_router(transactions.router)
+# attachments 는 prefix=/api/transactions 공유. 경로별 매칭이므로 충돌 없음.
+app.include_router(attachments.router)
 app.include_router(uploads.router)
 app.include_router(matching.router)
 app.include_router(tax_invoices.router)
@@ -44,6 +53,13 @@ app.include_router(sns.router)
 app.include_router(sns.internal_router)
 app.include_router(nas_search.router)
 app.include_router(forms.router)
+app.include_router(review_translation.router)
+# Wave 2 재무 모듈 신규 라우터
+app.include_router(bank_import.router)
+app.include_router(categories.router)
+app.include_router(counterparts.router)
+app.include_router(upload_history.router)
+app.include_router(balance_snapshots.router)
 
 
 @app.get("/health")

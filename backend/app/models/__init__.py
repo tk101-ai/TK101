@@ -13,6 +13,10 @@ from app.models.form_filler import (
     FormRevision,
     FormTemplate,
 )
+from app.models.review_translation import ReviewTranslation
+from app.models.category import Category
+from app.models.counterpart import Counterpart
+from app.models.account_balance_snapshot import AccountBalanceSnapshot
 
 __all__ = [
     "Base",
@@ -31,4 +35,8 @@ __all__ = [
     "FormDataSource",
     "FormMapping",
     "FormRevision",
+    "ReviewTranslation",
+    "Category",
+    "Counterpart",
+    "AccountBalanceSnapshot",
 ]

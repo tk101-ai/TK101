@@ -35,7 +35,9 @@ export default function Users() {
   }, []);
 
   useEffect(() => {
-    fetchData();
+    // 마운트 시 사용자 목록 fetch (의도된 패턴).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchData();
   }, [fetchData]);
 
   const handleCreate = async (values: Record<string, string>) => {

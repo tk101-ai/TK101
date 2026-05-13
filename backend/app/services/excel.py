@@ -1,6 +1,12 @@
 """Bank statement Excel parser for 6 Korean banks.
 
 Supported banks: KB국민, IBK기업, NH농협, 신한, 우리, 하나
+
+.. deprecated:: v0.9 (Wave 2)
+    이 모듈은 ``backend/app/routers/uploads.py`` 백워드 호환을 위해 유지.
+    신규 호출자는 ``app.services.bank_import`` (자동 인식 + 자동 계좌 등록 +
+    중복 차단 + 외화 지원) 를 사용할 것. 이 파일은 외화 미지원·수동 bank_name
+    필수의 구버전이다. Wave 5 에서 ``routers/uploads.py`` 와 함께 제거 예정.
 """
 from __future__ import annotations
 

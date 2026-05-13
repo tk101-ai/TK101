@@ -223,7 +223,9 @@ export default function Marketing1Dashboard() {
   }, [year, month, topLanguage, topPlatform]);
 
   useEffect(() => {
-    fetchData();
+    // 필터 변경 시 마케팅 대시보드 재요청 (의도된 패턴).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchData();
   }, [fetchData]);
 
   // ----- Pivoted weekly rows + totals -----

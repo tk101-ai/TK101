@@ -21,7 +21,10 @@ async def reconcile_invoices(db: AsyncSession, date_tolerance_days: int = 5):
     invoices = list(unmatched_invoices.scalars().all())
 
     unmatched_txns = await db.execute(
-        select(Transaction).where(Transaction.match_status.in_(["unmatched", "matched"]))
+        select(Transaction).where(
+            Transaction.match_status.in_(["unmatched", "matched"]),
+            Transaction.is_deleted.is_(False),
+        )
     )
     txns = list(unmatched_txns.scalars().all())
 

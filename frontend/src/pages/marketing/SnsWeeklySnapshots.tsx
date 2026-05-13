@@ -50,7 +50,9 @@ export default function SnsWeeklySnapshots() {
   }, [year, month]);
 
   useEffect(() => {
-    fetchData();
+    // year/month 변경 시 주차별 스냅샷 fetch (의도된 패턴).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchData();
   }, [fetchData]);
 
   const rows: SnapshotRow[] = useMemo(() => {

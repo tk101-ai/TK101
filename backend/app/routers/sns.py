@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_admin, require_internal_token, require_module
 from app.models.sns import SocialAccount, SocialPost, SocialWeeklySnapshot
+from app.modules.constants import Module
 from app.schemas.sns import (
     AccountCreate,
     AccountRead,
@@ -29,7 +30,7 @@ from app.schemas.sns import (
 router = APIRouter(
     prefix="/api/sns",
     tags=["sns"],
-    dependencies=[Depends(require_module("marketing_sns"))],
+    dependencies=[Depends(require_module(Module.MARKETING_SNS.value))],
 )
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB

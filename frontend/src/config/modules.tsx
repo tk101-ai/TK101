@@ -1,14 +1,20 @@
 import {
+  ApartmentOutlined,
   BankOutlined,
   CloudUploadOutlined,
+  ContactsOutlined,
   DashboardOutlined,
   EditOutlined,
   FileTextOutlined,
+  HistoryOutlined,
+  ImportOutlined,
+  LinkOutlined,
   RiseOutlined,
   SearchOutlined,
   ShareAltOutlined,
   SwapOutlined,
   TeamOutlined,
+  TranslationOutlined,
 } from "@ant-design/icons";
 import type { MenuProps } from "antd";
 import type { ReactNode } from "react";
@@ -53,6 +59,7 @@ export const NAV_CATEGORIES = {
   new_business: { label: "신사업팀", order: 40 },
   new_media: { label: "뉴미디어팀", order: 50 },
   design: { label: "디자인팀", order: 60 },
+  settings: { label: "설정", order: 90 },
   system: { label: "시스템", order: 99 },
 } as const satisfies Record<string, NavCategoryDef>;
 
@@ -73,12 +80,18 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "forms-new", path: "/forms/new", label: "문서 자동 작성 (v0.1)", icon: <EditOutlined />, module: "form_filler", category: "common" },
   { key: "forms-library", path: "/forms/library", label: "양식 라이브러리", icon: <FileTextOutlined />, module: "form_filler", category: "common" },
   { key: "transactions", path: "/transactions", label: "거래내역", icon: <SwapOutlined />, module: "finance", category: "finance" },
+  { key: "finance-import", path: "/finance/import", label: "거래 가져오기", icon: <ImportOutlined />, module: "finance", category: "finance" },
+  { key: "finance-matching", path: "/finance/matching", label: "매칭 워크북", icon: <LinkOutlined />, module: "finance", category: "finance" },
+  { key: "finance-upload-history", path: "/finance/upload-history", label: "업로드 이력", icon: <HistoryOutlined />, module: "finance", category: "finance" },
   { key: "tax-invoices", path: "/tax-invoices", label: "세금계산서", icon: <FileTextOutlined />, module: "finance", category: "finance" },
   { key: "accounts", path: "/accounts", label: "계좌 관리", icon: <BankOutlined />, module: "finance", category: "finance" },
+  { key: "settings-categories", path: "/settings/categories", label: "카테고리 관리", icon: <ApartmentOutlined />, module: "finance", category: "settings" },
+  { key: "settings-counterparts", path: "/settings/counterparts", label: "거래처 관리", icon: <ContactsOutlined />, module: "finance", category: "settings" },
   { key: "sns-posts", path: "/sns/posts", label: "SNS 콘텐츠", icon: <FileTextOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "sns-snapshots", path: "/sns/snapshots", label: "주간 팔로워", icon: <RiseOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "sns-accounts", path: "/sns/accounts", label: "SNS 계정", icon: <ShareAltOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "sns-import", path: "/sns/import", label: "엑셀 가져오기", icon: <CloudUploadOutlined />, module: "marketing_sns", category: "marketing_1" },
+  { key: "review-translation", path: "/marketing/review-translation", label: "체험단 번역", icon: <TranslationOutlined />, module: "review_translation", category: "marketing_1" },
   { key: "users", path: "/users", label: "사용자 관리", icon: <TeamOutlined />, module: "users", category: "system" },
 ];
 

@@ -25,7 +25,10 @@ export default function TaxInvoices() {
   };
 
   useEffect(() => {
-    fetchData();
+    // 마운트 시 데이터 fetch (의도된 패턴).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSearch = () => fetchData();

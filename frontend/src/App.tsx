@@ -14,12 +14,18 @@ import SnsAccounts from "./pages/marketing/SnsAccounts";
 import SnsPosts from "./pages/marketing/SnsPosts";
 import SnsWeeklySnapshots from "./pages/marketing/SnsWeeklySnapshots";
 import SnsExcelImport from "./pages/marketing/SnsExcelImport";
+import ReviewTranslationPage from "./pages/marketing/ReviewTranslation";
 import NasSearch from "./pages/nas/Search";
 import FormUploadPage from "./pages/forms/FormUploadPage";
 import FormReviewPage from "./pages/forms/FormReviewPage";
 import FormLibraryPage from "./pages/forms/FormLibraryPage";
 import JobNewPage from "./pages/forms/JobNewPage";
 import JobMappingPage from "./pages/forms/JobMappingPage";
+import TransactionImport from "./pages/finance/TransactionImport";
+import MatchingWorkbook from "./pages/finance/MatchingWorkbook";
+import UploadHistory from "./pages/finance/UploadHistory";
+import CategoryPage from "./pages/settings/CategoryPage";
+import CounterpartPage from "./pages/settings/CounterpartPage";
 
 function App() {
   const { user, loading, logout, checkAuth } = useAuth();
@@ -65,6 +71,46 @@ function App() {
                 }
               />
               <Route
+                path="/finance/import"
+                element={
+                  <ProtectedRoute user={user} module="finance">
+                    <TransactionImport />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/finance/matching"
+                element={
+                  <ProtectedRoute user={user} module="finance">
+                    <MatchingWorkbook />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/finance/upload-history"
+                element={
+                  <ProtectedRoute user={user} module="finance">
+                    <UploadHistory />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings/categories"
+                element={
+                  <ProtectedRoute user={user} module="finance">
+                    <CategoryPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings/counterparts"
+                element={
+                  <ProtectedRoute user={user} module="finance">
+                    <CounterpartPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/users"
                 element={
                   <ProtectedRoute user={user} module="users">
@@ -101,6 +147,14 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="marketing_sns">
                     <SnsExcelImport />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/marketing/review-translation"
+                element={
+                  <ProtectedRoute user={user} module="review_translation">
+                    <ReviewTranslationPage />
                   </ProtectedRoute>
                 }
               />

@@ -36,3 +36,6 @@ class Module(str, Enum):
     # T5 트랙: 범용 문서 자동 작성기 (PRD T5_범용문서자동작성기 FR-10).
     # MVP 단계는 P-AI 1명 + 검수 강제 모델, 부서 cap은 Phase 2.
     FORM_FILLER = "form_filler"
+    # 업무개선요구사항 #17: 현대아울렛 체험단 중→한 번역 자동저장 모듈.
+    # 마케팅1팀(주관) + 관리자만 접근. Haiku 4.5 라우팅 (NFR-02 비용 절감).
+    REVIEW_TRANSLATION = "review_translation"

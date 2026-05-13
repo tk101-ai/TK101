@@ -54,7 +54,9 @@ export default function JobMappingPage() {
   };
 
   useEffect(() => {
-    refresh();
+    // id 변경 시 작업 매핑 재요청 (의도된 패턴).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 

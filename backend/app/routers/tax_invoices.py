@@ -7,12 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_admin, require_module
 from app.models.tax_invoice import TaxInvoice
+from app.modules.constants import Module
 from app.schemas.tax_invoice import TaxInvoiceRead
 
 router = APIRouter(
     prefix="/api/tax-invoices",
     tags=["tax-invoices"],
-    dependencies=[Depends(require_module("finance"))],
+    dependencies=[Depends(require_module(Module.FINANCE.value))],
 )
 
 

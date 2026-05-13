@@ -47,6 +47,7 @@ const PERIOD_OPTIONS: PeriodOption[] = [
  * `period` 키를 ISO mtime_from 문자열로 변환한다.
  * "전체"면 undefined를 반환해 백엔드 측에서 필터를 제외하도록 한다.
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function periodToMtimeFrom(period: NasPeriodKey, now: Date = new Date()): string | undefined {
   if (period === "all") return undefined;
   const from = new Date(now.getTime());

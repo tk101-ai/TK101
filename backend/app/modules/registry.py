@@ -25,6 +25,8 @@ DEPARTMENT_MODULES: dict[str, list[str]] = {
         Module.MARKETING_SNS.value,
         Module.NAS_SEARCH.value,
         Module.FORM_FILLER.value,
+        # 체험단 번역: 마케팅1팀(현대아울렛 등 체험단 운영) 주관.
+        Module.REVIEW_TRANSLATION.value,
     ],
     Department.MARKETING_2.value: [
         Module.DASHBOARD.value,

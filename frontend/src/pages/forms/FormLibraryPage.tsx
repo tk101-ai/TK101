@@ -31,7 +31,9 @@ export default function FormLibraryPage() {
   };
 
   useEffect(() => {
-    fetch();
+    // 마운트 시 폼 라이브러리 fetch (의도된 패턴).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

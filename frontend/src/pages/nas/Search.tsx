@@ -99,9 +99,11 @@ export default function NasSearch() {
   }, [fetchIndexStatus, fetchStatus, stopPolling]);
 
   useEffect(() => {
-    fetchStatus();
-    fetchTopFolders();
-    fetchIndexStatus().then((data) => {
+    // 마운트 시 NAS 상태/인덱스/폴더 fetch + 실행 중이면 폴링 시작 (의도된 패턴).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchStatus();
+    void fetchTopFolders();
+    void fetchIndexStatus().then((data) => {
       if (data?.running) startPolling();
     });
     return () => stopPolling();

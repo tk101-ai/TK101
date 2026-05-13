@@ -5,12 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_admin, require_module
 from app.models.account import Account
+from app.modules.constants import Module
 from app.schemas.account import AccountCreate, AccountRead, AccountUpdate
 
 router = APIRouter(
     prefix="/api/accounts",
     tags=["accounts"],
-    dependencies=[Depends(require_module("finance"))],
+    dependencies=[Depends(require_module(Module.FINANCE.value))],
 )
 
 

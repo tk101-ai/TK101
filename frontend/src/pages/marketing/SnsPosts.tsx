@@ -90,11 +90,15 @@ export default function SnsPosts() {
   }, [filters]);
 
   useEffect(() => {
-    fetchAccounts();
+    // 계정 목록 fetch (의도된 패턴).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchAccounts();
   }, [fetchAccounts]);
 
   useEffect(() => {
-    fetchData();
+    // 필터 변경 시 콘텐츠 fetch (의도된 패턴).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchData();
   }, [fetchData]);
 
   const accountMap = new Map(accounts.map((a) => [a.id, a]));

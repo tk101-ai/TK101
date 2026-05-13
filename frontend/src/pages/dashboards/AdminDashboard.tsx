@@ -67,7 +67,9 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
-    fetchStats();
+    // 마운트 시 관리자 통계 fetch (의도된 패턴).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchStats();
   }, [fetchStats]);
 
   const deptColumns: ColumnsType<DepartmentStat> = [
