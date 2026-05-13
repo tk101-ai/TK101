@@ -92,8 +92,15 @@ services:
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
       # T8 AI Playground — Tencent MPaaS AIGC (OpenAI-compatible 단일 endpoint).
+      # 수동 모드 (디버깅용 fallback). 자동 모드 미설정 시 503.
       TENCENT_AIGC_API_KEY: ${TENCENT_AIGC_API_KEY:-}
       TENCENT_AIGC_BASE_URL: ${TENCENT_AIGC_BASE_URL:-https://text-aigc.vod-qcloud.com/v1}
+      # 자동 모드 — CreateAigcApiToken (TC3-HMAC-SHA256). 권장.
+      TENCENT_AIGC_SUBAPP_ID: ${TENCENT_AIGC_SUBAPP_ID:-}
+      TENCENT_AIGC_SECRET_ID: ${TENCENT_AIGC_SECRET_ID:-}
+      TENCENT_AIGC_SECRET_KEY: ${TENCENT_AIGC_SECRET_KEY:-}
+      TENCENT_AIGC_VOD_ENDPOINT: ${TENCENT_AIGC_VOD_ENDPOINT:-vod.tencentcloudapi.com}
+      TENCENT_AIGC_REGION: ${TENCENT_AIGC_REGION:-ap-seoul}
     volumes:
       # 호스트 NAS SSHFS 마운트를 컨테이너에 read-only bind. 호스트 fstab은 ro 마운트 권장.
       - ${NAS_MOUNT_PATH:-/mnt/nas}:/mnt/nas:ro

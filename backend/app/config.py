@@ -46,9 +46,20 @@ class Settings(BaseSettings):
 
     # T8 AI Playground — Tencent MPaaS AIGC (OpenAI-compatible) -----------------
     # 단일 endpoint 로 8 공급자 (Claude/GPT/Gemini/Grok/Kimi/GLM/MiniMax/DeepSeek) 호출.
-    # 빈 값으로 두면 백엔드는 기동되지만 /api/playground/chat 호출 시 503 RuntimeError.
+    # 두 가지 인증 모드:
+    #   (a) 수동 모드 — tencent_aigc_api_key 직접 주입 (fallback, 디버깅용).
+    #   (b) 자동 모드 — tencent_aigc_secret_id/key + subapp_id 로 VOD CreateAigcApiToken
+    #       자동 호출 → ApiToken 캐시 (55분 TTL). (a)/(b) 동시 설정 시 (a) 우선.
     tencent_aigc_api_key: str = ""
     tencent_aigc_base_url: str = "https://text-aigc.vod-qcloud.com/v1"
+    # 자동 ApiToken 발급 (TC3-HMAC-SHA256, vod.tencentcloudapi.com / CreateAigcApiToken).
+    tencent_aigc_subapp_id: str = ""  # 예: "1500033704"
+    tencent_aigc_secret_id: str = ""  # 텐센트 클라우드 SecretId
+    tencent_aigc_secret_key: str = ""  # 텐센트 클라우드 SecretKey
+    tencent_aigc_vod_endpoint: str = "vod.tencentcloudapi.com"
+    tencent_aigc_region: str = "ap-seoul"
+    # 캐시 만료 (실 ApiToken TTL 1시간 가정, 보수적으로 55분).
+    tencent_aigc_token_ttl_seconds: int = 3300
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
