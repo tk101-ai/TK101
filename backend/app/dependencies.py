@@ -1,7 +1,6 @@
 import secrets
 
-from fastapi import Depends, Header, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends, Header, HTTPException, Request, status
 from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,15 +12,34 @@ from app.modules.constants import UserRole
 from app.modules.registry import user_has_module
 from app.services.auth import decode_token
 
-security = HTTPBearer()
+
+def _extract_token(request: Request) -> str | None:
+    """Pull bearer token from Authorization header, falling back to cookie.
+
+    Authorization header takes precedence so existing API clients keep working;
+    httpOnly cookie fallback enables browser navigations like window.open("/n8n/")
+    where the JS layer cannot attach an Authorization header.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        candidate = auth_header[7:].strip()
+        if candidate:
+            return candidate
+    cookie_token = request.cookies.get("access_token")
+    if cookie_token:
+        return cookie_token
+    return None
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="인증 필요")
     try:
-        payload = decode_token(credentials.credentials)
+        payload = decode_token(token)
         user_id = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")

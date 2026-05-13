@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getMe, type User } from "../api/auth";
+import { getMe, logout as logoutApi, type User } from "../api/auth";
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -27,7 +27,14 @@ export function useAuth() {
     void checkAuth();
   }, [checkAuth]);
 
-  const logout = () => {
+  const logout = async () => {
+    // Ask backend to clear the httpOnly access_token cookie; ignore network failures
+    // so a stale session never traps the user on the page.
+    try {
+      await logoutApi();
+    } catch {
+      // best-effort: cookie may already be expired or backend unreachable.
+    }
     localStorage.removeItem("token");
     setUser(null);
     window.location.href = "/login";

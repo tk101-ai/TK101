@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.modules.registry import get_user_modules
 from app.schemas.auth import LoginRequest, TokenResponse
@@ -12,9 +12,14 @@ from app.services.auth import create_access_token, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+# 24h, matches typical JWT expiry; httpOnly cookie complements the Bearer flow
+# so browser navigations (e.g. window.open("/n8n/")) carry credentials too.
+ACCESS_COOKIE_NAME = "access_token"
+ACCESS_COOKIE_MAX_AGE = 24 * 60 * 60
+
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(body.password, user.hashed_password):
@@ -22,7 +27,24 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
     token = create_access_token({"sub": str(user.id)})
+    # secure=False because the live host is still plain HTTP; flip to True when HTTPS is added.
+    response.set_cookie(
+        key=ACCESS_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="strict",
+        secure=False,
+        max_age=ACCESS_COOKIE_MAX_AGE,
+        path="/",
+    )
     return TokenResponse(access_token=token)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(response: Response, _user: User = Depends(get_current_user)) -> None:
+    """Clear the httpOnly access_token cookie. Front-end still drops its localStorage token."""
+    response.delete_cookie(key=ACCESS_COOKIE_NAME, path="/")
+    return None
 
 
 @router.get("/me", response_model=UserMe)
@@ -37,3 +59,12 @@ async def me(current_user: User = Depends(get_current_user)):
         created_at=current_user.created_at,
         modules=get_user_modules(current_user),
     )
+
+
+@router.get("/admin-check")
+async def admin_check(user: User = Depends(require_admin)) -> Response:
+    """Lightweight admin gate for nginx auth_request (e.g. /n8n/ reverse proxy).
+
+    Returns 200 + X-User-Email header for admins; require_admin raises 401/403 otherwise.
+    """
+    return Response(status_code=status.HTTP_200_OK, headers={"X-User-Email": user.email})

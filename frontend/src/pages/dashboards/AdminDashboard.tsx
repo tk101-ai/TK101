@@ -4,12 +4,17 @@ import {
   ApartmentOutlined,
   AppstoreOutlined,
   CheckCircleOutlined,
+  CloseCircleOutlined,
   LinkOutlined,
+  CloudServerOutlined,
+  ClockCircleOutlined,
 } from "@ant-design/icons";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import type { ColumnsType } from "antd/es/table";
+import dayjs from "dayjs";
 import api from "../../api/client";
-import { getDepartmentLabel } from "../../config/modules";
+import { getNasStatus, type NasStatus } from "../../api/nas";
+import { getDepartmentLabel, NAV_ITEMS } from "../../config/modules";
 
 interface DepartmentStat {
   department: string;
@@ -23,14 +28,13 @@ interface ExternalLink {
   color: string;
 }
 
-const FIXED_DEPARTMENT_COUNT = 7;
-const FIXED_MODULE_COUNT = 3;
-
+// 외부 시스템 URL은 nginx 리버스 프록시(/n8n) 경유를 표준으로 한다.
+// 추후 직접 포트(:5678)를 외부에 노출하지 않도록 정합성 유지.
 const EXTERNAL_LINKS: ExternalLink[] = [
   {
     title: "n8n 워크플로",
-    description: "자동화 워크플로 관리",
-    url: "http://43.155.202.112:5678",
+    description: "자동화 워크플로 관리 (관리자 전용 리버스 프록시)",
+    url: "/n8n/",
     color: "#ea4b71",
   },
   {
@@ -50,17 +54,37 @@ const EXTERNAL_LINKS: ExternalLink[] = [
 export default function AdminDashboard() {
   const [deptStats, setDeptStats] = useState<DepartmentStat[]>([]);
   const [totalUsers, setTotalUsers] = useState(0);
+  const [nasStatus, setNasStatus] = useState<NasStatus | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // 모듈 수: 백엔드에 /api/modules 가 없으므로 frontend NAV_ITEMS의 distinct module 개수로 산정.
+  // (사이드바에 등록되지 않은 백엔드-only 모듈은 카운트에서 제외 — 사용자가 보는 모듈 기준.)
+  const moduleCount = useMemo(() => {
+    const set = new Set(NAV_ITEMS.map((i) => i.module));
+    return set.size;
+  }, []);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get<DepartmentStat[]>("/api/users/stats");
-      const data = res.data ?? [];
-      setDeptStats(data);
-      setTotalUsers(data.reduce((sum, d) => sum + (d.count ?? 0), 0));
-    } catch {
-      message.error("관리자 통계를 불러오는데 실패했습니다.");
+      // 부서 통계와 NAS 상태를 병렬 fetch — 한 쪽 실패해도 다른 쪽은 노출되도록 settle 처리.
+      const [usersRes, nasRes] = await Promise.allSettled([
+        api.get<DepartmentStat[]>("/api/users/stats"),
+        getNasStatus(),
+      ]);
+
+      if (usersRes.status === "fulfilled") {
+        const data = usersRes.value.data ?? [];
+        setDeptStats(data);
+        setTotalUsers(data.reduce((sum, d) => sum + (d.count ?? 0), 0));
+      } else {
+        message.error("부서 통계를 불러오는데 실패했습니다.");
+      }
+
+      if (nasRes.status === "fulfilled") {
+        setNasStatus(nasRes.value.data);
+      }
+      // NAS 실패는 에러 토스트 안 띄움 — 보조 정보라 조용히 fallback.
     } finally {
       setLoading(false);
     }
@@ -95,6 +119,18 @@ export default function AdminDashboard() {
     },
   ];
 
+  const nasIndexProgress = useMemo(() => {
+    if (!nasStatus || nasStatus.total_files === 0) return 0;
+    return Math.round((nasStatus.indexed_files / nasStatus.total_files) * 100);
+  }, [nasStatus]);
+
+  const lastIndexedLabel = useMemo(() => {
+    if (!nasStatus?.last_indexed_at) return "기록 없음";
+    return dayjs(nasStatus.last_indexed_at).format("MM-DD HH:mm");
+  }, [nasStatus]);
+
+  const systemHealthy = nasStatus?.mount_ok !== false;
+
   return (
     <Spin spinning={loading} size="large">
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
@@ -110,7 +146,7 @@ export default function AdminDashboard() {
           관리자 대시보드
         </h2>
 
-        {/* Summary Cards */}
+        {/* Summary Cards (1행: 운영 KPI) */}
         <Row gutter={[16, 16]}>
           <Col xs={24} sm={12} lg={6}>
             <Card
@@ -134,8 +170,8 @@ export default function AdminDashboard() {
               styles={{ body: { padding: "20px 24px" } }}
             >
               <Statistic
-                title="총 부서 수"
-                value={FIXED_DEPARTMENT_COUNT}
+                title="활성 부서 수"
+                value={deptStats.length}
                 prefix={<ApartmentOutlined style={{ color: "#722ed1" }} />}
                 suffix="개"
               />
@@ -150,7 +186,7 @@ export default function AdminDashboard() {
             >
               <Statistic
                 title="등록된 모듈 수"
-                value={FIXED_MODULE_COUNT}
+                value={moduleCount}
                 prefix={<AppstoreOutlined style={{ color: "#fa8c16" }} />}
                 suffix="개"
               />
@@ -160,14 +196,71 @@ export default function AdminDashboard() {
           <Col xs={24} sm={12} lg={6}>
             <Card
               hoverable
-              style={{ borderLeft: "3px solid #52c41a" }}
+              style={{
+                borderLeft: `3px solid ${systemHealthy ? "#52c41a" : "#cf1322"}`,
+              }}
               styles={{ body: { padding: "20px 24px" } }}
             >
               <Statistic
                 title="시스템 상태"
-                value="정상"
-                prefix={<CheckCircleOutlined style={{ color: "#52c41a" }} />}
-                valueStyle={{ color: "#52c41a" }}
+                value={systemHealthy ? "정상" : "NAS 점검 필요"}
+                prefix={
+                  systemHealthy ? (
+                    <CheckCircleOutlined style={{ color: "#52c41a" }} />
+                  ) : (
+                    <CloseCircleOutlined style={{ color: "#cf1322" }} />
+                  )
+                }
+                valueStyle={{
+                  color: systemHealthy ? "#52c41a" : "#cf1322",
+                  fontSize: 18,
+                }}
+              />
+            </Card>
+          </Col>
+        </Row>
+
+        {/* Summary Cards (2행: NAS 인덱싱 헬스) */}
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={24} sm={12} lg={8}>
+            <Card
+              hoverable
+              style={{ borderLeft: "3px solid #13c2c2" }}
+              styles={{ body: { padding: "20px 24px" } }}
+            >
+              <Statistic
+                title="NAS 인덱싱 파일 수"
+                value={nasStatus?.indexed_files ?? 0}
+                prefix={<CloudServerOutlined style={{ color: "#13c2c2" }} />}
+                suffix={`/ ${(nasStatus?.total_files ?? 0).toLocaleString("ko-KR")}건`}
+              />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={8}>
+            <Card
+              hoverable
+              style={{ borderLeft: "3px solid #2f54eb" }}
+              styles={{ body: { padding: "20px 24px" } }}
+            >
+              <Statistic
+                title="NAS 인덱싱 진행률"
+                value={nasIndexProgress}
+                suffix="%"
+                valueStyle={{ fontSize: 22, fontWeight: 700 }}
+              />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={8}>
+            <Card
+              hoverable
+              style={{ borderLeft: "3px solid #8c8c8c" }}
+              styles={{ body: { padding: "20px 24px" } }}
+            >
+              <Statistic
+                title="마지막 인덱싱"
+                value={lastIndexedLabel}
+                prefix={<ClockCircleOutlined style={{ color: "#8c8c8c" }} />}
+                valueStyle={{ fontSize: 18 }}
               />
             </Card>
           </Col>

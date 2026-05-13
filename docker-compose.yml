@@ -37,6 +37,12 @@ services:
       DB_POSTGRESDB_USER: ${POSTGRES_USER:-tk101}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY required}
+      # nginx reverse proxy at /n8n/ (frontend:8080) — see frontend/nginx.conf
+      N8N_PATH: /n8n/
+      N8N_PROTOCOL: http
+      N8N_HOST: ${N8N_PUBLIC_HOST:-43.155.202.112}
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://43.155.202.112:8080/n8n/}
+      N8N_PROXY_HOPS: "1"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - n8n_data:/home/node/.n8n
@@ -108,6 +114,7 @@ services:
       - "8080:80"
     depends_on:
       - backend
+      - n8n
 
   # --- Langfuse (LLM observability) ---
   langfuse:

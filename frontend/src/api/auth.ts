@@ -20,3 +20,5 @@ export const login = (data: LoginRequest) =>
   api.post<{ access_token: string; token_type: string }>("/api/auth/login", data);
 
 export const getMe = () => api.get<User>("/api/auth/me");
+
+export const logout = () => api.post<void>("/api/auth/logout");

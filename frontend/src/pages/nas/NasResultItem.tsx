@@ -1,4 +1,5 @@
-import { List, message, Space, Tag } from "antd";
+import { useState, type ReactNode } from "react";
+import { List, message, Space, Tag, Tooltip } from "antd";
 import {
   FileOutlined,
   FilePdfOutlined,
@@ -7,13 +8,16 @@ import {
   FileExcelOutlined,
   FileImageOutlined,
 } from "@ant-design/icons";
-import type { ReactNode } from "react";
 import { downloadNasFile, type NasSearchHit } from "../../api/nas";
 import { fileIconType, formatDate, formatFileSize } from "./nasUtils";
 
 interface NasResultItemProps {
   hit: NasSearchHit;
+  /** 매칭 하이라이트용 검색어. 비어있으면 하이라이트 미적용. */
+  highlight?: string;
 }
+
+const SNIPPET_PREVIEW_CHARS = 140;
 
 function pickIcon(mimeType: string, fileType: string): ReactNode {
   const kind = fileIconType(mimeType, fileType);
@@ -44,7 +48,46 @@ function scoreColor(score: number): string {
   return "default";
 }
 
-export default function NasResultItem({ hit }: NasResultItemProps) {
+function scoreLabel(score: number): string {
+  // 점수 백분율(소수점 0자리). 0~1 + 파일명 가산점 0.2 까지 들어올 수 있어 100% 캡.
+  const pct = Math.max(0, Math.min(100, Math.round(score * 100)));
+  return `${pct}%`;
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * 검색어 토큰을 snippet 안에서 <mark>로 감싸 돌려준다.
+ * 공백 단위 토큰화. 빈 토큰은 무시. 토큰 1자도 허용(한글 1글자 매칭 케이스).
+ */
+function highlightSnippet(text: string, query: string | undefined): ReactNode {
+  if (!query || !text) return text;
+  const tokens = query
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+  if (tokens.length === 0) return text;
+  const pattern = new RegExp(`(${tokens.map(escapeRegExp).join("|")})`, "gi");
+  const parts = text.split(pattern);
+  return parts.map((part, idx) =>
+    pattern.test(part) ? (
+      <mark
+        key={idx}
+        style={{ background: "#fff1b8", color: "inherit", padding: "0 2px", borderRadius: 2 }}
+      >
+        {part}
+      </mark>
+    ) : (
+      <span key={idx}>{part}</span>
+    ),
+  );
+}
+
+export default function NasResultItem({ hit, highlight }: NasResultItemProps) {
+  const [expanded, setExpanded] = useState(false);
+
   const handleOpen = async () => {
     try {
       await downloadNasFile(hit.id, hit.name || "download");
@@ -53,14 +96,25 @@ export default function NasResultItem({ hit }: NasResultItemProps) {
     }
   };
 
+  const snippet = hit.snippet ?? "";
+  const isLong = snippet.length > SNIPPET_PREVIEW_CHARS;
+  const visibleSnippet = expanded || !isLong ? snippet : `${snippet.slice(0, SNIPPET_PREVIEW_CHARS)}…`;
+
+  const toggleExpand = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    setExpanded((prev) => !prev);
+  };
+
   return (
     <List.Item
       style={{ cursor: "pointer", padding: "16px 12px" }}
       onClick={handleOpen}
       extra={
-        <Tag color={scoreColor(hit.score)} style={{ fontSize: 13, padding: "2px 10px" }}>
-          {hit.score.toFixed(2)}
-        </Tag>
+        <Tooltip title={`유사도 ${hit.score.toFixed(3)}`}>
+          <Tag color={scoreColor(hit.score)} style={{ fontSize: 13, padding: "2px 10px" }}>
+            {scoreLabel(hit.score)}
+          </Tag>
+        </Tooltip>
       }
     >
       <List.Item.Meta
@@ -73,7 +127,7 @@ export default function NasResultItem({ hit }: NasResultItemProps) {
             <div style={{ color: "#8c8c8c", fontSize: 12, marginBottom: 6, wordBreak: "break-all" }}>
               {hit.path}
             </div>
-            {hit.snippet && (
+            {snippet && (
               <div
                 style={{
                   background: "#fafafa",
@@ -83,12 +137,30 @@ export default function NasResultItem({ hit }: NasResultItemProps) {
                   color: "#595959",
                   fontSize: 13,
                   marginBottom: 6,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
+                  whiteSpace: expanded ? "pre-wrap" : "normal",
+                  wordBreak: "break-word",
                 }}
               >
-                {hit.snippet}
+                {highlightSnippet(visibleSnippet, highlight)}
+                {isLong && (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      onClick={toggleExpand}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "#1677ff",
+                        padding: 0,
+                        cursor: "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      {expanded ? "접기" : "더 보기"}
+                    </button>
+                  </>
+                )}
               </div>
             )}
             <Space size={12} style={{ color: "#8c8c8c", fontSize: 12 }}>
