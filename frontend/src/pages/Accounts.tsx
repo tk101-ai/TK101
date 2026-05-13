@@ -16,6 +16,7 @@ import {
   message,
 } from "antd";
 import {
+  DeleteOutlined,
   EditOutlined,
   PlusOutlined,
   SearchOutlined,
@@ -28,6 +29,7 @@ import {
   ACCOUNT_TYPE_TAG_COLOR,
   CURRENCY_OPTIONS,
   createAccount,
+  deleteAccount,
   listAccounts,
   updateAccount,
   type Account,
@@ -240,6 +242,55 @@ export default function Accounts() {
     }
   };
 
+  /**
+   * 계좌 hard delete.
+   * 1차 호출은 force=false. 백엔드가 거래 N건 있다고 409로 거부하면,
+   * 사용자에게 거래 카운트를 보여주고 강제 삭제(force=true) 의사 재확인.
+   */
+  const handleDelete = async (record: Account) => {
+    const accountLabel = `${record.bank_name} ${record.account_number}`;
+    try {
+      const result = await deleteAccount(record.id, false);
+      message.success(`계좌를 삭제했습니다 (${accountLabel})`);
+      await fetchData();
+      return result;
+    } catch (err: unknown) {
+      // 409 = 거래내역 있음. 사용자 재확인 후 force=true 재시도.
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      const detail = extractErrorDetail(err, "삭제 실패");
+      if (status === 409) {
+        Modal.confirm({
+          title: "거래내역이 있는 계좌입니다",
+          content: (
+            <div>
+              <Paragraph style={{ marginBottom: 8 }}>{detail}</Paragraph>
+              <Paragraph type="danger" style={{ marginBottom: 0, fontWeight: 600 }}>
+                계좌와 함께 모든 거래내역을 영구 삭제하시겠습니까?
+                <br />이 작업은 되돌릴 수 없습니다.
+              </Paragraph>
+            </div>
+          ),
+          okText: "거래내역 포함 영구 삭제",
+          okType: "danger",
+          cancelText: "취소",
+          onOk: async () => {
+            try {
+              const result = await deleteAccount(record.id, true);
+              message.success(
+                `계좌 + 거래 ${result.transactions_deleted}건을 삭제했습니다 (${accountLabel})`,
+              );
+              await fetchData();
+            } catch (err2: unknown) {
+              message.error(extractErrorDetail(err2, "강제 삭제 실패"));
+            }
+          },
+        });
+      } else {
+        message.error(detail);
+      }
+    }
+  };
+
   const columns: ColumnsType<Account> = [
     {
       title: "은행",
@@ -343,17 +394,41 @@ export default function Accounts() {
     },
     {
       title: "",
-      width: 60,
+      width: 96,
       render: (_, record) =>
         isAdmin ? (
-          <Tooltip title="편집">
-            <Button
-              type="link"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => openEdit(record)}
-            />
-          </Tooltip>
+          <Space size={0}>
+            <Tooltip title="편집">
+              <Button
+                type="link"
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => openEdit(record)}
+              />
+            </Tooltip>
+            <Popconfirm
+              title="계좌를 삭제할까요?"
+              description={
+                <span>
+                  거래내역이 있으면 추가 확인 후 함께 삭제됩니다.
+                  <br />이 작업은 되돌릴 수 없습니다.
+                </span>
+              }
+              okText="삭제"
+              okType="danger"
+              cancelText="취소"
+              onConfirm={() => handleDelete(record)}
+            >
+              <Tooltip title="삭제">
+                <Button
+                  type="link"
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                />
+              </Tooltip>
+            </Popconfirm>
+          </Space>
         ) : null,
     },
   ];

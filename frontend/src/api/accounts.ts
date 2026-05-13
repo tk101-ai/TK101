@@ -112,5 +112,28 @@ export async function updateAccount(
   return res.data;
 }
 
+export interface AccountDeleteResult {
+  deleted: boolean;
+  account_id: string;
+  transactions_deleted: number;
+}
+
+/**
+ * 계좌 hard delete.
+ *
+ * - `force=false` (기본): 거래 0건만 삭제. 거래 있으면 409 (detail에 카운트).
+ * - `force=true`: 거래내역까지 함께 삭제 (UploadLog는 account_id만 NULL로 보존).
+ */
+export async function deleteAccount(
+  id: string,
+  force: boolean = false,
+): Promise<AccountDeleteResult> {
+  const res = await api.delete<AccountDeleteResult>(
+    `/api/accounts/${id}`,
+    { params: { force } },
+  );
+  return res.data;
+}
+
 // 구 `getAccounts` 별칭은 H-5 정리 작업에서 제거되었습니다.
 // 호출부는 `listAccounts()` 로 마이그레이션 되었습니다.

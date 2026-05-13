@@ -82,7 +82,7 @@ async def preview_endpoint(
 ) -> ImportPreviewOut:
     # HIGH-10: 분당 10회 (대용량 파싱 비용 큼).
     try:
-        check_rate_limit(str(user.id), max_calls=10, window_sec=60)
+        check_rate_limit(str(user.id), max_calls=60, window_sec=60)
     except RateLimitExceeded as exc:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -149,7 +149,7 @@ async def confirm_endpoint(
 ) -> ImportResultOut:
     # HIGH-10: confirm 은 DB write 까지 가므로 10회/분 제한.
     try:
-        check_rate_limit(str(user.id), max_calls=10, window_sec=60)
+        check_rate_limit(str(user.id), max_calls=60, window_sec=60)
     except RateLimitExceeded as exc:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
