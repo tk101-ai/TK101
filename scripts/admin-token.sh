@@ -4,7 +4,7 @@
 set -euo pipefail
 
 EMAIL="${ADMIN_EMAIL:-admin@tk101.co.kr}"
-PASSWORD="${ADMIN_PASSWORD:-admin123}"
+PASSWORD="${ADMIN_PASSWORD:?ADMIN_PASSWORD 환경변수 필수 — 운영팀 비밀번호 매니저에서 가져와 export 또는 인라인 변수로 전달}"
 API="${API_URL:-http://localhost:8000}"
 
 curl -fsS -X POST "${API}/api/auth/login" \

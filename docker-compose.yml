@@ -25,7 +25,7 @@ services:
     container_name: tk101-n8n
     restart: unless-stopped
     ports:
-      - "5678:5678"
+      - "127.0.0.1:5678:5678"
     environment:
       N8N_BASIC_AUTH_ACTIVE: "true"
       N8N_BASIC_AUTH_USER: ${N8N_AUTH_USER:-admin}
@@ -57,6 +57,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       WEBUI_AUTH: "true"
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?WEBUI_SECRET_KEY required}
+      ENABLE_SIGNUP: "true"
+      DEFAULT_USER_ROLE: "pending"
     volumes:
       - webui_data:/app/backend/data
     depends_on:
@@ -113,7 +115,7 @@ services:
     container_name: tk101-langfuse
     restart: unless-stopped
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-tk101}:${POSTGRES_PASSWORD}@postgres:5432/langfuse
       NEXTAUTH_URL: ${LANGFUSE_URL:-http://localhost:3001}

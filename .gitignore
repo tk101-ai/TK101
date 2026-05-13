@@ -36,3 +36,7 @@ tests/e2e/test-results/
 tests/e2e/playwright-report/
 tests/e2e/playwright/.cache/
 
+# 로컬 NAS 스텁 (Windows 개발 환경 전용 — 라이브 서버는 SSHFS /mnt/nas 사용)
+/nas-stub/*
+!/nas-stub/README.txt
+
