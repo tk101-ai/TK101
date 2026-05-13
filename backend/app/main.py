@@ -15,6 +15,7 @@ from app.routers import (
     forms,
     matching,
     nas_search,
+    playground,
     review_translation,
     sns,
     tax_invoices,
@@ -60,6 +61,8 @@ app.include_router(categories.router)
 app.include_router(counterparts.router)
 app.include_router(upload_history.router)
 app.include_router(balance_snapshots.router)
+# T8 트랙: AI Playground (Phase 1 — Claude 채팅 SSE 스트리밍, admin only).
+app.include_router(playground.router)
 
 
 @app.get("/health")

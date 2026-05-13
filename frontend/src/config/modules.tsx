@@ -10,6 +10,7 @@ import {
   ImportOutlined,
   LinkOutlined,
   RiseOutlined,
+  RobotOutlined,
   SearchOutlined,
   ShareAltOutlined,
   SwapOutlined,
@@ -92,6 +93,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "sns-accounts", path: "/sns/accounts", label: "SNS 계정", icon: <ShareAltOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "sns-import", path: "/sns/import", label: "엑셀 가져오기", icon: <CloudUploadOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "review-translation", path: "/marketing/review-translation", label: "체험단 번역", icon: <TranslationOutlined />, module: "review_translation", category: "marketing_1" },
+  { key: "playground", path: "/playground", label: "AI Playground", icon: <RobotOutlined />, module: "playground", category: "system" },
   { key: "users", path: "/users", label: "사용자 관리", icon: <TeamOutlined />, module: "users", category: "system" },
 ];
 

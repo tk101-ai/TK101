@@ -39,3 +39,6 @@ class Module(str, Enum):
     # 업무개선요구사항 #17: 현대아울렛 체험단 중→한 번역 자동저장 모듈.
     # 마케팅1팀(주관) + 관리자만 접근. Haiku 4.5 라우팅 (NFR-02 비용 절감).
     REVIEW_TRANSLATION = "review_translation"
+    # T8 트랙: AI Playground (Phase 1 — Claude 채팅, Phase 4~5 미디어 확장).
+    # admin only 정책 (T8 PRD 7절). DEPARTMENT_MODULES 매핑은 일반 부서에 부여하지 않음.
+    PLAYGROUND = "playground"

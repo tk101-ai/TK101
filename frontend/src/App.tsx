@@ -26,6 +26,7 @@ import MatchingWorkbook from "./pages/finance/MatchingWorkbook";
 import UploadHistory from "./pages/finance/UploadHistory";
 import CategoryPage from "./pages/settings/CategoryPage";
 import CounterpartPage from "./pages/settings/CounterpartPage";
+import PlaygroundPage from "./pages/playground/PlaygroundPage";
 
 function App() {
   const { user, loading, logout, checkAuth } = useAuth();
@@ -203,6 +204,14 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="form_filler">
                     <JobMappingPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/playground"
+                element={
+                  <ProtectedRoute user={user} module="playground">
+                    <PlaygroundPage />
                   </ProtectedRoute>
                 }
               />

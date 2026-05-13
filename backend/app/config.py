@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     langfuse_secret_key: str | None = None
     langfuse_host: str = "https://cloud.langfuse.com"
 
+    # T8 AI Playground — Tencent MPaaS AIGC (OpenAI-compatible) -----------------
+    # 단일 endpoint 로 8 공급자 (Claude/GPT/Gemini/Grok/Kimi/GLM/MiniMax/DeepSeek) 호출.
+    # 빈 값으로 두면 백엔드는 기동되지만 /api/playground/chat 호출 시 503 RuntimeError.
+    tencent_aigc_api_key: str = ""
+    tencent_aigc_base_url: str = "https://text-aigc.vod-qcloud.com/v1"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

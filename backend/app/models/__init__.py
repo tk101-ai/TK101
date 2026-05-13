@@ -17,6 +17,11 @@ from app.models.review_translation import ReviewTranslation
 from app.models.category import Category
 from app.models.counterpart import Counterpart
 from app.models.account_balance_snapshot import AccountBalanceSnapshot
+from app.models.playground import (
+    PlaygroundMedia,
+    PlaygroundMessage,
+    PlaygroundSession,
+)
 
 __all__ = [
     "Base",
@@ -39,4 +44,7 @@ __all__ = [
     "Category",
     "Counterpart",
     "AccountBalanceSnapshot",
+    "PlaygroundSession",
+    "PlaygroundMessage",
+    "PlaygroundMedia",
 ]

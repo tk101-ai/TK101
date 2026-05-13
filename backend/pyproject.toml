@@ -35,6 +35,9 @@ dependencies = [
     # T5 범용 문서 자동 작성기 (v0.8.0) ----------------------------------------
     "anthropic>=0.40",
     "langfuse>=2.50",
+    # T8 AI Playground — Tencent MPaaS AIGC (OpenAI-compatible 단일 endpoint).
+    # 8 공급자 (Claude/GPT/Gemini/Grok/Kimi/GLM/MiniMax/DeepSeek) 를 model 파라미터로 분기.
+    "openai>=1.50",
 ]
 
 [project.optional-dependencies]

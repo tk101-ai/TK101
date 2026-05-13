@@ -13,6 +13,8 @@ DEPARTMENT_MODULES: dict[str, list[str]] = {
         Module.DASHBOARD.value,
         Module.NAS_SEARCH.value,
         Module.FORM_FILLER.value,
+        # T8 PLAYGROUND: admin only (require_admin 으로 한 번 더 게이팅).
+        Module.PLAYGROUND.value,
     ],
     Department.FINANCE.value: [
         Module.DASHBOARD.value,
