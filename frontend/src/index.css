@@ -32,3 +32,19 @@ body {
 .tk-sidebar-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.4);
 }
+
+/* 사이드바 부서 그룹 헤더 — "재무팀", "마케팅 1팀" 등이 한눈에 들어오게 */
+.tk-sidebar-scroll .ant-menu-item-group-title {
+  color: rgba(255, 255, 255, 0.85) !important;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 18px 24px 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 4px;
+}
+.tk-sidebar-scroll .ant-menu-item-group:first-child .ant-menu-item-group-title {
+  border-top: none;
+  margin-top: 0;
+}

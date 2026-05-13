@@ -1,4 +1,4 @@
-import { Card, Col, Row, Statistic, Button, Table, Tag, Space, message, Spin } from "antd";
+import { Card, Col, Row, Statistic, Button, Table, Tag, Space, message, Spin, Tabs } from "antd";
 import {
   TeamOutlined,
   ApartmentOutlined,
@@ -10,11 +10,35 @@ import {
   ClockCircleOutlined,
 } from "@ant-design/icons";
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import api from "../../api/client";
 import { getNasStatus, type NasStatus } from "../../api/nas";
 import { getDepartmentLabel, NAV_ITEMS } from "../../config/modules";
+import FinanceDashboard from "./FinanceDashboard";
+import Marketing1Dashboard from "./Marketing1Dashboard";
+import Marketing2Dashboard from "./Marketing2Dashboard";
+import NewBusinessDashboard from "./NewBusinessDashboard";
+import NewMediaDashboard from "./NewMediaDashboard";
+import DesignDashboard from "./DesignDashboard";
+
+// 유효한 탭 키 집합 — URL 쿼리스트링 검증용.
+const VALID_TAB_KEYS = [
+  "admin",
+  "finance",
+  "marketing_1",
+  "marketing_2",
+  "new_business",
+  "new_media",
+  "design",
+] as const;
+type AdminTabKey = (typeof VALID_TAB_KEYS)[number];
+const DEFAULT_TAB: AdminTabKey = "admin";
+
+function isValidTabKey(key: string | null): key is AdminTabKey {
+  return key !== null && (VALID_TAB_KEYS as readonly string[]).includes(key);
+}
 
 interface DepartmentStat {
   department: string;
@@ -51,7 +75,9 @@ const EXTERNAL_LINKS: ExternalLink[] = [
   },
 ];
 
-export default function AdminDashboard() {
+// 기존 관리자 본문을 별도 컴포넌트로 추출.
+// Tabs가 lazy 렌더하므로 "관리자" 탭이 활성일 때만 마운트되어 fetch 발생.
+function AdminHomePanel() {
   const [deptStats, setDeptStats] = useState<DepartmentStat[]>([]);
   const [totalUsers, setTotalUsers] = useState(0);
   const [nasStatus, setNasStatus] = useState<NasStatus | null>(null);
@@ -335,5 +361,55 @@ export default function AdminDashboard() {
         </Row>
       </div>
     </Spin>
+  );
+}
+
+// admin 사용자가 상단 Tabs로 각 부서 대시보드를 전환해서 볼 수 있도록 한다.
+// 각 탭은 자체 데이터 fetch 책임이 있고, Antd Tabs는 기본적으로 활성 패널만 렌더하므로
+// "관리자" 탭이 아닐 때는 admin 통계 호출이 발생하지 않는다.
+export default function AdminDashboard() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
+  const activeKey: AdminTabKey = isValidTabKey(tabFromUrl) ? tabFromUrl : DEFAULT_TAB;
+
+  const handleTabChange = useCallback(
+    (key: string) => {
+      // URL 쿼리스트링과 동기화 — 새로고침해도 같은 탭 유지.
+      const next = new URLSearchParams(searchParams);
+      if (key === DEFAULT_TAB) {
+        next.delete("tab");
+      } else {
+        next.set("tab", key);
+      }
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
+  const items = useMemo(
+    () => [
+      { key: "admin", label: "관리자", children: <AdminHomePanel /> },
+      { key: "finance", label: "재무팀", children: <FinanceDashboard /> },
+      { key: "marketing_1", label: "마케팅 1팀", children: <Marketing1Dashboard /> },
+      { key: "marketing_2", label: "마케팅 2팀", children: <Marketing2Dashboard /> },
+      { key: "new_business", label: "신사업팀", children: <NewBusinessDashboard /> },
+      { key: "new_media", label: "뉴미디어팀", children: <NewMediaDashboard /> },
+      { key: "design", label: "디자인팀", children: <DesignDashboard /> },
+    ],
+    [],
+  );
+
+  return (
+    <div style={{ padding: "0 4px" }}>
+      <Tabs
+        activeKey={activeKey}
+        defaultActiveKey={DEFAULT_TAB}
+        onChange={handleTabChange}
+        items={items}
+        size="large"
+        // destroyInactiveTabPane: 비활성 탭 언마운트 → 다른 부서 대시보드의 fetch가 background에서 돌지 않도록.
+        destroyInactiveTabPane
+      />
+    </div>
   );
 }
