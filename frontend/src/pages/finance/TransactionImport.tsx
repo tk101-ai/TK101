@@ -231,10 +231,22 @@ export default function TransactionImport() {
     );
   };
 
+  /**
+   * 가져오기 대상 행:
+   *   - preview 완료, 에러 없음, 건너뜀 아님, **아직 import 안 됨**.
+   * `r.result`가 있는 행을 제외해 같은 파일이 중복 confirm 되는 버그 차단.
+   * (이전: 결과 모달 닫고 다시 "가져오기" 누르면 같은 파일이 N번 적재되어
+   *  UploadLog 가 5개 → 25개 식으로 부풀어오름)
+   */
   const readyRows = useMemo(
     () =>
       rows.filter(
-        (r) => !r.loading && r.preview && !r.errorMessage && r.decision !== "skip",
+        (r) =>
+          !r.loading &&
+          r.preview &&
+          !r.errorMessage &&
+          !r.result &&
+          r.decision !== "skip",
       ),
     [rows],
   );
@@ -246,6 +258,8 @@ export default function TransactionImport() {
   );
 
   const handleConfirmAll = async () => {
+    // 진행 중 추가 클릭 방지 — Promise.all 직전에 한 번 더 가드.
+    if (confirming) return;
     if (readyRows.length === 0) {
       message.info("처리할 파일이 없습니다");
       return;
