@@ -49,7 +49,10 @@ export default function AppLayout({ user, onLogout }: { user: User; onLogout: ()
           >
             TK101
           </div>
-          <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0 }}>
+          <div
+            className="tk-sidebar-scroll"
+            style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0 }}
+          >
             <Menu
               theme="dark"
               mode="inline"
