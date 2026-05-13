@@ -25,13 +25,17 @@ export interface SimilarAccount {
 }
 
 export interface ImportAccountMeta {
+  bank_key?: string | null;
   bank_name?: string | null;
   account_number?: string | null;
   account_holder?: string | null;
   business_registration_no?: string | null;
   currency?: string | null;
   account_type?: string | null;
+  account_label?: string | null;
   period_label?: string | null;
+  period_year?: number | null;
+  period_quarter?: number | null;
   [key: string]: unknown;
 }
 
@@ -50,9 +54,22 @@ export interface ImportPreviewOut {
 
 export type ImportDuplicatePolicy = "skip" | "overwrite";
 
+/** 신규 계좌 등록 페이로드 — backend `schemas/account.py::AccountCreate` 와 일치. */
+export interface AccountCreatePayload {
+  bank_name: string;
+  account_number: string;
+  account_holder: string;
+  business_registration_no?: string | null;
+  account_type?: string | null;
+  currency?: string;
+  alias?: string | null;
+  account_label?: string | null;
+}
+
 export interface ConfirmPayload {
   account_id?: string;
-  create_account?: boolean;
+  /** 신규 계좌 등록 시 AccountCreate 객체. 미리보기 메타를 그대로 채워 보낸다. */
+  create_account?: AccountCreatePayload;
   on_duplicate?: ImportDuplicatePolicy;
 }
 

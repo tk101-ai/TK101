@@ -255,15 +255,29 @@ export default function TransactionImport() {
       await Promise.all(
         readyRows.map(async (row) => {
           try {
+            const meta = row.preview?.account_meta;
             const payload =
               row.decision === "use_existing"
                 ? {
                     account_id: row.selectedAccountId ?? undefined,
-                    create_account: false,
                     on_duplicate: "skip" as const,
                   }
                 : {
-                    create_account: true,
+                    create_account: {
+                      bank_name:
+                        row.preview?.bank_name ||
+                        meta?.bank_name ||
+                        "미지정",
+                      account_number: meta?.account_number || "",
+                      // backend AccountCreate.account_holder 필수 — 메타에서 누락되면 빈 문자열 fallback.
+                      // 어댑터별 누락 케이스(예: 우리은행 외화 양식)에서 422 회피.
+                      account_holder: meta?.account_holder || "미지정",
+                      business_registration_no:
+                        meta?.business_registration_no ?? null,
+                      account_type: meta?.account_type ?? null,
+                      currency: meta?.currency || "KRW",
+                      account_label: meta?.account_label ?? null,
+                    },
                     on_duplicate: "skip" as const,
                   };
             const result = await confirmImport(row.file, payload);
