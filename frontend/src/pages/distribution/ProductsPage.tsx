@@ -145,6 +145,9 @@ export default function ProductsPage() {
         count: number;
         totalPurchaseQty: number;
         totalStockQty: number;
+        totalVnInventoryMoveQty: number;
+        totalVnSalesCompletedQty: number;
+        totalVnLocalStockQty: number;
         totalPurchasePrice: number;
       }
     >();
@@ -153,6 +156,9 @@ export default function ProductsPage() {
         count: 0,
         totalPurchaseQty: 0,
         totalStockQty: 0,
+        totalVnInventoryMoveQty: 0,
+        totalVnSalesCompletedQty: 0,
+        totalVnLocalStockQty: 0,
         totalPurchasePrice: 0,
       });
     }
@@ -162,6 +168,9 @@ export default function ProductsPage() {
         count: 0,
         totalPurchaseQty: 0,
         totalStockQty: 0,
+        totalVnInventoryMoveQty: 0,
+        totalVnSalesCompletedQty: 0,
+        totalVnLocalStockQty: 0,
         totalPurchasePrice: 0,
       };
       const price = p.purchase_price ? Number(p.purchase_price) || 0 : 0;
@@ -169,6 +178,12 @@ export default function ProductsPage() {
         count: prev.count + 1,
         totalPurchaseQty: prev.totalPurchaseQty + (p.purchase_qty ?? 0),
         totalStockQty: prev.totalStockQty + (p.domestic_stock_qty ?? 0),
+        totalVnInventoryMoveQty:
+          prev.totalVnInventoryMoveQty + (p.vn_inventory_move_qty ?? 0),
+        totalVnSalesCompletedQty:
+          prev.totalVnSalesCompletedQty + (p.vn_sales_completed_qty ?? 0),
+        totalVnLocalStockQty:
+          prev.totalVnLocalStockQty + (p.vn_local_stock_qty ?? 0),
         totalPurchasePrice: prev.totalPurchasePrice + price,
       });
     }
@@ -183,14 +198,28 @@ export default function ProductsPage() {
     let count = 0;
     let totalPurchaseQty = 0;
     let totalStockQty = 0;
+    let totalVnInventoryMoveQty = 0;
+    let totalVnSalesCompletedQty = 0;
+    let totalVnLocalStockQty = 0;
     let totalPurchasePrice = 0;
     for (const p of companyScoped) {
       count += 1;
       totalPurchaseQty += p.purchase_qty ?? 0;
       totalStockQty += p.domestic_stock_qty ?? 0;
+      totalVnInventoryMoveQty += p.vn_inventory_move_qty ?? 0;
+      totalVnSalesCompletedQty += p.vn_sales_completed_qty ?? 0;
+      totalVnLocalStockQty += p.vn_local_stock_qty ?? 0;
       totalPurchasePrice += p.purchase_price ? Number(p.purchase_price) || 0 : 0;
     }
-    return { count, totalPurchaseQty, totalStockQty, totalPurchasePrice };
+    return {
+      count,
+      totalPurchaseQty,
+      totalStockQty,
+      totalVnInventoryMoveQty,
+      totalVnSalesCompletedQty,
+      totalVnLocalStockQty,
+      totalPurchasePrice,
+    };
   }, [companyScoped]);
 
   // 브랜드 목록 (필터 옵션용) — 현재 회사 컨텍스트 기준.
@@ -223,18 +252,34 @@ export default function ProductsPage() {
   const brandStats = useMemo(() => {
     const map = new Map<
       string,
-      { count: number; totalPurchaseQty: number; totalStockQty: number }
+      {
+        count: number;
+        totalPurchaseQty: number;
+        totalStockQty: number;
+        totalVnInventoryMoveQty: number;
+        totalVnSalesCompletedQty: number;
+        totalVnLocalStockQty: number;
+      }
     >();
     for (const p of companyScoped) {
       const prev = map.get(p.brand) ?? {
         count: 0,
         totalPurchaseQty: 0,
         totalStockQty: 0,
+        totalVnInventoryMoveQty: 0,
+        totalVnSalesCompletedQty: 0,
+        totalVnLocalStockQty: 0,
       };
       map.set(p.brand, {
         count: prev.count + 1,
         totalPurchaseQty: prev.totalPurchaseQty + (p.purchase_qty ?? 0),
         totalStockQty: prev.totalStockQty + (p.domestic_stock_qty ?? 0),
+        totalVnInventoryMoveQty:
+          prev.totalVnInventoryMoveQty + (p.vn_inventory_move_qty ?? 0),
+        totalVnSalesCompletedQty:
+          prev.totalVnSalesCompletedQty + (p.vn_sales_completed_qty ?? 0),
+        totalVnLocalStockQty:
+          prev.totalVnLocalStockQty + (p.vn_local_stock_qty ?? 0),
       });
     }
     return Array.from(map.entries())
@@ -326,6 +371,45 @@ export default function ProductsPage() {
       ),
     },
     {
+      title: "VN재고이동",
+      dataIndex: "vn_inventory_move_qty",
+      width: 110,
+      align: "right" as const,
+      render: (v: number | null) => (
+        <span
+          style={{ fontVariantNumeric: "tabular-nums", color: "#722ed1" }}
+        >
+          {formatNumber(v)}
+        </span>
+      ),
+    },
+    {
+      title: "VN매출완료",
+      dataIndex: "vn_sales_completed_qty",
+      width: 110,
+      align: "right" as const,
+      render: (v: number | null) => (
+        <span
+          style={{ fontVariantNumeric: "tabular-nums", color: "#fa8c16" }}
+        >
+          {formatNumber(v)}
+        </span>
+      ),
+    },
+    {
+      title: "VN현지재고",
+      dataIndex: "vn_local_stock_qty",
+      width: 110,
+      align: "right" as const,
+      render: (v: number | null) => (
+        <span
+          style={{ fontVariantNumeric: "tabular-nums", color: "#13c2c2" }}
+        >
+          {formatNumber(v)}
+        </span>
+      ),
+    },
+    {
       title: "매입금액",
       dataIndex: "purchase_price",
       width: 140,
@@ -403,8 +487,8 @@ export default function ProductsPage() {
       </div>
 
       {/* 전체 총합 KPI — 현재 회사 컨텍스트 기준 */}
-      <Row gutter={12} style={{ marginBottom: 16 }}>
-        <Col xs={12} md={6}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={12} md={3}>
           <Card size="small">
             <Statistic
               title={
@@ -420,7 +504,7 @@ export default function ProductsPage() {
             />
           </Card>
         </Col>
-        <Col xs={12} md={6}>
+        <Col xs={12} md={3}>
           <Card size="small">
             <Statistic
               title="총 매입수량"
@@ -430,7 +514,7 @@ export default function ProductsPage() {
             />
           </Card>
         </Col>
-        <Col xs={12} md={6}>
+        <Col xs={12} md={3}>
           <Card size="small">
             <Statistic
               title="총 국내재고"
@@ -440,7 +524,37 @@ export default function ProductsPage() {
             />
           </Card>
         </Col>
-        <Col xs={12} md={6}>
+        <Col xs={12} md={3}>
+          <Card size="small">
+            <Statistic
+              title="VN 재고이동"
+              value={grandTotal.totalVnInventoryMoveQty}
+              suffix="개"
+              valueStyle={{ color: "#722ed1" }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} md={3}>
+          <Card size="small">
+            <Statistic
+              title="VN 매출완료"
+              value={grandTotal.totalVnSalesCompletedQty}
+              suffix="개"
+              valueStyle={{ color: "#fa8c16" }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} md={3}>
+          <Card size="small">
+            <Statistic
+              title="VN 현지재고"
+              value={grandTotal.totalVnLocalStockQty}
+              suffix="개"
+              valueStyle={{ color: "#13c2c2" }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} md={6}>
           <Card size="small">
             <Statistic
               title="총 매입금액 (KRW)"
@@ -469,7 +583,7 @@ export default function ProductsPage() {
           style={{
             display: "grid",
             gap: 12,
-            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
           }}
         >
           {companyStats.map((s) => {
@@ -507,7 +621,7 @@ export default function ProductsPage() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
+                    gridTemplateColumns: "repeat(5, 1fr)",
                     gap: 4,
                   }}
                 >
@@ -517,7 +631,7 @@ export default function ProductsPage() {
                     </Text>
                     <div
                       style={{
-                        fontSize: 14,
+                        fontSize: 13,
                         fontWeight: 600,
                         fontVariantNumeric: "tabular-nums",
                         color: "#1677ff",
@@ -528,17 +642,62 @@ export default function ProductsPage() {
                   </div>
                   <div>
                     <Text type="secondary" style={{ fontSize: 11 }}>
-                      재고
+                      국내
                     </Text>
                     <div
                       style={{
-                        fontSize: 14,
+                        fontSize: 13,
                         fontWeight: 600,
                         fontVariantNumeric: "tabular-nums",
                         color: "#52c41a",
                       }}
                     >
                       {formatNumber(s.totalStockQty)}
+                    </div>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      VN이동
+                    </Text>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        fontVariantNumeric: "tabular-nums",
+                        color: "#722ed1",
+                      }}
+                    >
+                      {formatNumber(s.totalVnInventoryMoveQty)}
+                    </div>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      VN매출
+                    </Text>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        fontVariantNumeric: "tabular-nums",
+                        color: "#fa8c16",
+                      }}
+                    >
+                      {formatNumber(s.totalVnSalesCompletedQty)}
+                    </div>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      VN재고
+                    </Text>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        fontVariantNumeric: "tabular-nums",
+                        color: "#13c2c2",
+                      }}
+                    >
+                      {formatNumber(s.totalVnLocalStockQty)}
                     </div>
                   </div>
                 </div>
@@ -566,7 +725,7 @@ export default function ProductsPage() {
             style={{
               display: "grid",
               gap: 12,
-              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
             }}
           >
             {brandStats.map((s) => (
@@ -607,17 +766,17 @@ export default function ProductsPage() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
+                    gridTemplateColumns: "repeat(5, 1fr)",
                     gap: 6,
                   }}
                 >
                   <div>
                     <Text type="secondary" style={{ fontSize: 11 }}>
-                      매입수량
+                      매입
                     </Text>
                     <div
                       style={{
-                        fontSize: 16,
+                        fontSize: 14,
                         fontWeight: 600,
                         fontVariantNumeric: "tabular-nums",
                         color: "#1677ff",
@@ -628,17 +787,62 @@ export default function ProductsPage() {
                   </div>
                   <div>
                     <Text type="secondary" style={{ fontSize: 11 }}>
-                      국내재고
+                      국내
                     </Text>
                     <div
                       style={{
-                        fontSize: 16,
+                        fontSize: 14,
                         fontWeight: 600,
                         fontVariantNumeric: "tabular-nums",
                         color: "#52c41a",
                       }}
                     >
                       {formatNumber(s.totalStockQty)}
+                    </div>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      VN이동
+                    </Text>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        fontVariantNumeric: "tabular-nums",
+                        color: "#722ed1",
+                      }}
+                    >
+                      {formatNumber(s.totalVnInventoryMoveQty)}
+                    </div>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      VN매출
+                    </Text>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        fontVariantNumeric: "tabular-nums",
+                        color: "#fa8c16",
+                      }}
+                    >
+                      {formatNumber(s.totalVnSalesCompletedQty)}
+                    </div>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      VN재고
+                    </Text>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        fontVariantNumeric: "tabular-nums",
+                        color: "#13c2c2",
+                      }}
+                    >
+                      {formatNumber(s.totalVnLocalStockQty)}
                     </div>
                   </div>
                 </div>
@@ -688,7 +892,7 @@ export default function ProductsPage() {
         rowKey="id"
         loading={loading}
         size="middle"
-        scroll={{ x: 1500 }}
+        scroll={{ x: 1830 }}
         pagination={{
           pageSize: 50,
           showSizeChanger: true,

@@ -4,17 +4,20 @@
 헤더 R6 / 데이터 R7~ (관찰 기준).
 
 추출 컬럼 (DB → 엑셀 헤더):
-- brand                ← 브랜드명
-- product_name_en      ← IT물품내역(영문)
-- product_code         ← 제품 코드 번호
-- category             ← 카테고리 (Bag/Belts/Ring/Scarf)
-- purchase_qty         ← 매입 수량
-- domestic_stock_qty   ← 국내 재고 수량 (한국 인천 창고)
-- supply_price         ← 공급가액
-- vat                  ← 부가세
-- purchase_price       ← 매입금액
-- approval_number      ← 승인번호
-- purchase_date        ← 매입 일시
+- brand                  ← 브랜드명
+- product_name_en        ← IT물품내역(영문)
+- product_code           ← 제품 코드 번호
+- category               ← 카테고리 (Bag/Belts/Ring/Scarf)
+- purchase_qty           ← 매입 수량
+- domestic_stock_qty     ← 국내 재고 수량 (한국 인천 창고)
+- vn_inventory_move_qty  ← VN재고 이동 수량 (시트 col 19)
+- vn_sales_completed_qty ← VN매출 완료 수량 (시트 col 21)
+- vn_local_stock_qty     ← VN 현지 재고 수량 (시트 col 22)
+- supply_price           ← 공급가액
+- vat                    ← 부가세
+- purchase_price         ← 매입금액
+- approval_number        ← 승인번호
+- purchase_date          ← 매입 일시
 
 빈 셀 / 헤더 행 / 합계 행 등은 skip.
 """
@@ -43,6 +46,13 @@ _HEADER_MAP: dict[str, str] = {
     "매입 수량": "purchase_qty",
     "매입수량": "purchase_qty",
     "국내 재고 수량": "domestic_stock_qty",
+    # VN(베트남) 수량 — 시트 col 19/21/22. 공백 변형 모두 처리.
+    "VN재고 이동 수량": "vn_inventory_move_qty",
+    "VN재고이동수량": "vn_inventory_move_qty",
+    "VN매출 완료 수량": "vn_sales_completed_qty",
+    "VN매출완료수량": "vn_sales_completed_qty",
+    "VN 현지 재고 수량": "vn_local_stock_qty",
+    "VN현지재고수량": "vn_local_stock_qty",
     "공급가액": "supply_price",
     "부가세": "vat",
     "매입금액": "purchase_price",
@@ -62,6 +72,10 @@ class ProductRow:
     category: str | None = None
     purchase_qty: int | None = None
     domestic_stock_qty: int | None = None
+    # VN(베트남) 수량 — 시트 col 19/21/22. 헤더 누락 시 None.
+    vn_inventory_move_qty: int | None = None
+    vn_sales_completed_qty: int | None = None
+    vn_local_stock_qty: int | None = None
     supply_price: Decimal | None = None
     vat: Decimal | None = None
     purchase_price: Decimal | None = None
@@ -191,6 +205,9 @@ def parse_products_sheet(
             category=(str(get("category")).strip() if get("category") else None),
             purchase_qty=_to_int(get("purchase_qty")),
             domestic_stock_qty=_to_int(get("domestic_stock_qty")),
+            vn_inventory_move_qty=_to_int(get("vn_inventory_move_qty")),
+            vn_sales_completed_qty=_to_int(get("vn_sales_completed_qty")),
+            vn_local_stock_qty=_to_int(get("vn_local_stock_qty")),
             supply_price=_to_decimal(get("supply_price")),
             vat=_to_decimal(get("vat")),
             purchase_price=_to_decimal(get("purchase_price")),

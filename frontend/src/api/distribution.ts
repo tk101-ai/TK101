@@ -178,6 +178,10 @@ export interface ProductOut {
   category: string | null;
   purchase_qty: number | null;
   domestic_stock_qty: number | null;
+  // VN(베트남) 수량 — 명품재고대장 컬럼 19/21/22.
+  vn_inventory_move_qty: number | null;
+  vn_sales_completed_qty: number | null;
+  vn_local_stock_qty: number | null;
   supply_price: string | null;
   purchase_price: string | null;
   approval_number: string | null;

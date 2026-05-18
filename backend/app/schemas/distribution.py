@@ -397,6 +397,10 @@ class ProductOut(BaseModel):
     category: str | None
     purchase_qty: int | None
     domestic_stock_qty: int | None
+    # VN(베트남) 수량 — 시트 col 19/21/22. 과거 행은 None.
+    vn_inventory_move_qty: int | None = None
+    vn_sales_completed_qty: int | None = None
+    vn_local_stock_qty: int | None = None
     supply_price: Decimal | None
     purchase_price: Decimal | None
     approval_number: str | None

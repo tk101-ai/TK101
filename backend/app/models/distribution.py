@@ -307,6 +307,11 @@ class DistributionProduct(Base):
     category = Column(String(50), nullable=True)
     purchase_qty = Column(Integer, nullable=True)
     domestic_stock_qty = Column(Integer, nullable=True)
+    # VN(베트남) 측 수량 — 명품재고대장 시트 컬럼 19/21/22.
+    # 매주 업데이트되어 한국 인천 창고에서 베트남으로 이동/판매/잔고 추적.
+    vn_inventory_move_qty = Column(Integer, nullable=True)
+    vn_sales_completed_qty = Column(Integer, nullable=True)
+    vn_local_stock_qty = Column(Integer, nullable=True)
     supply_price = Column(Numeric(15, 2), nullable=True)
     vat = Column(Numeric(15, 2), nullable=True)
     purchase_price = Column(Numeric(15, 2), nullable=True)
