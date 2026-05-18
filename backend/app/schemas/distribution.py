@@ -74,6 +74,36 @@ class PersonaUpdate(BaseModel):
     warmup_until: date | None = None
 
 
+class PersonaCredentialsUpdate(BaseModel):
+    """자격증명 갱신 요청 (UI '자격증명 입력' 모달).
+
+    용도:
+    - 시드된 placeholder (+820000000000 등) 페르소나에 실 자격증명 주입.
+    - 기존 페르소나의 api_id/api_hash 회전.
+
+    동작:
+    - phone / api_id / api_hash 모두 필수.
+    - Fernet 으로 즉시 재암호화 후 DB 저장 (PersonaCreate 와 동일 패턴).
+    - 기존 Telethon 세션은 자격증명과 불일치 가능하므로 안전을 위해 무효화 (재로그인 필요).
+    """
+
+    telegram_phone: str = Field(
+        min_length=5,
+        max_length=30,
+        description="국가코드 포함. 예: +821012345678",
+    )
+    api_id: str = Field(
+        min_length=1,
+        max_length=20,
+        description="my.telegram.org 발급 숫자",
+    )
+    api_hash: str = Field(
+        min_length=32,
+        max_length=32,
+        description="32자 hex",
+    )
+
+
 class PersonaOut(BaseModel):
     """페르소나 조회 응답. 평문 자격증명 절대 노출 X."""
 

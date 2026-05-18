@@ -16,6 +16,7 @@ import {
 } from "antd";
 import {
   DeleteOutlined,
+  KeyOutlined,
   LoginOutlined,
   LogoutOutlined,
   PlusOutlined,
@@ -33,6 +34,7 @@ import {
 } from "../../api/distribution";
 import { extractErrorDetail } from "../../utils/errorUtils";
 import PersonaCreateModal from "../../components/distribution/PersonaCreateModal";
+import PersonaCredentialsModal from "../../components/distribution/PersonaCredentialsModal";
 import PersonaLoginModal from "../../components/distribution/PersonaLoginModal";
 
 const { Title, Paragraph, Text } = Typography;
@@ -72,6 +74,7 @@ export default function PersonasPage() {
   const [loading, setLoading] = useState<boolean>(false);
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [loginTarget, setLoginTarget] = useState<PersonaOut | null>(null);
+  const [credsTarget, setCredsTarget] = useState<PersonaOut | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -204,9 +207,19 @@ export default function PersonasPage() {
     {
       title: "작업",
       key: "actions",
-      width: 220,
+      width: 280,
       render: (_: unknown, record: PersonaOut) => (
         <Space size={4}>
+          <Tooltip title={record.has_credentials ? "api_id/api_hash 회전" : "자격증명 입력"}>
+            <Button
+              type="link"
+              size="small"
+              icon={<KeyOutlined />}
+              onClick={() => setCredsTarget(record)}
+            >
+              자격증명
+            </Button>
+          </Tooltip>
           {record.has_credentials && !record.is_logged_in && (
             <Tooltip title="SMS 인증으로 로그인">
               <Button
@@ -367,6 +380,15 @@ export default function PersonasPage() {
         onClose={() => setLoginTarget(null)}
         onSuccess={() => {
           void handleLoginSuccess();
+        }}
+      />
+
+      <PersonaCredentialsModal
+        open={credsTarget !== null}
+        persona={credsTarget}
+        onClose={() => setCredsTarget(null)}
+        onUpdated={() => {
+          void fetchData();
         }}
       />
     </div>

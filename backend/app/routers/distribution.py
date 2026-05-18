@@ -30,6 +30,7 @@ from app.dependencies import require_admin
 from app.models.user import User
 from app.schemas.distribution import (
     PersonaCreate,
+    PersonaCredentialsUpdate,
     PersonaOut,
     PersonaUpdate,
     PersonaVerifyCode,
@@ -125,6 +126,36 @@ async def delete_persona(
             status_code=status.HTTP_404_NOT_FOUND, detail="페르소나 없음"
         )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put("/personas/{persona_id}/credentials")
+async def update_credentials(
+    persona_id: UUID,
+    payload: PersonaCredentialsUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> PersonaOut:
+    """자격증명 갱신 (placeholder seed 채우기 / 키 회전).
+
+    기존 Telethon 세션이 있으면 무효화됨 → 재로그인 필요.
+    """
+    try:
+        persona = await persona_service.update_credentials(
+            db,
+            persona_id,
+            telegram_phone=payload.telegram_phone,
+            api_id=payload.api_id,
+            api_hash=payload.api_hash,
+        )
+    except EncryptionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    if persona is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="페르소나 없음"
+        )
+    return persona_service.to_out(persona)
 
 
 @router.post("/personas/{persona_id}/logout")

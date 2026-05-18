@@ -146,6 +146,55 @@ async def delete_persona(
     return True
 
 
+async def update_credentials(
+    db: AsyncSession,
+    persona_id: UUID,
+    *,
+    telegram_phone: str,
+    api_id: str,
+    api_hash: str,
+) -> DistributionPersona | None:
+    """자격증명(phone/api_id/api_hash) 갱신.
+
+    placeholder seed 페르소나에 실 데이터 주입하거나 회전할 때 사용.
+    기존 Telethon 세션 (있다면) 자격증명 불일치 우려로 무효화 — 재로그인 필요.
+    """
+    persona = await get_persona(db, persona_id)
+    if persona is None:
+        return None
+
+    persona.telegram_phone = telegram_phone
+    persona.api_id_enc = encrypt(api_id)
+    persona.api_hash_enc = encrypt(api_hash)
+
+    # 기존 세션 무효화. session 파일 삭제 + DB 플래그 클리어.
+    if persona.session_path:
+        p = Path(persona.session_path)
+        try:
+            if p.exists():
+                p.unlink()
+            journal = p.with_suffix(".session-journal")
+            if journal.exists():
+                journal.unlink()
+        except OSError:
+            logger.exception(
+                "자격증명 갱신 시 세션 파일 삭제 실패: %s", p
+            )
+    persona.session_path = None
+    persona.telegram_user_id = None
+    persona.last_login_at = None
+
+    db.add(persona)
+    await db.commit()
+    await db.refresh(persona)
+    logger.info(
+        "credentials updated — label=%s phone=%s (세션 무효화됨)",
+        persona.account_label,
+        telegram_phone,
+    )
+    return persona
+
+
 async def logout_persona(
     db: AsyncSession, persona_id: UUID
 ) -> DistributionPersona | None:

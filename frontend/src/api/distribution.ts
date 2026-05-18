@@ -82,6 +82,27 @@ export async function deletePersona(id: string): Promise<void> {
   await api.delete(`${BASE}/personas/${id}`);
 }
 
+export interface PersonaCredentialsPayload {
+  telegram_phone: string;
+  api_id: string;
+  api_hash: string;
+}
+
+/**
+ * placeholder seed 페르소나 채우기 또는 기존 api_id/hash 회전.
+ * 기존 Telethon 세션은 백엔드에서 자동 무효화됨 → 재로그인 필요.
+ */
+export async function updatePersonaCredentials(
+  id: string,
+  payload: PersonaCredentialsPayload,
+): Promise<PersonaOut> {
+  const res = await api.put<PersonaOut>(
+    `${BASE}/personas/${id}/credentials`,
+    payload,
+  );
+  return res.data;
+}
+
 export async function logoutPersona(id: string): Promise<PersonaOut> {
   const res = await api.post<PersonaOut>(`${BASE}/personas/${id}/logout`);
   return res.data;
