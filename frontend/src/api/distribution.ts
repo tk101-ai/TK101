@@ -210,12 +210,25 @@ export async function uploadDistributionData(
   return res.data;
 }
 
+export interface WeeklySummaryFilter {
+  limit?: number;
+  from?: string; // YYYY-MM-DD
+  to?: string;
+  company_label?: string;
+}
+
 export async function listWeeklySummary(
-  limit = 50,
+  filter: WeeklySummaryFilter = {},
 ): Promise<WeeklySummaryOut[]> {
+  const params: Record<string, string | number> = {
+    limit: filter.limit ?? 200,
+  };
+  if (filter.from) params.from = filter.from;
+  if (filter.to) params.to = filter.to;
+  if (filter.company_label) params.company_label = filter.company_label;
   const res = await api.get<{ items: WeeklySummaryOut[] }>(
     `${BASE}/data/weekly-summary`,
-    { params: { limit } },
+    { params },
   );
   return res.data.items;
 }

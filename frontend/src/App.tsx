@@ -27,12 +27,14 @@ import UploadHistory from "./pages/finance/UploadHistory";
 import CategoryPage from "./pages/settings/CategoryPage";
 import CounterpartPage from "./pages/settings/CounterpartPage";
 import PlaygroundPage from "./pages/playground/PlaygroundPage";
+import DashboardPage from "./pages/distribution/DashboardPage";
 import PersonasPage from "./pages/distribution/PersonasPage";
 import DataUploadPage from "./pages/distribution/DataUploadPage";
 import WeeklyDataPage from "./pages/distribution/WeeklyDataPage";
 import ProductsPage from "./pages/distribution/ProductsPage";
 import SessionsPage from "./pages/distribution/SessionsPage";
 import SessionDetailPage from "./pages/distribution/SessionDetailPage";
+import AnalyticsPage from "./pages/distribution/AnalyticsPage";
 
 function App() {
   const { user, loading, logout, checkAuth } = useAuth();
@@ -222,6 +224,14 @@ function App() {
                 }
               />
               <Route
+                path="/distribution/dashboard"
+                element={
+                  <ProtectedRoute user={user} module="distribution">
+                    <DashboardPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/distribution/personas"
                 element={
                   <ProtectedRoute user={user} module="distribution">
@@ -266,6 +276,14 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="distribution">
                     <SessionDetailPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/distribution/analytics"
+                element={
+                  <ProtectedRoute user={user} module="distribution">
+                    <AnalyticsPage />
                   </ProtectedRoute>
                 }
               />

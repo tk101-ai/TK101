@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from sqlalchemy import delete, select
@@ -173,13 +174,28 @@ async def ingest_excel(
 
 
 async def list_weekly_summary(
-    db: AsyncSession, *, limit: int = 50
+    db: AsyncSession,
+    *,
+    limit: int = 50,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    company_label: str | None = None,
 ) -> list[DistributionWeeklySummary]:
-    q = await db.execute(
-        select(DistributionWeeklySummary)
-        .order_by(DistributionWeeklySummary.period_start.desc())
-        .limit(limit)
-    )
+    """기간/회사 필터 적용 조회.
+
+    - from_date: period_end >= from_date (해당일 이후 종료된 주차)
+    - to_date: period_start <= to_date (해당일 이전 시작된 주차)
+    - company_label: 정확 매칭
+    """
+    stmt = select(DistributionWeeklySummary)
+    if from_date is not None:
+        stmt = stmt.where(DistributionWeeklySummary.period_end >= from_date)
+    if to_date is not None:
+        stmt = stmt.where(DistributionWeeklySummary.period_start <= to_date)
+    if company_label is not None:
+        stmt = stmt.where(DistributionWeeklySummary.company_label == company_label)
+    stmt = stmt.order_by(DistributionWeeklySummary.period_start.desc()).limit(limit)
+    q = await db.execute(stmt)
     return list(q.scalars())
 
 

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Button,
+  DatePicker,
   Space,
   Table,
   Tag,
@@ -10,9 +11,10 @@ import {
 import {
   CloudUploadOutlined,
   ReloadOutlined,
+  UndoOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
-import dayjs from "dayjs";
+import dayjs, { Dayjs } from "dayjs";
 import { Link } from "react-router-dom";
 import {
   listWeeklySummary,
@@ -21,29 +23,41 @@ import {
 import { extractErrorDetail } from "../../utils/errorUtils";
 
 const { Title, Paragraph, Text } = Typography;
+const { RangePicker } = DatePicker;
 
 /**
- * 주차별 종합 데이터 조회 페이지 (T9 Phase B-1).
+ * 주차별 종합 데이터 조회 페이지 (T9 Phase B-1 / E-3 기간필터).
  *
  * 백엔드: `GET /api/distribution/data/weekly-summary`
  * - 페이지 사이즈 20
  * - 금액 컬럼은 천단위 콤마 + 우측 정렬 + monospace
+ * - 상단 RangePicker 로 period 기간 필터링
  */
 export default function WeeklyDataPage() {
   const [data, setData] = useState<WeeklySummaryOut[]>([]);
   const [loading, setLoading] = useState(false);
+  const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
+
+  const filter = useMemo(() => {
+    const [from, to] = range ?? [null, null];
+    return {
+      limit: 200,
+      from: from ? from.format("YYYY-MM-DD") : undefined,
+      to: to ? to.format("YYYY-MM-DD") : undefined,
+    };
+  }, [range]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const items = await listWeeklySummary(200);
+      const items = await listWeeklySummary(filter);
       setData(items);
     } catch (err: unknown) {
       message.error(extractErrorDetail(err, "주차별 데이터 조회 실패"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filter]);
 
   useEffect(() => {
     const run = async () => {
@@ -51,6 +65,10 @@ export default function WeeklyDataPage() {
     };
     void run();
   }, [fetchData]);
+
+  const handleReset = () => {
+    setRange(null);
+  };
 
   const columns: ColumnsType<WeeklySummaryOut> = [
     {
@@ -136,6 +154,42 @@ export default function WeeklyDataPage() {
             </Button>
           </Link>
         </Space>
+      </div>
+
+      {/* 기간 필터 영역 */}
+      <div
+        style={{
+          marginBottom: 16,
+          padding: "12px 16px",
+          background: "#fafafa",
+          borderRadius: 6,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <Text strong style={{ marginRight: 4 }}>
+          기간 필터
+        </Text>
+        <RangePicker
+          value={range}
+          onChange={(v) =>
+            setRange(
+              v ? [v[0] ?? null, v[1] ?? null] : null,
+            )
+          }
+          format="YYYY-MM-DD"
+          allowClear
+          placeholder={["시작일", "종료일"]}
+        />
+        <Button
+          icon={<UndoOutlined />}
+          onClick={handleReset}
+          disabled={!range || (!range[0] && !range[1])}
+        >
+          초기화
+        </Button>
       </div>
 
       <Table

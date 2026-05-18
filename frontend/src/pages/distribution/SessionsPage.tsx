@@ -21,12 +21,12 @@ import dayjs from "dayjs";
 import {
   SESSION_STATUS_LABEL,
   SESSION_STATUS_TAG_COLOR,
-  generateWeekly,
   listSessions,
   type SessionListItem,
   type SessionStatus,
 } from "../../api/distribution";
 import { extractErrorDetail } from "../../utils/errorUtils";
+import GenerateTriggerModal from "../../components/distribution/GenerateTriggerModal";
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -63,23 +63,6 @@ function formatCost(value: string | null): string {
   return `$${n.toFixed(4)}`;
 }
 
-/**
- * 주간 생성 트리거 핸들러 — 현재 데이터 기반으로 모든 페어 × 기본 시나리오 세션 생성.
- * 결과는 status='pending' 으로 저장되어 동일 페이지에서 새로고침 시 보임.
- */
-async function triggerGenerationOnce(): Promise<{
-  sessions_created: number;
-  skipped: number;
-  errors: number;
-}> {
-  const result = await generateWeekly({});
-  return {
-    sessions_created: result.sessions_created.length,
-    skipped: result.skipped.length,
-    errors: result.errors.length,
-  };
-}
-
 export default function SessionsPage() {
   const [data, setData] = useState<SessionListItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -87,7 +70,8 @@ export default function SessionsPage() {
   const [page, setPage] = useState<number>(1);
   const [total, setTotal] = useState<number>(0);
 
-  const [generating, setGenerating] = useState<boolean>(false);
+  // 생성 트리거 모달 — 페르소나/시나리오/주차 선택 후 POST /generate-custom 호출.
+  const [triggerOpen, setTriggerOpen] = useState<boolean>(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -116,29 +100,6 @@ export default function SessionsPage() {
       await fetchData();
     };
     void run();
-  }, [fetchData]);
-
-  const handleGenerateWeekly = useCallback(async () => {
-    setGenerating(true);
-    try {
-      const r = await triggerGenerationOnce();
-      if (r.sessions_created > 0) {
-        message.success(
-          `세션 ${r.sessions_created}건 생성됨 (skip ${r.skipped}, error ${r.errors})`,
-        );
-      } else {
-        message.warning(
-          `생성된 세션이 없습니다 (skip ${r.skipped}, error ${r.errors}). 페르소나 자격증명/데이터 업로드 확인.`,
-        );
-      }
-      // page=1 으로 리셋하여 신규 세션 노출. useEffect 가 자동 재조회.
-      setPage(1);
-      await fetchData();
-    } catch (err: unknown) {
-      message.error(extractErrorDetail(err, "주간 생성 실패"));
-    } finally {
-      setGenerating(false);
-    }
   }, [fetchData]);
 
   const handleStatusChange = (event: RadioChangeEvent) => {
@@ -272,12 +233,9 @@ export default function SessionsPage() {
             <Button
               type="primary"
               icon={<ThunderboltOutlined />}
-              loading={generating}
-              onClick={() => {
-                void handleGenerateWeekly();
-              }}
+              onClick={() => setTriggerOpen(true)}
             >
-              주간 생성 트리거
+              생성 트리거
             </Button>
             <Button
               icon={<ReloadOutlined />}
@@ -305,6 +263,27 @@ export default function SessionsPage() {
           showSizeChanger: false,
           showTotal: (t) => `총 ${t}건`,
           onChange: (nextPage) => setPage(nextPage),
+        }}
+      />
+
+      <GenerateTriggerModal
+        open={triggerOpen}
+        onClose={() => setTriggerOpen(false)}
+        onGenerated={(result) => {
+          const created = result.sessions_created.length;
+          const skipped = result.skipped.length;
+          const errors = result.errors.length;
+          if (created > 0) {
+            message.success(
+              `세션 ${created}건 생성됨 (skip ${skipped}, error ${errors})`,
+            );
+          } else {
+            message.warning(
+              `생성된 세션이 없습니다 (skip ${skipped}, error ${errors}).`,
+            );
+          }
+          setPage(1);
+          void fetchData();
         }}
       />
     </div>

@@ -1,0 +1,293 @@
+"""커스텀 생성 트리거 (T9 Phase E-2).
+
+기존 ``/generate-weekly`` 는 활성 한국 페르소나 전체 × 기본 시나리오 2개를 자동 사용.
+본 endpoint 는 사용자가 명시한 페르소나 + 시나리오 + 주차로만 생성한다.
+
+흐름:
+1. payload.sender_persona_ids → role=domestic_admin 검증 후 페르소나 조회.
+2. 활성 vietnam_admin 1명 자동 선택 (자격증명 보유 + active=True).
+3. payload.period_label 있으면 그 주차 weekly_summary 조회, 없으면 최신.
+4. payload.scenario_names → active=True 만 통과.
+5. ``generation_service`` private 헬퍼 재사용 — 각 (KR, VN, scenario) 조합 1세션.
+6. 결과 `GenerateCustomResult` 반환.
+"""
+from __future__ import annotations
+
+import logging
+import re
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.dependencies import require_admin
+from app.models.distribution import (
+    DistributionPersona,
+    DistributionScenario,
+    DistributionWeeklySummary,
+)
+from app.services.distribution.conversation_generator import GenerationError
+from app.services.distribution.generation_service import (
+    TOP_PRODUCT_LIMIT,
+    _build_bl_context,
+    _create_one_pair_session,
+    _has_credentials,
+    _label_or_id,
+    _top_products,
+)
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(
+    prefix="/api/distribution",
+    tags=["distribution-generate"],
+    dependencies=[Depends(require_admin)],
+)
+
+
+# period_label 형식: ``YYYY_MMDD`` (예: 2026_0512). 잘못된 입력 차단.
+_PERIOD_LABEL_PATTERN = re.compile(r"^\d{4}_\d{4}$")
+
+
+class GenerateCustomRequest(BaseModel):
+    """커스텀 생성 요청.
+
+    sender_persona_ids 는 한국 어드민(domestic_admin) 페르소나만 허용.
+    베트남 어드민은 백엔드가 활성 1명을 자동 선택.
+    """
+
+    sender_persona_ids: list[UUID] = Field(min_length=1)
+    scenario_names: list[str] = Field(min_length=1)
+    period_label: str | None = Field(
+        default=None,
+        description="weekly_summary.period_label (예: 2026_0512). None 이면 최신 주차.",
+    )
+    company_label: str = Field(default="래더엑스", min_length=1, max_length=100)
+
+
+class GenerateCustomResult(BaseModel):
+    """커스텀 생성 결과.
+
+    used_period_label 은 실제 사용된 주차 (None 이면 weekly_summary 데이터 없음).
+    """
+
+    sessions_created: list[UUID] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    used_period_label: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# 컨텍스트 조회 헬퍼 (period_label 명시 지원)
+# ---------------------------------------------------------------------------
+
+
+async def _weekly_summary_by_label(
+    db: AsyncSession,
+    *,
+    company_label: str,
+    period_label: str | None,
+) -> DistributionWeeklySummary | None:
+    """period_label 지정이면 해당 주차, 아니면 최신 주차 1행."""
+    stmt = select(DistributionWeeklySummary).where(
+        DistributionWeeklySummary.company_label == company_label
+    )
+    if period_label is not None:
+        stmt = stmt.where(DistributionWeeklySummary.period_label == period_label)
+    stmt = stmt.order_by(desc(DistributionWeeklySummary.period_end)).limit(1)
+    res = await db.execute(stmt)
+    return res.scalar_one_or_none()
+
+
+async def _personas_by_ids(
+    db: AsyncSession, *, ids: list[UUID]
+) -> list[DistributionPersona]:
+    """지정 ID 페르소나 조회 (account_label 정렬)."""
+    if not ids:
+        return []
+    stmt = (
+        select(DistributionPersona)
+        .where(DistributionPersona.id.in_(ids))
+        .order_by(DistributionPersona.account_label)
+    )
+    res = await db.execute(stmt)
+    return list(res.scalars().all())
+
+
+async def _pick_active_vietnam_admin(
+    db: AsyncSession,
+) -> DistributionPersona | None:
+    """활성 베트남 어드민 1명 (자격증명 有 우선)."""
+    stmt = (
+        select(DistributionPersona)
+        .where(
+            DistributionPersona.role == "vietnam_admin",
+            DistributionPersona.active.is_(True),
+        )
+        .order_by(DistributionPersona.account_label)
+    )
+    res = await db.execute(stmt)
+    candidates = list(res.scalars().all())
+    if not candidates:
+        return None
+    # 자격증명 있는 페르소나를 우선 선택.
+    for p in candidates:
+        if _has_credentials(p):
+            return p
+    return candidates[0]
+
+
+async def _scenarios_by_names_active(
+    db: AsyncSession, *, names: list[str]
+) -> list[DistributionScenario]:
+    """active=True 시나리오만, names 순서 보존."""
+    if not names:
+        return []
+    stmt = select(DistributionScenario).where(
+        DistributionScenario.name.in_(names),
+        DistributionScenario.active.is_(True),
+    )
+    res = await db.execute(stmt)
+    by_name = {s.name: s for s in res.scalars().all()}
+    return [by_name[n] for n in names if n in by_name]
+
+
+# ---------------------------------------------------------------------------
+# 엔드포인트
+# ---------------------------------------------------------------------------
+
+
+@router.post("/generate-custom")
+async def generate_custom(
+    payload: GenerateCustomRequest,
+    db: AsyncSession = Depends(get_db),
+) -> GenerateCustomResult:
+    """사용자가 명시한 (페르소나 × 시나리오 × 주차) 조합으로 세션 생성.
+
+    검증:
+    - period_label 형식 ``YYYY_MMDD`` 외 입력은 400.
+    - 한국 페르소나 미존재/역할 불일치는 errors 에 기록 후 진행.
+    - 활성 베트남 어드민 없으면 errors + 빈 결과.
+    """
+    result = GenerateCustomResult()
+
+    # 0. period_label 형식 검증.
+    if payload.period_label is not None and not _PERIOD_LABEL_PATTERN.match(
+        payload.period_label
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="period_label 형식이 올바르지 않습니다 (예: 2026_0512).",
+        )
+
+    # 1. 한국 페르소나 조회 + 역할 검증.
+    requested = await _personas_by_ids(db, ids=payload.sender_persona_ids)
+    found_ids = {p.id for p in requested}
+    missing_ids = [pid for pid in payload.sender_persona_ids if pid not in found_ids]
+    for pid in missing_ids:
+        result.errors.append(f"페르소나 {pid}: 존재하지 않음")
+
+    kr_personas: list[DistributionPersona] = []
+    for p in requested:
+        if p.role != "domestic_admin":
+            result.errors.append(
+                f"{_label_or_id(p)}: role={p.role} — 국내 어드민이 아니므로 제외"
+            )
+            continue
+        kr_personas.append(p)
+
+    if not kr_personas:
+        result.errors.append("유효한 국내 어드민 페르소나가 없습니다.")
+        return result
+
+    # 2. 베트남 어드민 자동 선택.
+    vn_persona = await _pick_active_vietnam_admin(db)
+    if vn_persona is None:
+        result.errors.append("활성 베트남 어드민 페르소나가 없습니다.")
+        return result
+    if not _has_credentials(vn_persona):
+        result.skipped.append(
+            f"{_label_or_id(vn_persona)}: credentials missing — 베트남 페어 불가, 전체 중단"
+        )
+        return result
+
+    # 3. weekly_summary 조회.
+    weekly = await _weekly_summary_by_label(
+        db,
+        company_label=payload.company_label,
+        period_label=payload.period_label,
+    )
+    if weekly is None:
+        target = payload.period_label or "최신"
+        result.skipped.append(
+            f"weekly_summary[{payload.company_label}/{target}]: 데이터 없음 — 빈 컨텍스트로 진행"
+        )
+        result.used_period_label = None
+    else:
+        result.used_period_label = weekly.period_label
+
+    products = await _top_products(db, limit=TOP_PRODUCT_LIMIT)
+    bl_ctx = _build_bl_context(weekly, products)
+
+    # 4. 시나리오 조회.
+    scenarios = await _scenarios_by_names_active(db, names=payload.scenario_names)
+    missing_scenarios = set(payload.scenario_names) - {s.name for s in scenarios}
+    for name in missing_scenarios:
+        result.errors.append(f"시나리오 '{name}': 존재하지 않거나 비활성")
+
+    if not scenarios:
+        result.errors.append("실행 가능한 시나리오 없음.")
+        return result
+
+    # 5. 조합별 생성 (실패 격리).
+    for kr in kr_personas:
+        kr_label = _label_or_id(kr)
+        if not _has_credentials(kr):
+            result.skipped.append(f"{kr_label}: credentials missing")
+            continue
+
+        for scenario in scenarios:
+            try:
+                session_id = await _create_one_pair_session(
+                    db,
+                    scenario=scenario,
+                    kr_persona=kr,
+                    vn_persona=vn_persona,
+                    bl_ctx=bl_ctx,
+                )
+                result.sessions_created.append(UUID(session_id))
+                logger.info(
+                    "distribution.custom: session=%s pair=%s↔%s scenario=%s 생성",
+                    session_id,
+                    kr_label,
+                    vn_persona.account_label,
+                    scenario.name,
+                )
+            except GenerationError as exc:
+                msg = f"{kr_label} / {scenario.name}: {exc}"
+                result.errors.append(msg)
+                logger.warning("distribution.custom: 생성 실패 — %s", msg)
+            except Exception as exc:  # noqa: BLE001 — 조합 단위 격리
+                msg = (
+                    f"{kr_label} / {scenario.name}: 예기치 못한 오류 "
+                    f"({type(exc).__name__})"
+                )
+                result.errors.append(msg)
+                logger.exception("distribution.custom: 예외 — %s", msg)
+
+    # 6. 커밋 (개별 flush 는 _create_one_pair_session 내부에서 수행됨).
+    if result.sessions_created:
+        try:
+            await db.commit()
+        except Exception:
+            logger.exception("distribution.custom: 커밋 실패 — 롤백")
+            await db.rollback()
+            result.errors.append("DB 커밋 실패 — 모든 세션 롤백됨")
+            result.sessions_created.clear()
+    else:
+        await db.rollback()
+
+    return result

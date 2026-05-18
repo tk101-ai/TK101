@@ -19,9 +19,10 @@ Phase B~E (예정): scenarios CRUD, BL upload, generate, sessions review, send-l
 from __future__ import annotations
 
 import logging
+from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -128,10 +129,19 @@ async def upload_data(
 @router.get("/data/weekly-summary")
 async def list_weekly_summary(
     limit: int = 50,
+    from_date: date | None = Query(default=None, alias="from"),
+    to_date: date | None = Query(default=None, alias="to"),
+    company_label: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, list[WeeklySummaryOut]]:
-    """주차별 종합 데이터 최신순 조회."""
-    rows = await data_service.list_weekly_summary(db, limit=limit)
+    """주차별 종합 데이터 조회. 기간 필터 + 회사 필터 옵션."""
+    rows = await data_service.list_weekly_summary(
+        db,
+        limit=limit,
+        from_date=from_date,
+        to_date=to_date,
+        company_label=company_label,
+    )
     return {"items": [WeeklySummaryOut.model_validate(r) for r in rows]}
 
 
