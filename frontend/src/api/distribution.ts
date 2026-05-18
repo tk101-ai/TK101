@@ -184,6 +184,7 @@ export interface ProductOut {
   purchase_date: string | null;
   source_file: string | null;
   imported_at: string;
+  company_label?: string | null;
 }
 
 export interface DataUploadResult {
@@ -193,13 +194,53 @@ export interface DataUploadResult {
   products_inserted: number;
   products_wiped: number;
   warnings: string[];
+  company_label?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// T9 Phase F-D: 4 회사 통합 운영 (TK101 / 래더엑스 / 뉴테인핏 / SYBT)
+// ---------------------------------------------------------------------------
+
+/** 신사업유통이 운영 중인 4 회사 코드. backend constants 와 동기화 필수. */
+export const DISTRIBUTION_COMPANIES = [
+  "TK101",
+  "래더엑스",
+  "뉴테인핏",
+  "SYBT",
+] as const;
+export type DistributionCompany = (typeof DISTRIBUTION_COMPANIES)[number];
+
+/** 페이지 상단 회사 Select 표준 옵션 — "전체" 포함. */
+export const COMPANY_FILTER_OPTIONS: {
+  value: DistributionCompany | "all";
+  label: string;
+}[] = [
+  { value: "all", label: "전체 (4 회사 합산)" },
+  { value: "TK101", label: "TK101" },
+  { value: "래더엑스", label: "래더엑스" },
+  { value: "뉴테인핏", label: "뉴테인핏" },
+  { value: "SYBT", label: "SYBT" },
+];
+
+/** 업로드 폼 등 "전체" 가 무의미한 곳에서 쓰는 옵션 — 4 회사만. */
+export const COMPANY_SELECT_OPTIONS: {
+  value: DistributionCompany;
+  label: string;
+}[] = DISTRIBUTION_COMPANIES.map((c) => ({ value: c, label: c }));
+
+/** 데이터에 등록된 회사 목록 — Agent A 의 /data/companies 가 있으면 사용. */
+export async function listDistributionCompanies(): Promise<string[]> {
+  const res = await api.get<{ items: string[] }>(`${BASE}/data/companies`);
+  return res.data.items;
 }
 
 export async function uploadDistributionData(
   file: File,
+  companyLabel?: string,
 ): Promise<DataUploadResult> {
   const formData = new FormData();
   formData.append("file", file);
+  if (companyLabel) formData.append("company_label", companyLabel);
   const res = await api.post<DataUploadResult>(
     `${BASE}/data/upload`,
     formData,
@@ -233,9 +274,29 @@ export async function listWeeklySummary(
   return res.data.items;
 }
 
-export async function listProducts(limit = 500): Promise<ProductOut[]> {
+export interface ProductsFilter {
+  limit?: number;
+  company_label?: string;
+  brand?: string;
+  category?: string;
+  search?: string;
+}
+
+export async function listProducts(
+  filter: ProductsFilter | number = {},
+): Promise<ProductOut[]> {
+  // 하위호환: 과거 시그니처 listProducts(limit: number) 도 허용.
+  const normalized: ProductsFilter =
+    typeof filter === "number" ? { limit: filter } : filter;
+  const params: Record<string, string | number> = {
+    limit: normalized.limit ?? 1000,
+  };
+  if (normalized.company_label) params.company_label = normalized.company_label;
+  if (normalized.brand) params.brand = normalized.brand;
+  if (normalized.category) params.category = normalized.category;
+  if (normalized.search) params.search = normalized.search;
   const res = await api.get<{ items: ProductOut[] }>(`${BASE}/data/products`, {
-    params: { limit },
+    params,
   });
   return res.data.items;
 }

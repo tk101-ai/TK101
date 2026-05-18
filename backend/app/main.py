@@ -18,6 +18,7 @@ from app.routers import (
     distribution_generate_v2,
     distribution_scenarios,
     distribution_sessions,
+    distribution_settlement,
     distribution_triggers,
     forms,
     matching,
@@ -83,6 +84,8 @@ app.include_router(distribution_generate_v2.router)
 app.include_router(distribution_dashboard.router)
 # T9 Phase E-4: 분석 페이지 (비용/송신통계/메시지검색).
 app.include_router(distribution_analytics.router)
+# T9 Phase F-C: 정산 페이지 (엑셀 기반 자금 흐름 — 매입/입금요청/실입금/외상잔고).
+app.include_router(distribution_settlement.router)
 
 
 @app.get("/health")

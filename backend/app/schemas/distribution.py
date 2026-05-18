@@ -389,6 +389,8 @@ class ProductOut(BaseModel):
     """명품재고대장 1행."""
 
     id: uuid.UUID
+    # company_label: 4개 회사 분리 (T9 Phase F-A). 구 데이터는 None 가능 (백필 전).
+    company_label: str | None = None
     brand: str
     product_name_en: str | None
     product_code: str | None
@@ -409,6 +411,9 @@ class DataUploadResult(BaseModel):
     """엑셀 업로드 결과 — 종합관리시트 + 명품재고대장 합산."""
 
     file_name: str
+    # company_label: 이번 업로드가 어떤 회사로 적재됐는지 (T9 Phase F-A).
+    # 명시 안 됐을 때 자동 추출/fallback 으로 결정된 최종 값.
+    company_label: str | None = None
     summary_inserted: int = 0
     summary_updated: int = 0
     products_inserted: int = 0

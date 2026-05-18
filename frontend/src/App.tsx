@@ -35,6 +35,7 @@ import ProductsPage from "./pages/distribution/ProductsPage";
 import SessionsPage from "./pages/distribution/SessionsPage";
 import SessionDetailPage from "./pages/distribution/SessionDetailPage";
 import AnalyticsPage from "./pages/distribution/AnalyticsPage";
+import SettlementPage from "./pages/distribution/SettlementPage";
 
 function App() {
   const { user, loading, logout, checkAuth } = useAuth();
@@ -284,6 +285,14 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="distribution">
                     <AnalyticsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/distribution/settlement"
+                element={
+                  <ProtectedRoute user={user} module="distribution">
+                    <SettlementPage />
                   </ProtectedRoute>
                 }
               />

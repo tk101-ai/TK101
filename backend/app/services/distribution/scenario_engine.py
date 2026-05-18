@@ -75,13 +75,73 @@ class PersonaContext:
 
 @dataclass(frozen=True)
 class ScenarioContext:
-    """시나리오 + 비트."""
+    """시나리오 + 비트.
+
+    참고: 여러 시나리오를 하나의 대화로 합성하려면 ``merge_scenario_contexts`` 사용.
+    합성된 ScenarioContext 는 beats 의 intent 앞에 ``[시나리오명]`` 접두어가 붙어
+    LLM 이 주제 전환 시점을 인식할 수 있도록 구성된다.
+    """
 
     name: str
     trigger_event: str
     beats: list[dict[str, Any]]
     example_msgs: list[dict[str, Any]] | None
     raw_text: str | None
+
+
+def merge_scenario_contexts(
+    scenarios: list[ScenarioContext],
+    *,
+    name: str = "통합 주간 대화",
+) -> ScenarioContext:
+    """N개 시나리오의 beats + example_msgs 를 하나로 합쳐 새 ScenarioContext 반환.
+
+    동작:
+    - name: 합성 시나리오 표시명.
+    - trigger_event: 첫 시나리오의 trigger_event.
+    - beats: 모든 시나리오의 beats 를 순차 concat. step 번호 1부터 재부여.
+      각 비트 intent 앞에 ``[시나리오 이름]`` 접두어 추가하여 LLM 이 주제 전환을 인식.
+    - example_msgs: 모든 시나리오의 example_msgs 를 concat. 발신자 라벨은 그대로.
+    - raw_text: scenarios 의 raw_text 를 줄바꿈+구분선으로 join.
+
+    호환성:
+    - scenarios 길이가 1 이면 입력 시나리오를 그대로 반환 (불필요한 접두어 회피).
+    - 빈 리스트는 ``ValueError``.
+    """
+    if not scenarios:
+        raise ValueError("scenarios 비어있음")
+    if len(scenarios) == 1:
+        return scenarios[0]
+
+    merged_beats: list[dict[str, Any]] = []
+    step_idx = 1
+    for sc in scenarios:
+        for beat in sc.beats:
+            merged_beats.append(
+                {
+                    "step": step_idx,
+                    "intent": f"[{sc.name}] {beat.get('intent', '')}",
+                    "tone_hint": beat.get("tone_hint"),
+                }
+            )
+            step_idx += 1
+
+    merged_examples: list[dict[str, Any]] = []
+    for sc in scenarios:
+        if sc.example_msgs:
+            merged_examples.extend(sc.example_msgs)
+
+    merged_raw = "\n\n---\n\n".join(
+        sc.raw_text or "" for sc in scenarios if sc.raw_text
+    ) or None
+
+    return ScenarioContext(
+        name=name,
+        trigger_event=scenarios[0].trigger_event,
+        beats=merged_beats,
+        example_msgs=merged_examples if merged_examples else None,
+        raw_text=merged_raw,
+    )
 
 
 @dataclass(frozen=True)
@@ -211,6 +271,8 @@ def build_prompt(
 현재 시각: {now_str}
 
 당신의 임무는 두 사람의 자연스러운 한국어 비즈니스 채팅을 작성하는 것입니다.
+
+여러 주제가 한 대화에 포함될 수 있습니다 — 자연스럽게 화제 전환하되 모든 비트를 다루세요.
 
 {ANTI_AI_RULES}
 

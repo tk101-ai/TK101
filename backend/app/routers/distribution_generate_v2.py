@@ -1,14 +1,20 @@
-"""커스텀 생성 트리거 (T9 Phase E-2).
+"""커스텀 생성 트리거 (T9 Phase E-2 → F-B 시나리오 합성).
 
 기존 ``/generate-weekly`` 는 활성 한국 페르소나 전체 × 기본 시나리오 2개를 자동 사용.
 본 endpoint 는 사용자가 명시한 페르소나 + 시나리오 + 주차로만 생성한다.
+
+Phase F-B 변경 (시나리오 합성):
+- 이전: 페르소나 × 시나리오 = N×M 세션 (시나리오마다 LLM 1회).
+- 이제: 페르소나당 1 세션 — 선택된 시나리오 N개를 하나의 대화에 자연스럽게 합성.
+  LLM 호출 수 = 페르소나 수 (시나리오 수 무관). 비용 1/N.
 
 흐름:
 1. payload.sender_persona_ids → role=domestic_admin 검증 후 페르소나 조회.
 2. 활성 vietnam_admin 1명 자동 선택 (자격증명 보유 + active=True).
 3. payload.period_label 있으면 그 주차 weekly_summary 조회, 없으면 최신.
 4. payload.scenario_names → active=True 만 통과.
-5. ``generation_service`` private 헬퍼 재사용 — 각 (KR, VN, scenario) 조합 1세션.
+5. 페르소나별로 시나리오 N개를 합성하여 1세션 생성
+   (``_create_one_pair_combined_session``).
 6. 결과 `GenerateCustomResult` 반환.
 """
 from __future__ import annotations
@@ -33,7 +39,7 @@ from app.services.distribution.conversation_generator import GenerationError
 from app.services.distribution.generation_service import (
     TOP_PRODUCT_LIMIT,
     _build_bl_context,
-    _create_one_pair_session,
+    _create_one_pair_combined_session,
     _has_credentials,
     _label_or_id,
     _top_products,
@@ -242,43 +248,43 @@ async def generate_custom(
         result.errors.append("실행 가능한 시나리오 없음.")
         return result
 
-    # 5. 조합별 생성 (실패 격리).
+    # 5. 페르소나별 1 세션 생성 (시나리오 N개 합성, Phase F-B). 실패 격리.
+    scenario_names_str = " + ".join(s.name for s in scenarios)
     for kr in kr_personas:
         kr_label = _label_or_id(kr)
         if not _has_credentials(kr):
             result.skipped.append(f"{kr_label}: credentials missing")
             continue
 
-        for scenario in scenarios:
-            try:
-                session_id = await _create_one_pair_session(
-                    db,
-                    scenario=scenario,
-                    kr_persona=kr,
-                    vn_persona=vn_persona,
-                    bl_ctx=bl_ctx,
-                )
-                result.sessions_created.append(UUID(session_id))
-                logger.info(
-                    "distribution.custom: session=%s pair=%s↔%s scenario=%s 생성",
-                    session_id,
-                    kr_label,
-                    vn_persona.account_label,
-                    scenario.name,
-                )
-            except GenerationError as exc:
-                msg = f"{kr_label} / {scenario.name}: {exc}"
-                result.errors.append(msg)
-                logger.warning("distribution.custom: 생성 실패 — %s", msg)
-            except Exception as exc:  # noqa: BLE001 — 조합 단위 격리
-                msg = (
-                    f"{kr_label} / {scenario.name}: 예기치 못한 오류 "
-                    f"({type(exc).__name__})"
-                )
-                result.errors.append(msg)
-                logger.exception("distribution.custom: 예외 — %s", msg)
+        try:
+            session_id = await _create_one_pair_combined_session(
+                db,
+                scenarios=scenarios,
+                kr_persona=kr,
+                vn_persona=vn_persona,
+                bl_ctx=bl_ctx,
+            )
+            result.sessions_created.append(UUID(session_id))
+            logger.info(
+                "distribution.custom: session=%s pair=%s↔%s scenarios=%s 생성(합성)",
+                session_id,
+                kr_label,
+                vn_persona.account_label,
+                scenario_names_str,
+            )
+        except GenerationError as exc:
+            msg = f"{kr_label} / 합성({scenario_names_str}): {exc}"
+            result.errors.append(msg)
+            logger.warning("distribution.custom: 생성 실패 — %s", msg)
+        except Exception as exc:  # noqa: BLE001 — 페르소나 단위 격리
+            msg = (
+                f"{kr_label} / 합성({scenario_names_str}): "
+                f"예기치 못한 오류 ({type(exc).__name__})"
+            )
+            result.errors.append(msg)
+            logger.exception("distribution.custom: 예외 — %s", msg)
 
-    # 6. 커밋 (개별 flush 는 _create_one_pair_session 내부에서 수행됨).
+    # 6. 커밋 (개별 flush 는 _create_one_pair_combined_session 내부에서 수행됨).
     if result.sessions_created:
         try:
             await db.commit()

@@ -8,6 +8,7 @@ import {
   Empty,
   Input,
   Row,
+  Select,
   Space,
   Statistic,
   Table,
@@ -38,7 +39,13 @@ import {
   type MessageSearchItem,
   type SendFailureItem,
 } from "../../api/distribution_analytics";
+import {
+  COMPANY_FILTER_OPTIONS,
+  type DistributionCompany,
+} from "../../api/distribution";
 import { extractErrorDetail } from "../../utils/errorUtils";
+
+type CompanyChoice = DistributionCompany | "all";
 
 const { Title, Paragraph, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -120,13 +127,22 @@ const MESSAGE_STATUS_COLOR: Record<string, string> = {
 interface RangeFilter {
   from?: string;
   to?: string;
+  /**
+   * 회사 필터 — 백엔드 analytics endpoints 가 아직 미지원일 수 있음.
+   * UI 표시·향후 호환용으로만 유지. 현재 빌드된 endpoints 는 무시 처리.
+   */
+  company_label?: string;
 }
 
-function rangeToFilter(range: [Dayjs | null, Dayjs | null] | null): RangeFilter {
+function rangeToFilter(
+  range: [Dayjs | null, Dayjs | null] | null,
+  company: CompanyChoice,
+): RangeFilter {
   const [from, to] = range ?? [null, null];
   return {
     from: from ? from.format("YYYY-MM-DD") : undefined,
     to: to ? to.format("YYYY-MM-DD") : undefined,
+    company_label: company === "all" ? undefined : company,
   };
 }
 
@@ -711,15 +727,20 @@ export default function AnalyticsPage() {
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(
     () => [dayjs().subtract(DEFAULT_RANGE_DAYS, "day"), dayjs()],
   );
+  const [company, setCompany] = useState<CompanyChoice>("all");
   const [activeTab, setActiveTab] = useState<string>("cost");
   // 새로고침은 RangePicker 변경 + 탭 컴포넌트의 useEffect 가 알아서 처리.
   // 명시적 재호출이 필요할 때만 키 갱신.
   const [refreshKey, setRefreshKey] = useState<number>(0);
 
-  const filter: RangeFilter = useMemo(() => rangeToFilter(range), [range]);
+  const filter: RangeFilter = useMemo(
+    () => rangeToFilter(range, company),
+    [range, company],
+  );
 
   const handleReset = () => {
     setRange([dayjs().subtract(DEFAULT_RANGE_DAYS, "day"), dayjs()]);
+    setCompany("all");
   };
 
   const tabs: TabsProps["items"] = [
@@ -791,6 +812,15 @@ export default function AnalyticsPage() {
         }}
       >
         <Text strong style={{ marginRight: 4 }}>
+          회사
+        </Text>
+        <Select<CompanyChoice>
+          value={company}
+          onChange={(v) => setCompany(v)}
+          options={COMPANY_FILTER_OPTIONS}
+          style={{ width: 200 }}
+        />
+        <Text strong style={{ marginLeft: 8, marginRight: 4 }}>
           기간 필터
         </Text>
         <RangePicker
@@ -805,9 +835,9 @@ export default function AnalyticsPage() {
         <Button
           icon={<UndoOutlined />}
           onClick={handleReset}
-          title="최근 30일로 초기화"
+          title="회사 전체 + 최근 30일로 초기화"
         >
-          최근 30일
+          초기화
         </Button>
         <Button
           icon={<ReloadOutlined />}
@@ -819,6 +849,12 @@ export default function AnalyticsPage() {
         {activeTab === "search" && (
           <Text type="secondary" style={{ fontSize: 12 }}>
             • 메시지 검색은 기간 필터를 옵션으로 사용합니다
+          </Text>
+        )}
+        {company !== "all" && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            • 회사 필터: backend analytics endpoint 가 미지원 시 전체 데이터가
+            반환될 수 있습니다
           </Text>
         )}
       </div>

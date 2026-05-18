@@ -4,8 +4,10 @@ import {
   Button,
   Card,
   Descriptions,
+  Select,
   Space,
   Spin,
+  Tag,
   Typography,
   Upload,
   message,
@@ -19,6 +21,8 @@ import {
 import type { UploadProps } from "antd";
 import { Link } from "react-router-dom";
 import {
+  COMPANY_SELECT_OPTIONS,
+  type DistributionCompany,
   uploadDistributionData,
   type DataUploadResult,
 } from "../../api/distribution";
@@ -41,6 +45,9 @@ export default function DataUploadPage() {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<DataUploadResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // 적재 회사 선택 — 기본값 "래더엑스" (기존 단일 회사 운영 호환).
+  const [companyLabel, setCompanyLabel] =
+    useState<DistributionCompany>("래더엑스");
 
   // 자동 업로드 차단 — 사용자가 "업로드 시작" 버튼을 누를 때만 처리.
   const uploadProps: UploadProps = {
@@ -63,9 +70,9 @@ export default function DataUploadPage() {
     setUploading(true);
     setErrorMsg(null);
     try {
-      const res = await uploadDistributionData(pendingFile);
+      const res = await uploadDistributionData(pendingFile, companyLabel);
       setResult(res);
-      message.success("업로드 완료");
+      message.success(`업로드 완료 — 적재 회사: ${companyLabel}`);
     } catch (err: unknown) {
       const detail = extractErrorDetail(err, "업로드 실패", {
         useAxiosMessage: true,
@@ -115,6 +122,30 @@ export default function DataUploadPage() {
       </div>
 
       <Card size="small" style={{ marginBottom: 20 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            marginBottom: 12,
+            padding: "10px 12px",
+            background: "#fafafa",
+            borderRadius: 6,
+            flexWrap: "wrap",
+          }}
+        >
+          <Text strong>적재 회사</Text>
+          <Select<DistributionCompany>
+            value={companyLabel}
+            onChange={(v) => setCompanyLabel(v)}
+            options={COMPANY_SELECT_OPTIONS}
+            style={{ width: 200 }}
+            disabled={uploading}
+          />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            업로드되는 주차별/명품재고 데이터는 선택한 회사에 귀속됩니다.
+          </Text>
+        </div>
         <Dragger {...uploadProps} style={{ padding: "12px 8px" }}>
           <p className="ant-upload-drag-icon" style={{ margin: 0 }}>
             <InboxOutlined />
@@ -209,6 +240,11 @@ export default function DataUploadPage() {
             >
               <Descriptions.Item label="파일명" span={2}>
                 <Text strong>{result.file_name}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="적재 회사" span={2}>
+                <Tag color="geekblue" style={{ fontSize: 13 }}>
+                  {result.company_label ?? companyLabel}
+                </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="주차별 신규 적재">
                 <Text style={{ fontVariantNumeric: "tabular-nums" }}>

@@ -22,7 +22,7 @@ import logging
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +33,8 @@ from fastapi import UploadFile, File
 from pathlib import Path
 import tempfile
 import shutil
+
+from app.services.distribution.constants import DISTRIBUTION_COMPANIES
 
 from app.schemas.distribution import (
     DataUploadResult,
@@ -81,19 +83,39 @@ async def health() -> dict[str, str]:
 @router.post("/data/upload")
 async def upload_data(
     file: UploadFile = File(...),
+    company_label: str | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin),
 ) -> DataUploadResult:
     """엑셀 파일 1개 업로드 → 종합관리시트 + 명품재고대장 동시 적재.
 
+    Form 필드 (T9 Phase F-A):
+    - file: .xlsx / .xlsm
+    - company_label (optional): 4 회사 코드 중 하나 (TK101/래더엑스/뉴테인핏/SYBT).
+      비어있으면 종합관리시트 R5 자동 추출, 그것도 없으면 "래더엑스" 폴백.
+
+    DB 전략:
     - 종합관리시트: UNIQUE(company, period) UPSERT.
-    - 명품재고대장: wipe + insert (매주 풀 갱신 가정).
-    - 둘 중 하나만 있어도 OK.
+    - 명품재고대장: **회사별** wipe + insert — 다른 회사 데이터 보존.
+
+    Errors:
+    - 400: 파일 확장자 미지원 / 허용되지 않은 company_label.
     """
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="엑셀 파일(.xlsx)만 업로드 가능합니다.",
+        )
+
+    # 회사 코드 검증 — 명시된 경우만. 빈 문자열도 None 처리.
+    normalized_company = (company_label or "").strip() or None
+    if normalized_company and normalized_company not in DISTRIBUTION_COMPANIES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "허용된 회사 코드가 아닙니다. "
+                f"가능: {list(DISTRIBUTION_COMPANIES)}"
+            ),
         )
 
     # 임시 파일에 저장 (openpyxl 은 파일 경로가 필요).
@@ -109,6 +131,7 @@ async def upload_data(
             file_path=tmp_path,
             source_file_name=file.filename,
             user_id=current_user.id,
+            company_label=normalized_company,
         )
     finally:
         try:
@@ -118,6 +141,7 @@ async def upload_data(
 
     return DataUploadResult(
         file_name=file.filename,
+        company_label=result.company_label_used,
         summary_inserted=result.summary_inserted,
         summary_updated=result.summary_updated,
         products_inserted=result.products_inserted,
@@ -148,11 +172,39 @@ async def list_weekly_summary(
 @router.get("/data/products")
 async def list_products(
     limit: int = 500,
+    company_label: str | None = None,
+    brand: str | None = None,
+    category: str | None = None,
+    search: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, list[ProductOut]]:
-    """명품재고대장 조회 (브랜드 + 제품코드 정렬)."""
-    rows = await data_service.list_products(db, limit=limit)
+    """명품재고대장 조회 (회사/브랜드/카테고리/검색 필터, 회사→브랜드→제품코드 정렬).
+
+    필터 (T9 Phase F-A):
+    - company_label: 정확 매칭. 미지정 시 전체 회사.
+    - brand: 정확 매칭.
+    - category: 정확 매칭 (Bag/Belts/Ring/Scarf 등).
+    - search: 제품명(영문) / 제품코드 부분 매칭 (ILIKE).
+    """
+    rows = await data_service.list_products(
+        db,
+        limit=limit,
+        company_label=company_label,
+        brand=brand,
+        category=category,
+        search=search,
+    )
     return {"items": [ProductOut.model_validate(r) for r in rows]}
+
+
+@router.get("/data/companies")
+async def list_companies() -> dict[str, list[str]]:
+    """4 회사 코드 노출 — Agent D 가 Select 옵션에 사용 (T9 Phase F-A).
+
+    회사 코드는 backend constants 의 ``DISTRIBUTION_COMPANIES`` 가 SSOT.
+    프런트엔드 상수와 동기화 필요 시 이 엔드포인트 호출로 확인 가능.
+    """
+    return {"items": list(DISTRIBUTION_COMPANIES)}
 
 
 # ---------------------------------------------------------------------------

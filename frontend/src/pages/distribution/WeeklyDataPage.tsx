@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Button,
   DatePicker,
+  Select,
   Space,
   Table,
   Tag,
@@ -17,6 +18,8 @@ import type { ColumnsType } from "antd/es/table";
 import dayjs, { Dayjs } from "dayjs";
 import { Link } from "react-router-dom";
 import {
+  COMPANY_FILTER_OPTIONS,
+  type DistributionCompany,
   listWeeklySummary,
   type WeeklySummaryOut,
 } from "../../api/distribution";
@@ -24,6 +27,8 @@ import { extractErrorDetail } from "../../utils/errorUtils";
 
 const { Title, Paragraph, Text } = Typography;
 const { RangePicker } = DatePicker;
+
+type CompanyChoice = DistributionCompany | "all";
 
 /**
  * 주차별 종합 데이터 조회 페이지 (T9 Phase B-1 / E-3 기간필터).
@@ -37,6 +42,7 @@ export default function WeeklyDataPage() {
   const [data, setData] = useState<WeeklySummaryOut[]>([]);
   const [loading, setLoading] = useState(false);
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
+  const [company, setCompany] = useState<CompanyChoice>("all");
 
   const filter = useMemo(() => {
     const [from, to] = range ?? [null, null];
@@ -44,20 +50,26 @@ export default function WeeklyDataPage() {
       limit: 200,
       from: from ? from.format("YYYY-MM-DD") : undefined,
       to: to ? to.format("YYYY-MM-DD") : undefined,
+      company_label: company === "all" ? undefined : company,
     };
-  }, [range]);
+  }, [range, company]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const items = await listWeeklySummary(filter);
-      setData(items);
+      // backend 가 company_label 필터를 무시할 가능성에 대비한 클라이언트 측 폴백.
+      const finalItems =
+        company === "all"
+          ? items
+          : items.filter((r) => r.company_label === company);
+      setData(finalItems);
     } catch (err: unknown) {
       message.error(extractErrorDetail(err, "주차별 데이터 조회 실패"));
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, company]);
 
   useEffect(() => {
     const run = async () => {
@@ -68,6 +80,7 @@ export default function WeeklyDataPage() {
 
   const handleReset = () => {
     setRange(null);
+    setCompany("all");
   };
 
   const columns: ColumnsType<WeeklySummaryOut> = [
@@ -156,7 +169,7 @@ export default function WeeklyDataPage() {
         </Space>
       </div>
 
-      {/* 기간 필터 영역 */}
+      {/* 회사·기간 필터 영역 */}
       <div
         style={{
           marginBottom: 16,
@@ -170,15 +183,20 @@ export default function WeeklyDataPage() {
         }}
       >
         <Text strong style={{ marginRight: 4 }}>
-          기간 필터
+          회사
+        </Text>
+        <Select<CompanyChoice>
+          value={company}
+          onChange={(v) => setCompany(v)}
+          options={COMPANY_FILTER_OPTIONS}
+          style={{ width: 200 }}
+        />
+        <Text strong style={{ marginLeft: 8, marginRight: 4 }}>
+          기간
         </Text>
         <RangePicker
           value={range}
-          onChange={(v) =>
-            setRange(
-              v ? [v[0] ?? null, v[1] ?? null] : null,
-            )
-          }
+          onChange={(v) => setRange(v ? [v[0] ?? null, v[1] ?? null] : null)}
           format="YYYY-MM-DD"
           allowClear
           placeholder={["시작일", "종료일"]}
@@ -186,7 +204,9 @@ export default function WeeklyDataPage() {
         <Button
           icon={<UndoOutlined />}
           onClick={handleReset}
-          disabled={!range || (!range[0] && !range[1])}
+          disabled={
+            company === "all" && (!range || (!range[0] && !range[1]))
+          }
         >
           초기화
         </Button>

@@ -298,6 +298,9 @@ class DistributionProduct(Base):
         primary_key=True,
         server_default=text("gen_random_uuid()"),
     )
+    # company_label: 4개 회사 분리 (TK101/래더엑스/뉴테인핏/SYBT). NULL=래더엑스 fallback.
+    # T9 Phase F-A — 회사별 wipe + insert 로 다른 회사 데이터 보존.
+    company_label = Column(String(100), nullable=True)
     brand = Column(String(100), nullable=False)
     product_name_en = Column(String(500), nullable=True)
     product_code = Column(String(100), nullable=True)

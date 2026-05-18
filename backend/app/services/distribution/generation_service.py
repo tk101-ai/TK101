@@ -43,6 +43,7 @@ from app.services.distribution.scenario_engine import (
     BlContext,
     PersonaContext,
     ScenarioContext,
+    merge_scenario_contexts,
 )
 
 logger = logging.getLogger(__name__)
@@ -354,6 +355,101 @@ async def _create_one_pair_session(
     return str(session_row.id)
 
 
+async def _create_one_pair_combined_session(
+    db: AsyncSession,
+    *,
+    scenarios: list[DistributionScenario],
+    kr_persona: DistributionPersona,
+    vn_persona: DistributionPersona,
+    bl_ctx: BlContext,
+) -> str:
+    """N개 시나리오를 합성하여 1 세션 생성 (페르소나당 1 LLM 호출, Phase F-B).
+
+    동작:
+    1. ``merge_scenario_contexts`` 로 합성 ScenarioContext 생성.
+    2. 첫 시나리오의 sender_role 로 발신/수신 결정. role 혼재 시 첫 시나리오 기준 + warning.
+    3. ``_generate_one_sync`` 로 LLM 1회 호출.
+    4. DB 저장 시 session.scenario_id = scenarios[0].id (대표 시나리오). 합성 관계는
+       프롬프트 본문(beats intent 접두어)으로만 보존 — 별도 raw_row 메타데이터 컬럼 없음.
+
+    Returns 세션 id(str). 실패 시 예외 전파.
+    """
+    if not scenarios:
+        raise GenerationError("scenarios 비어있음")
+
+    # 시나리오 sender_role 다양성 체크.
+    sender_roles = {s.sender_role for s in scenarios}
+    if len(sender_roles) > 1:
+        logger.warning(
+            "distribution.combined: 시나리오 sender_role 혼재 (%s) — 첫 시나리오 기준 적용",
+            sorted(sender_roles),
+        )
+
+    primary = scenarios[0]
+    if primary.sender_role == "domestic_admin":
+        sender, receiver = kr_persona, vn_persona
+    elif primary.sender_role == "vietnam_admin":
+        sender, receiver = vn_persona, kr_persona
+    else:
+        logger.warning(
+            "distribution.combined: 알 수 없는 sender_role=%s, KR 출발로 폴백",
+            primary.sender_role,
+        )
+        sender, receiver = kr_persona, vn_persona
+
+    merged_name = " + ".join(s.name for s in scenarios)
+    merged_ctx = merge_scenario_contexts(
+        [_scenario_context(s) for s in scenarios],
+        name=f"통합({merged_name})",
+    )
+
+    sender_ctx = _persona_context(sender)
+    receiver_ctx = _persona_context(receiver)
+
+    # Claude 호출은 동기 SDK 라 이벤트 루프 분리.
+    result: GenerationResult = await asyncio.to_thread(
+        _generate_one_sync,
+        scenario_ctx=merged_ctx,
+        sender_ctx=sender_ctx,
+        receiver_ctx=receiver_ctx,
+        bl_ctx=bl_ctx,
+    )
+
+    label_to_id: dict[str, Any] = {
+        sender.account_label: sender.id,
+        receiver.account_label: receiver.id,
+    }
+
+    session_row = DistributionSession(
+        scenario_id=primary.id,
+        sender_persona_id=sender.id,
+        receiver_persona_id=receiver.id,
+        status="pending",
+        llm_cost_usd=result.cost_usd,
+        llm_input_tok=result.input_tokens,
+        llm_output_tok=result.output_tokens,
+    )
+    db.add(session_row)
+    await db.flush()
+
+    for idx, msg in enumerate(result.messages):
+        msg_sender_id = label_to_id.get(msg.sender, sender.id)
+        db.add(
+            DistributionMessage(
+                session_id=session_row.id,
+                order_index=idx,
+                sender_persona_id=msg_sender_id,
+                content=msg.content,
+                send_after_sec=msg.send_after_sec,
+                typing_sec=msg.typing_sec,
+                status="queued",
+            )
+        )
+
+    await db.flush()
+    return str(session_row.id)
+
+
 # ---------------------------------------------------------------------------
 # 공개 진입점
 # ---------------------------------------------------------------------------
@@ -431,38 +527,41 @@ async def generate_weekly_for_all_pairs(
         )
         return summary
 
-    # 5. 조합별 생성
+    # 5. 페르소나별 1 세션 생성 (시나리오 N개 합성, Phase F-B).
+    scenario_names_str = " + ".join(s.name for s in scenarios)
     for kr_persona in kr_personas:
         kr_label = _label_or_id(kr_persona)
         if not _has_credentials(kr_persona):
             summary.skipped.append(f"{kr_label}: credentials missing")
             continue
 
-        for scenario in scenarios:
-            try:
-                session_id = await _create_one_pair_session(
-                    db,
-                    scenario=scenario,
-                    kr_persona=kr_persona,
-                    vn_persona=vn_persona,
-                    bl_ctx=bl_ctx,
-                )
-                summary.sessions_created.append(session_id)
-                logger.info(
-                    "distribution.weekly: session=%s pair=%s↔%s scenario=%s 생성",
-                    session_id,
-                    kr_label,
-                    vn_persona.account_label,
-                    scenario.name,
-                )
-            except GenerationError as exc:
-                msg = f"{kr_label} / {scenario.name}: {exc}"
-                summary.errors.append(msg)
-                logger.warning("distribution.weekly: 생성 실패 — %s", msg)
-            except Exception as exc:  # noqa: BLE001 — 조합 단위 격리
-                msg = f"{kr_label} / {scenario.name}: 예기치 못한 오류 ({type(exc).__name__})"
-                summary.errors.append(msg)
-                logger.exception("distribution.weekly: 예외 — %s", msg)
+        try:
+            session_id = await _create_one_pair_combined_session(
+                db,
+                scenarios=scenarios,
+                kr_persona=kr_persona,
+                vn_persona=vn_persona,
+                bl_ctx=bl_ctx,
+            )
+            summary.sessions_created.append(session_id)
+            logger.info(
+                "distribution.weekly: session=%s pair=%s↔%s scenarios=%s 생성(합성)",
+                session_id,
+                kr_label,
+                vn_persona.account_label,
+                scenario_names_str,
+            )
+        except GenerationError as exc:
+            msg = f"{kr_label} / 합성({scenario_names_str}): {exc}"
+            summary.errors.append(msg)
+            logger.warning("distribution.weekly: 생성 실패 — %s", msg)
+        except Exception as exc:  # noqa: BLE001 — 페르소나 단위 격리
+            msg = (
+                f"{kr_label} / 합성({scenario_names_str}): "
+                f"예기치 못한 오류 ({type(exc).__name__})"
+            )
+            summary.errors.append(msg)
+            logger.exception("distribution.weekly: 예외 — %s", msg)
 
     # 6. 한 번에 커밋 (개별 flush 는 위에서 수행됨, 트랜잭션 완료).
     if summary.sessions_created:
