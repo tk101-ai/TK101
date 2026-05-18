@@ -15,6 +15,8 @@ DEPARTMENT_MODULES: dict[str, list[str]] = {
         Module.FORM_FILLER.value,
         # T8 PLAYGROUND: admin only (require_admin 으로 한 번 더 게이팅).
         Module.PLAYGROUND.value,
+        # T9 DISTRIBUTION: admin + 신사업팀 사용. 세부 작업은 라우터 단 게이팅.
+        Module.DISTRIBUTION.value,
     ],
     Department.FINANCE.value: [
         Module.DASHBOARD.value,
@@ -39,6 +41,8 @@ DEPARTMENT_MODULES: dict[str, list[str]] = {
         Module.DASHBOARD.value,
         Module.NAS_SEARCH.value,
         Module.FORM_FILLER.value,
+        # T9 트랙 — 신사업팀 주관 모듈 (라이브 1차 2계정 → 점진 확장).
+        Module.DISTRIBUTION.value,
     ],
     Department.NEW_MEDIA.value: [
         Module.DASHBOARD.value,

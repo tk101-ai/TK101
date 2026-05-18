@@ -61,6 +61,24 @@ class Settings(BaseSettings):
     # 캐시 만료 (실 ApiToken TTL 1시간 가정, 보수적으로 55분).
     tencent_aigc_token_ttl_seconds: int = 3300
 
+    # T9 신사업유통 텔레그램 자동화 (T9 PRD) ----------------------------------
+    # Fernet 마스터 키 — api_id/api_hash 암호화 저장에 사용.
+    # 생성: ``python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"``
+    # 운영에서 .env 에만 두고, 회전 시엔 키 wrap 후 모든 *_enc 컬럼 재암호화.
+    distribution_fernet_key: str | None = None
+    # Telethon .session 파일 저장 루트. 권한 0600 강제, 컨테이너 volume mount.
+    distribution_telethon_session_dir: str = "/var/lib/distribution/sessions"
+    # 대화 생성용 Claude 모델. 톤이 중요하므로 Sonnet 기본 (T9 PRD 6-3).
+    distribution_claude_model: str = "claude-sonnet-4-6"
+    # 페르소나당 일일 송신 한도 기본값 (DB 컬럼이 우선, 이건 fallback).
+    distribution_default_daily_limit: int = 30
+    # 신규 페르소나 워밍업 기간 (일). 이 기간엔 송신 빈도 ↓.
+    distribution_warmup_days: int = 7
+    # 송신 실패 재시도 횟수 (지수 백오프).
+    distribution_send_retry_max: int = 3
+    # 송신 워커 큐 폴링 간격 (초).
+    distribution_worker_poll_interval: int = 30
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

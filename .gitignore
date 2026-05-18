@@ -27,6 +27,9 @@ Thumbs.db
 *.log
 .bkit/
 
+# 로컬 자격증명 드롭 위치 — git commit 금지 (T9 텔레그램 자격증명, 임시 토큰 등)
+.local/
+
 # Claude Code worktrees (병렬 에이전트 격리 작업 폴더 — commit 대상 아님)
 .claude/worktrees/
 

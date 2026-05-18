@@ -42,3 +42,6 @@ class Module(str, Enum):
     # T8 트랙: AI Playground (Phase 1 — Claude 채팅, Phase 4~5 미디어 확장).
     # admin only 정책 (T8 PRD 7절). DEPARTMENT_MODULES 매핑은 일반 부서에 부여하지 않음.
     PLAYGROUND = "playground"
+    # T9 트랙: 신사업유통 텔레그램 대화 자동화 (T9 PRD).
+    # 신사업팀 + admin 접근. 검수/페르소나 관리 등 세부 권한은 라우터 단 require_admin 으로 추가 게이팅.
+    DISTRIBUTION = "distribution"

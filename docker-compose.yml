@@ -101,6 +101,11 @@ services:
       TENCENT_AIGC_SECRET_KEY: ${TENCENT_AIGC_SECRET_KEY:-}
       TENCENT_AIGC_VOD_ENDPOINT: ${TENCENT_AIGC_VOD_ENDPOINT:-vod.tencentcloudapi.com}
       TENCENT_AIGC_REGION: ${TENCENT_AIGC_REGION:-ap-seoul}
+      # T9 신사업유통 텔레그램 대화 자동화 (T9 PRD 7-1) ----------------------------
+      # Fernet 마스터 키 — DB의 api_id_enc/api_hash_enc 컬럼 암복호화. 없으면 페르소나 등록 시 503.
+      DISTRIBUTION_FERNET_KEY: ${DISTRIBUTION_FERNET_KEY:-}
+      DISTRIBUTION_TELETHON_SESSION_DIR: ${DISTRIBUTION_TELETHON_SESSION_DIR:-/var/lib/distribution/sessions}
+      DISTRIBUTION_CLAUDE_MODEL: ${DISTRIBUTION_CLAUDE_MODEL:-claude-sonnet-4-6}
     volumes:
       # 호스트 NAS SSHFS 마운트를 컨테이너에 read-only bind. 호스트 fstab은 ro 마운트 권장.
       - ${NAS_MOUNT_PATH:-/mnt/nas}:/mnt/nas:ro
@@ -108,6 +113,10 @@ services:
       - hf_cache:/root/.cache/huggingface
       # T5 양식 산출물 + 사용자 업로드 (NAS는 ro라 별도 volume 사용).
       - form_filler_data:/var/lib/form_filler
+      # T9 Telethon 세션 파일 (.session) 영구 저장 — 컨테이너 재시작 시 재로그인 회피.
+      - distribution_telethon_data:/var/lib/distribution
+      # T9 자격증명 JSON 드롭 위치 (.local/t9_credentials.json) — 컨테이너에서 읽기 위해 mount.
+      - ./.local:/srv/.local
     depends_on:
       postgres:
         condition: service_healthy
@@ -149,3 +158,4 @@ volumes:
   webui_data:
   hf_cache:
   form_filler_data:
+  distribution_telethon_data:

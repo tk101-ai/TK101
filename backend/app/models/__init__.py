@@ -22,6 +22,14 @@ from app.models.playground import (
     PlaygroundMessage,
     PlaygroundSession,
 )
+from app.models.distribution import (
+    DistributionBlRecord,
+    DistributionMessage,
+    DistributionPersona,
+    DistributionScenario,
+    DistributionSendLog,
+    DistributionSession,
+)
 
 __all__ = [
     "Base",
@@ -47,4 +55,10 @@ __all__ = [
     "PlaygroundSession",
     "PlaygroundMessage",
     "PlaygroundMedia",
+    "DistributionPersona",
+    "DistributionBlRecord",
+    "DistributionScenario",
+    "DistributionSession",
+    "DistributionMessage",
+    "DistributionSendLog",
 ]

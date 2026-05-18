@@ -12,6 +12,7 @@ from app.routers import (
     bank_import,
     categories,
     counterparts,
+    distribution,
     forms,
     matching,
     nas_search,
@@ -63,6 +64,8 @@ app.include_router(upload_history.router)
 app.include_router(balance_snapshots.router)
 # T8 트랙: AI Playground (Phase 1 — Claude 채팅 SSE 스트리밍, admin only).
 app.include_router(playground.router)
+# T9 트랙: 신사업유통 텔레그램 대화 자동화 (Day 1 스캐폴드 — 라우터 등록 + 헬스체크).
+app.include_router(distribution.router)
 
 
 @app.get("/health")

@@ -38,6 +38,13 @@ dependencies = [
     # T8 AI Playground — Tencent MPaaS AIGC (OpenAI-compatible 단일 endpoint).
     # 8 공급자 (Claude/GPT/Gemini/Grok/Kimi/GLM/MiniMax/DeepSeek) 를 model 파라미터로 분기.
     "openai>=1.50",
+    # T9 신사업유통 텔레그램 대화 자동화 ----------------------------------------
+    # Telethon: MTProto 클라이언트. 폰번호 + api_id/hash 기반 사용자 계정 자동화.
+    # python-jose[cryptography] 가 이미 cryptography 끌어오지만, Fernet 사용을 명시.
+    "telethon>=1.36",
+    "cryptography>=42.0",
+    # 송신 워커 스케줄링 (Day 4). cron + interval 트리거 지원.
+    "apscheduler>=3.10",
 ]
 
 [project.optional-dependencies]

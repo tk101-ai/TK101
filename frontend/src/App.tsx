@@ -27,6 +27,7 @@ import UploadHistory from "./pages/finance/UploadHistory";
 import CategoryPage from "./pages/settings/CategoryPage";
 import CounterpartPage from "./pages/settings/CounterpartPage";
 import PlaygroundPage from "./pages/playground/PlaygroundPage";
+import PersonasPage from "./pages/distribution/PersonasPage";
 
 function App() {
   const { user, loading, logout, checkAuth } = useAuth();
@@ -212,6 +213,14 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="playground">
                     <PlaygroundPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/distribution/personas"
+                element={
+                  <ProtectedRoute user={user} module="distribution">
+                    <PersonasPage />
                   </ProtectedRoute>
                 }
               />
