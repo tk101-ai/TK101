@@ -28,14 +28,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_admin
 from app.models.user import User
+from fastapi import UploadFile, File
+from pathlib import Path
+import tempfile
+import shutil
+
 from app.schemas.distribution import (
+    DataUploadResult,
     PersonaCreate,
     PersonaCredentialsUpdate,
     PersonaOut,
     PersonaUpdate,
     PersonaVerifyCode,
+    ProductOut,
+    WeeklySummaryOut,
 )
-from app.services.distribution import login_manager, persona_service
+from app.services.distribution import data_service, login_manager, persona_service
 from app.services.distribution.encryption import EncryptionError
 
 logger = logging.getLogger(__name__)
@@ -55,7 +63,80 @@ router = APIRouter(
 @router.get("/health")
 async def health() -> dict[str, str]:
     """T9 모듈 헬스체크. 라우터 등록 검증용."""
-    return {"status": "ok", "module": "distribution", "phase": "A"}
+    return {"status": "ok", "module": "distribution", "phase": "B-1"}
+
+
+# ---------------------------------------------------------------------------
+# Data Upload / Query (Phase B-1)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/data/upload")
+async def upload_data(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+) -> DataUploadResult:
+    """엑셀 파일 1개 업로드 → 종합관리시트 + 명품재고대장 동시 적재.
+
+    - 종합관리시트: UNIQUE(company, period) UPSERT.
+    - 명품재고대장: wipe + insert (매주 풀 갱신 가정).
+    - 둘 중 하나만 있어도 OK.
+    """
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="엑셀 파일(.xlsx)만 업로드 가능합니다.",
+        )
+
+    # 임시 파일에 저장 (openpyxl 은 파일 경로가 필요).
+    with tempfile.NamedTemporaryFile(
+        delete=False, suffix=".xlsx"
+    ) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = Path(tmp.name)
+
+    try:
+        result = await data_service.ingest_excel(
+            db,
+            file_path=tmp_path,
+            source_file_name=file.filename,
+            user_id=current_user.id,
+        )
+    finally:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            logger.warning("임시 파일 삭제 실패: %s", tmp_path)
+
+    return DataUploadResult(
+        file_name=file.filename,
+        summary_inserted=result.summary_inserted,
+        summary_updated=result.summary_updated,
+        products_inserted=result.products_inserted,
+        products_wiped=result.products_wiped,
+        warnings=result.warnings,
+    )
+
+
+@router.get("/data/weekly-summary")
+async def list_weekly_summary(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, list[WeeklySummaryOut]]:
+    """주차별 종합 데이터 최신순 조회."""
+    rows = await data_service.list_weekly_summary(db, limit=limit)
+    return {"items": [WeeklySummaryOut.model_validate(r) for r in rows]}
+
+
+@router.get("/data/products")
+async def list_products(
+    limit: int = 500,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, list[ProductOut]]:
+    """명품재고대장 조회 (브랜드 + 제품코드 정렬)."""
+    rows = await data_service.list_products(db, limit=limit)
+    return {"items": [ProductOut.model_validate(r) for r in rows]}
 
 
 # ---------------------------------------------------------------------------

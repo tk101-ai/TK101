@@ -68,6 +68,8 @@ class PersonaUpdate(BaseModel):
     """페르소나 부분 수정. api_id/api_hash 재입력은 별도 흐름 (보안)."""
 
     display_name: str | None = Field(default=None, max_length=100)
+    # business_name: 사업자명 라벨 (UI 표시 우선). account_label 코드명과 별개.
+    business_name: str | None = Field(default=None, max_length=200)
     tone_profile: dict | None = None
     daily_msg_limit: int | None = Field(default=None, ge=1, le=1000)
     active: bool | None = None
@@ -111,6 +113,7 @@ class PersonaOut(BaseModel):
     account_label: str
     role: PersonaRole
     display_name: str
+    business_name: str | None = None
     telegram_phone: str
     telegram_user_id: int | None
     # 자격증명 등록 여부만 노출 (실 값 X).
@@ -353,6 +356,64 @@ class SessionRejectRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Send Log
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Weekly Summary / Products (Phase B-1)
+# ---------------------------------------------------------------------------
+
+
+class WeeklySummaryOut(BaseModel):
+    """주차별 종합 데이터 1행 (래더엑스 종합관리시트)."""
+
+    id: uuid.UUID
+    company_label: str
+    period_label: str
+    period_start: date
+    period_end: date
+    kr_purchase: Decimal | None
+    vn_inventory_move: Decimal | None
+    vn_sales_completed: Decimal | None
+    kr_purchase_deposit_req: Decimal | None
+    vn_inventory_deposit_req: Decimal | None
+    vn_sales_deposit_req: Decimal | None
+    account_deposit: Decimal | None
+    cash_deposit: Decimal | None
+    source_file: str | None
+    imported_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ProductOut(BaseModel):
+    """명품재고대장 1행."""
+
+    id: uuid.UUID
+    brand: str
+    product_name_en: str | None
+    product_code: str | None
+    category: str | None
+    purchase_qty: int | None
+    domestic_stock_qty: int | None
+    supply_price: Decimal | None
+    purchase_price: Decimal | None
+    approval_number: str | None
+    purchase_date: date | None
+    source_file: str | None
+    imported_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DataUploadResult(BaseModel):
+    """엑셀 업로드 결과 — 종합관리시트 + 명품재고대장 합산."""
+
+    file_name: str
+    summary_inserted: int = 0
+    summary_updated: int = 0
+    products_inserted: int = 0
+    products_wiped: int = 0
+    warnings: list[str] = Field(default_factory=list)
 
 
 class SendLogOut(BaseModel):

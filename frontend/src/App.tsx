@@ -28,6 +28,9 @@ import CategoryPage from "./pages/settings/CategoryPage";
 import CounterpartPage from "./pages/settings/CounterpartPage";
 import PlaygroundPage from "./pages/playground/PlaygroundPage";
 import PersonasPage from "./pages/distribution/PersonasPage";
+import DataUploadPage from "./pages/distribution/DataUploadPage";
+import WeeklyDataPage from "./pages/distribution/WeeklyDataPage";
+import ProductsPage from "./pages/distribution/ProductsPage";
 
 function App() {
   const { user, loading, logout, checkAuth } = useAuth();
@@ -221,6 +224,30 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="distribution">
                     <PersonasPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/distribution/data/upload"
+                element={
+                  <ProtectedRoute user={user} module="distribution">
+                    <DataUploadPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/distribution/data/weekly"
+                element={
+                  <ProtectedRoute user={user} module="distribution">
+                    <WeeklyDataPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/distribution/data/products"
+                element={
+                  <ProtectedRoute user={user} module="distribution">
+                    <ProductsPage />
                   </ProtectedRoute>
                 }
               />

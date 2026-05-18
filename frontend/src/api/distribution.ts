@@ -140,3 +140,82 @@ export const PERSONA_ROLE_OPTIONS: { value: PersonaRole; label: string }[] = [
   { value: "vietnam_admin", label: "베트남 어드민" },
   { value: "domestic_admin", label: "국내 어드민" },
 ];
+
+// ---------------------------------------------------------------------------
+// Phase B-1: Weekly Summary + Products
+// ---------------------------------------------------------------------------
+
+export interface WeeklySummaryOut {
+  id: string;
+  company_label: string;
+  period_label: string;
+  period_start: string; // ISO date
+  period_end: string;
+  kr_purchase: string | null; // Decimal as string
+  vn_inventory_move: string | null;
+  vn_sales_completed: string | null;
+  kr_purchase_deposit_req: string | null;
+  vn_inventory_deposit_req: string | null;
+  vn_sales_deposit_req: string | null;
+  account_deposit: string | null;
+  cash_deposit: string | null;
+  source_file: string | null;
+  imported_at: string;
+}
+
+export interface ProductOut {
+  id: string;
+  brand: string;
+  product_name_en: string | null;
+  product_code: string | null;
+  category: string | null;
+  purchase_qty: number | null;
+  domestic_stock_qty: number | null;
+  supply_price: string | null;
+  purchase_price: string | null;
+  approval_number: string | null;
+  purchase_date: string | null;
+  source_file: string | null;
+  imported_at: string;
+}
+
+export interface DataUploadResult {
+  file_name: string;
+  summary_inserted: number;
+  summary_updated: number;
+  products_inserted: number;
+  products_wiped: number;
+  warnings: string[];
+}
+
+export async function uploadDistributionData(
+  file: File,
+): Promise<DataUploadResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await api.post<DataUploadResult>(
+    `${BASE}/data/upload`,
+    formData,
+    {
+      headers: { "Content-Type": "multipart/form-data" },
+    },
+  );
+  return res.data;
+}
+
+export async function listWeeklySummary(
+  limit = 50,
+): Promise<WeeklySummaryOut[]> {
+  const res = await api.get<{ items: WeeklySummaryOut[] }>(
+    `${BASE}/data/weekly-summary`,
+    { params: { limit } },
+  );
+  return res.data.items;
+}
+
+export async function listProducts(limit = 500): Promise<ProductOut[]> {
+  const res = await api.get<{ items: ProductOut[] }>(`${BASE}/data/products`, {
+    params: { limit },
+  });
+  return res.data.items;
+}

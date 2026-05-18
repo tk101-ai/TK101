@@ -56,6 +56,9 @@ class DistributionPersona(Base):
     # api_id/hash: Fernet 암호화 저장. 평문 DB 노출 금지.
     api_id_enc = Column(Text, nullable=True)
     api_hash_enc = Column(Text, nullable=True)
+    # business_name: UI 표시용 사업자명 (예: "주식회사 XYZ"). NULL 이면 display_name 폴백.
+    # account_label 은 코드명·라우팅용으로 불변 유지.
+    business_name = Column(String(200), nullable=True)
     # session_path: Telethon .session 파일 절대 경로. 권한 0600 강제.
     session_path = Column(String(500), nullable=True)
     # tone_profile: 페르소나별 톤. AI 티 제거의 핵심.
@@ -230,6 +233,92 @@ class DistributionMessage(Base):
     scheduled_at = Column(DateTime(timezone=True), nullable=True)
     sent_at = Column(DateTime(timezone=True), nullable=True)
     telegram_message_id = Column(String(50), nullable=True)
+
+
+class DistributionWeeklySummary(Base):
+    """주차별 종합 데이터 (래더엑스 종합관리시트 1주차 = 1행).
+
+    company_label + period_start + period_end UNIQUE.
+    UPSERT 시 raw_row 갱신 + 자동계산 필드 재계산 가능.
+    """
+
+    __tablename__ = "distribution_weekly_summary"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_label",
+            "period_start",
+            "period_end",
+            name="uq_distribution_weekly_summary_period",
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    company_label = Column(String(100), nullable=False)
+    period_label = Column(String(30), nullable=False)
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)
+    # 사람 기입
+    kr_purchase = Column(Numeric(15, 2), nullable=True)
+    vn_inventory_move = Column(Numeric(15, 2), nullable=True)
+    vn_sales_completed = Column(Numeric(15, 2), nullable=True)
+    # 자동 계산
+    kr_purchase_deposit_req = Column(Numeric(15, 2), nullable=True)
+    vn_inventory_deposit_req = Column(Numeric(15, 2), nullable=True)
+    vn_sales_deposit_req = Column(Numeric(15, 2), nullable=True)
+    # 입금 결과
+    account_deposit = Column(Numeric(15, 2), nullable=True)
+    cash_deposit = Column(Numeric(15, 2), nullable=True)
+    raw_row = Column(JSONB, nullable=True)
+    source_file = Column(String(255), nullable=True)
+    imported_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    imported_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+
+class DistributionProduct(Base):
+    """명품재고대장 1행. 브랜드·제품 코드·카테고리·재고 보관.
+
+    매주 풀 갱신 가정 (UPSERT 또는 wipe+insert). 변동 이력 추적은 v0.3.
+    매입 대화 시 brand/category 기반 "더 확보" 자동 멘션에 사용.
+    """
+
+    __tablename__ = "distribution_products"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    brand = Column(String(100), nullable=False)
+    product_name_en = Column(String(500), nullable=True)
+    product_code = Column(String(100), nullable=True)
+    category = Column(String(50), nullable=True)
+    purchase_qty = Column(Integer, nullable=True)
+    domestic_stock_qty = Column(Integer, nullable=True)
+    supply_price = Column(Numeric(15, 2), nullable=True)
+    vat = Column(Numeric(15, 2), nullable=True)
+    purchase_price = Column(Numeric(15, 2), nullable=True)
+    approval_number = Column(String(50), nullable=True)
+    purchase_date = Column(Date, nullable=True)
+    raw_row = Column(JSONB, nullable=True)
+    source_file = Column(String(255), nullable=True)
+    imported_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    imported_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
 
 class DistributionSendLog(Base):

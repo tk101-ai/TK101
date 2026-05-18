@@ -26,9 +26,11 @@ from app.models.distribution import (
     DistributionBlRecord,
     DistributionMessage,
     DistributionPersona,
+    DistributionProduct,
     DistributionScenario,
     DistributionSendLog,
     DistributionSession,
+    DistributionWeeklySummary,
 )
 
 __all__ = [
@@ -61,4 +63,6 @@ __all__ = [
     "DistributionSession",
     "DistributionMessage",
     "DistributionSendLog",
+    "DistributionWeeklySummary",
+    "DistributionProduct",
 ]

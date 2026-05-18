@@ -30,6 +30,7 @@ def to_out(persona: DistributionPersona) -> PersonaOut:
         account_label=persona.account_label,
         role=persona.role,  # type: ignore[arg-type]  # Literal 비교는 Pydantic 이 검증
         display_name=persona.display_name,
+        business_name=persona.business_name,
         telegram_phone=persona.telegram_phone,
         telegram_user_id=persona.telegram_user_id,
         has_credentials=has_creds,

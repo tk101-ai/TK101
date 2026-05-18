@@ -6,6 +6,7 @@ import {
   DashboardOutlined,
   EditOutlined,
   FileTextOutlined,
+  GoldOutlined,
   HistoryOutlined,
   ImportOutlined,
   LinkOutlined,
@@ -15,6 +16,7 @@ import {
   SendOutlined,
   ShareAltOutlined,
   SwapOutlined,
+  TableOutlined,
   TeamOutlined,
   TranslationOutlined,
 } from "@ant-design/icons";
@@ -95,6 +97,9 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "sns-import", path: "/sns/import", label: "엑셀 가져오기", icon: <CloudUploadOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "review-translation", path: "/marketing/review-translation", label: "체험단 번역", icon: <TranslationOutlined />, module: "review_translation", category: "marketing_1" },
   { key: "distribution-personas", path: "/distribution/personas", label: "페르소나 관리", icon: <SendOutlined />, module: "distribution", category: "new_business" },
+  { key: "distribution-data-upload", path: "/distribution/data/upload", label: "데이터 업로드", icon: <CloudUploadOutlined />, module: "distribution", category: "new_business" },
+  { key: "distribution-data-weekly", path: "/distribution/data/weekly", label: "주차별 종합", icon: <TableOutlined />, module: "distribution", category: "new_business" },
+  { key: "distribution-data-products", path: "/distribution/data/products", label: "명품재고대장", icon: <GoldOutlined />, module: "distribution", category: "new_business" },
   { key: "playground", path: "/playground", label: "AI Playground", icon: <RobotOutlined />, module: "playground", category: "system" },
   { key: "users", path: "/users", label: "사용자 관리", icon: <TeamOutlined />, module: "users", category: "system" },
 ];
