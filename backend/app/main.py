@@ -13,6 +13,8 @@ from app.routers import (
     categories,
     counterparts,
     distribution,
+    distribution_sessions,
+    distribution_triggers,
     forms,
     matching,
     nas_search,
@@ -64,8 +66,12 @@ app.include_router(upload_history.router)
 app.include_router(balance_snapshots.router)
 # T8 트랙: AI Playground (Phase 1 — Claude 채팅 SSE 스트리밍, admin only).
 app.include_router(playground.router)
-# T9 트랙: 신사업유통 텔레그램 대화 자동화 (Day 1 스캐폴드 — 라우터 등록 + 헬스체크).
+# T9 트랙: 신사업유통 텔레그램 대화 자동화.
 app.include_router(distribution.router)
+# T9 Phase C: 세션 검수·송신. prefix 동일하지만 경로별 매칭이라 충돌 없음.
+app.include_router(distribution_sessions.router)
+# T9 Phase D: fingerprint + 트리거 일자 검사.
+app.include_router(distribution_triggers.router)
 
 
 @app.get("/health")

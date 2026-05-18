@@ -43,7 +43,13 @@ from app.schemas.distribution import (
     ProductOut,
     WeeklySummaryOut,
 )
-from app.services.distribution import data_service, login_manager, persona_service
+from app.schemas.distribution_b2 import GenerateWeeklyRequest, GenerateWeeklyResult
+from app.services.distribution import (
+    data_service,
+    generation_service,
+    login_manager,
+    persona_service,
+)
 from app.services.distribution.encryption import EncryptionError
 
 logger = logging.getLogger(__name__)
@@ -137,6 +143,38 @@ async def list_products(
     """명품재고대장 조회 (브랜드 + 제품코드 정렬)."""
     rows = await data_service.list_products(db, limit=limit)
     return {"items": [ProductOut.model_validate(r) for r in rows]}
+
+
+# ---------------------------------------------------------------------------
+# Generation Trigger (Phase B-2)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/generate-weekly")
+async def generate_weekly(
+    payload: GenerateWeeklyRequest,
+    db: AsyncSession = Depends(get_db),
+) -> GenerateWeeklyResult:
+    """4페어 (한국 N명 × 베트남 1명) × 시나리오 동시 생성.
+
+    동작:
+    - 최신 weekly_summary 1행 + 상위 명품제품 N개 컨텍스트로 구성
+    - 활성 한국 페르소나(domestic_admin) 모두 + 첫 베트남 페르소나(vietnam_admin) 페어링
+    - scenario_names 비어있으면 기본값 사용 (주간 정산 요약 + 명품 추가 매입 요청)
+    - 결과 세션은 status='pending' — UI 검수 화면에서 승인 후 송신
+
+    자격증명 없는 페르소나는 skip + warnings 누적.
+    """
+    summary = await generation_service.generate_weekly_for_all_pairs(
+        db,
+        scenario_names=payload.scenario_names or None,
+        company_label=payload.company_label,
+    )
+    return GenerateWeeklyResult(
+        sessions_created=summary.sessions_created,
+        skipped=summary.skipped,
+        errors=summary.errors,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ import {
 } from "antd";
 import {
   DeleteOutlined,
+  EditOutlined,
   KeyOutlined,
   LoginOutlined,
   LogoutOutlined,
@@ -33,6 +34,7 @@ import {
   type PersonaOut,
 } from "../../api/distribution";
 import { extractErrorDetail } from "../../utils/errorUtils";
+import PersonaBusinessNameModal from "../../components/distribution/PersonaBusinessNameModal";
 import PersonaCreateModal from "../../components/distribution/PersonaCreateModal";
 import PersonaCredentialsModal from "../../components/distribution/PersonaCredentialsModal";
 import PersonaLoginModal from "../../components/distribution/PersonaLoginModal";
@@ -75,6 +77,7 @@ export default function PersonasPage() {
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [loginTarget, setLoginTarget] = useState<PersonaOut | null>(null);
   const [credsTarget, setCredsTarget] = useState<PersonaOut | null>(null);
+  const [nameEditTarget, setNameEditTarget] = useState<PersonaOut | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -150,6 +153,13 @@ export default function PersonasPage() {
       ),
     },
     {
+      title: "사업자명",
+      dataIndex: "business_name",
+      width: 180,
+      render: (v: string | null) =>
+        v ? <Text strong>{v}</Text> : <Text type="secondary">—</Text>,
+    },
+    {
       title: "표시명",
       dataIndex: "display_name",
       width: 160,
@@ -207,9 +217,19 @@ export default function PersonasPage() {
     {
       title: "작업",
       key: "actions",
-      width: 280,
+      width: 360,
       render: (_: unknown, record: PersonaOut) => (
-        <Space size={4}>
+        <Space size={4} wrap>
+          <Tooltip title="사업자명 / 표시명 편집">
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => setNameEditTarget(record)}
+            >
+              사업자명
+            </Button>
+          </Tooltip>
           <Tooltip title={record.has_credentials ? "api_id/api_hash 회전" : "자격증명 입력"}>
             <Button
               type="link"
@@ -387,6 +407,15 @@ export default function PersonasPage() {
         open={credsTarget !== null}
         persona={credsTarget}
         onClose={() => setCredsTarget(null)}
+        onUpdated={() => {
+          void fetchData();
+        }}
+      />
+
+      <PersonaBusinessNameModal
+        open={nameEditTarget !== null}
+        persona={nameEditTarget}
+        onClose={() => setNameEditTarget(null)}
         onUpdated={() => {
           void fetchData();
         }}

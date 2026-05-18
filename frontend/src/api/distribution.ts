@@ -17,6 +17,7 @@ export interface PersonaOut {
   account_label: string;
   role: PersonaRole;
   display_name: string;
+  business_name: string | null;
   telegram_phone: string;
   telegram_user_id: number | null;
   has_credentials: boolean;
@@ -28,6 +29,12 @@ export interface PersonaOut {
   last_login_at: string | null;
   created_at: string;
   updated_at: string | null;
+}
+
+export interface PersonaUpdatePayload {
+  display_name?: string;
+  business_name?: string | null;
+  active?: boolean;
 }
 
 export interface PersonaCreatePayload {
@@ -218,4 +225,210 @@ export async function listProducts(limit = 500): Promise<ProductOut[]> {
     params: { limit },
   });
   return res.data.items;
+}
+
+// ---------------------------------------------------------------------------
+// Phase A 보강: 페르소나 일반 PATCH (사업자명/표시명/active)
+// ---------------------------------------------------------------------------
+
+/**
+ * 페르소나 필드 부분 갱신.
+ *
+ * - `business_name`/`display_name`/`active` 만 갱신. 자격증명·세션 미관여.
+ * - 자격증명 회전은 `updatePersonaCredentials` 별도 엔드포인트 사용.
+ */
+export async function updatePersona(
+  id: string,
+  payload: PersonaUpdatePayload,
+): Promise<PersonaOut> {
+  const res = await api.patch<PersonaOut>(`${BASE}/personas/${id}`, payload);
+  return res.data;
+}
+
+// ---------------------------------------------------------------------------
+// Phase C: 세션 검수 / 메시지 편집 / 송신
+// ---------------------------------------------------------------------------
+
+export type SessionStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "sending"
+  | "sent"
+  | "failed";
+
+export type MessageStatus = "queued" | "sent" | "failed" | "skipped";
+
+export interface SessionListItem {
+  id: string;
+  scenario_name: string;
+  sender_account_label: string;
+  receiver_account_label: string;
+  status: SessionStatus;
+  generated_at: string;
+  approved_at: string | null;
+  completed_at: string | null;
+  scheduled_start: string | null;
+  message_count: number;
+  llm_cost_usd: string | null;
+}
+
+export interface MessageItem {
+  id: string;
+  order_index: number;
+  sender_account_label: string;
+  content: string;
+  edited_content: string | null;
+  user_edited: boolean;
+  send_after_sec: number;
+  typing_sec: number;
+  status: MessageStatus;
+  sent_at: string | null;
+  telegram_message_id: string | null;
+}
+
+export interface SessionDetail {
+  session: SessionListItem;
+  messages: MessageItem[];
+}
+
+export interface SendNowResult {
+  session_id: string;
+  status: SessionStatus;
+  sent_count: number;
+  failed_count: number;
+  error: string | null;
+}
+
+export interface ListSessionsParams {
+  status?: SessionStatus;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListSessionsResponse {
+  items: SessionListItem[];
+  total?: number;
+}
+
+/** 세션 목록. status 필터·페이지네이션 지원. */
+export async function listSessions(
+  params: ListSessionsParams = {},
+): Promise<ListSessionsResponse> {
+  const res = await api.get<ListSessionsResponse>(`${BASE}/sessions`, {
+    params: {
+      status: params.status,
+      limit: params.limit ?? 50,
+      offset: params.offset ?? 0,
+    },
+  });
+  return res.data;
+}
+
+/** 세션 상세 (헤더 + 메시지 리스트). */
+export async function getSession(id: string): Promise<SessionDetail> {
+  const res = await api.get<SessionDetail>(`${BASE}/sessions/${id}`);
+  return res.data;
+}
+
+/**
+ * 세션 승인.
+ *
+ * `scheduled_start` 가 null/미지정이면 즉시 송신 가능 상태로 전환.
+ * 값이 있으면 워커가 해당 시각 이후에 픽업.
+ */
+export async function approveSession(
+  id: string,
+  scheduledStart?: string | null,
+): Promise<SessionListItem> {
+  const res = await api.post<SessionListItem>(
+    `${BASE}/sessions/${id}/approve`,
+    { scheduled_start: scheduledStart ?? null },
+  );
+  return res.data;
+}
+
+/** 세션 거부. `reason` 은 운영자 메모용. */
+export async function rejectSession(
+  id: string,
+  reason?: string,
+): Promise<SessionListItem> {
+  const res = await api.post<SessionListItem>(`${BASE}/sessions/${id}/reject`, {
+    reason: reason ?? null,
+  });
+  return res.data;
+}
+
+/** 즉시 송신 (동기). 응답은 송신 결과 요약. */
+export async function sendSessionNow(id: string): Promise<SendNowResult> {
+  const res = await api.post<SendNowResult>(`${BASE}/sessions/${id}/send-now`);
+  return res.data;
+}
+
+/** 메시지 1개 본문 편집. 비어있는 본문은 백엔드에서 422 로 거부. */
+export async function updateMessage(
+  id: string,
+  editedContent: string,
+): Promise<MessageItem> {
+  const res = await api.patch<MessageItem>(`${BASE}/messages/${id}`, {
+    edited_content: editedContent,
+  });
+  return res.data;
+}
+
+export const SESSION_STATUS_LABEL: Record<SessionStatus, string> = {
+  pending: "검수 대기",
+  approved: "승인됨",
+  rejected: "거부됨",
+  sending: "송신 중",
+  sent: "송신 완료",
+  failed: "실패",
+};
+
+export const SESSION_STATUS_TAG_COLOR: Record<SessionStatus, string> = {
+  pending: "gold",
+  approved: "blue",
+  rejected: "default",
+  sending: "processing",
+  sent: "green",
+  failed: "red",
+};
+
+export const MESSAGE_STATUS_LABEL: Record<MessageStatus, string> = {
+  queued: "대기",
+  sent: "송신됨",
+  failed: "실패",
+  skipped: "건너뜀",
+};
+
+export const MESSAGE_STATUS_TAG_COLOR: Record<MessageStatus, string> = {
+  queued: "default",
+  sent: "green",
+  failed: "red",
+  skipped: "gold",
+};
+
+// ---------------------------------------------------------------------------
+// Phase B-2: 주간 생성 트리거
+// ---------------------------------------------------------------------------
+
+export interface GenerateWeeklyPayload {
+  scenario_names?: string[];
+  company_label?: string;
+}
+
+export interface GenerateWeeklyResult {
+  sessions_created: string[];
+  skipped: string[];
+  errors: string[];
+}
+
+export async function generateWeekly(
+  payload: GenerateWeeklyPayload = {},
+): Promise<GenerateWeeklyResult> {
+  const res = await api.post<GenerateWeeklyResult>(`${BASE}/generate-weekly`, {
+    scenario_names: payload.scenario_names ?? [],
+    company_label: payload.company_label ?? "래더엑스",
+  });
+  return res.data;
 }

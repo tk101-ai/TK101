@@ -1,0 +1,621 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import {
+  Alert,
+  Button,
+  Card,
+  DatePicker,
+  Descriptions,
+  Empty,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Space,
+  Spin,
+  Tag,
+  Timeline,
+  Typography,
+  message,
+} from "antd";
+import {
+  ArrowLeftOutlined,
+  CheckOutlined,
+  CloseOutlined,
+  EditOutlined,
+  ReloadOutlined,
+  SaveOutlined,
+  SendOutlined,
+  StopOutlined,
+} from "@ant-design/icons";
+import dayjs, { type Dayjs } from "dayjs";
+import {
+  MESSAGE_STATUS_LABEL,
+  MESSAGE_STATUS_TAG_COLOR,
+  SESSION_STATUS_LABEL,
+  SESSION_STATUS_TAG_COLOR,
+  approveSession,
+  getSession,
+  rejectSession,
+  sendSessionNow,
+  updateMessage,
+  type MessageItem,
+  type SessionDetail,
+} from "../../api/distribution";
+import { extractErrorDetail } from "../../utils/errorUtils";
+
+const { Title, Paragraph, Text } = Typography;
+const { TextArea } = Input;
+
+/**
+ * 세션 상세 + 메시지 타임라인 검수 화면 (T9 Phase C).
+ *
+ * - 상단 카드: 시나리오/발신·수신/상태/생성일/비용 + 상태별 액션 버튼.
+ * - 타임라인: 메시지 1행씩, 인라인 편집 → `PATCH /messages/{id}`.
+ * - 액션:
+ *   - status=pending → [승인] / [거부]
+ *   - status=approved → [지금 송신] / [거부로 변경]
+ *   - status=sent → 송신 완료 안내만.
+ */
+
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return dayjs(iso).format("YYYY-MM-DD HH:mm:ss");
+}
+
+function formatCost(value: string | null): string {
+  if (value == null || value === "") return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  return `$${n.toFixed(4)}`;
+}
+
+function formatCumulativeOffset(sec: number): string {
+  if (sec < 60) return `+${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (s === 0) return `+${m}m`;
+  return `+${m}m ${s}s`;
+}
+
+interface MessageRowProps {
+  msg: MessageItem;
+  cumulativeOffset: number;
+  onSaved: (next: MessageItem) => void;
+  editingDisabled: boolean;
+}
+
+function MessageRow({
+  msg,
+  cumulativeOffset,
+  onSaved,
+  editingDisabled,
+}: MessageRowProps) {
+  const [editing, setEditing] = useState<boolean>(false);
+  const [draft, setDraft] = useState<string>("");
+  const [saving, setSaving] = useState<boolean>(false);
+
+  const display = msg.edited_content ?? msg.content;
+
+  const startEdit = () => {
+    setDraft(display);
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setDraft("");
+  };
+
+  const submitEdit = async () => {
+    const trimmed = draft.trim();
+    if (trimmed.length === 0) {
+      message.warning("메시지 본문은 비울 수 없습니다.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const next = await updateMessage(msg.id, trimmed);
+      message.success(`메시지 #${msg.order_index + 1} 저장됨`);
+      onSaved(next);
+      setEditing(false);
+    } catch (err: unknown) {
+      message.error(extractErrorDetail(err, "메시지 저장 실패"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <Space size={6} wrap style={{ marginBottom: 4 }}>
+        <Text strong>{msg.sender_account_label}</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {formatCumulativeOffset(cumulativeOffset)}
+        </Text>
+        <Tag color={MESSAGE_STATUS_TAG_COLOR[msg.status]}>
+          {MESSAGE_STATUS_LABEL[msg.status]}
+        </Tag>
+        {msg.user_edited && (
+          <Tag color="purple" icon={<EditOutlined />}>
+            수정됨
+          </Tag>
+        )}
+        {msg.sent_at && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            송신: {formatDateTime(msg.sent_at)}
+          </Text>
+        )}
+      </Space>
+
+      {editing ? (
+        <div>
+          <TextArea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            autoSize={{ minRows: 2, maxRows: 8 }}
+            maxLength={4096}
+            showCount
+            disabled={saving}
+          />
+          <Space style={{ marginTop: 8 }}>
+            <Button
+              type="primary"
+              size="small"
+              icon={<SaveOutlined />}
+              loading={saving}
+              onClick={() => {
+                void submitEdit();
+              }}
+            >
+              저장
+            </Button>
+            <Button size="small" onClick={cancelEdit} disabled={saving}>
+              취소
+            </Button>
+          </Space>
+        </div>
+      ) : (
+        <div
+          onClick={() => {
+            if (!editingDisabled) startEdit();
+          }}
+          style={{
+            padding: "8px 12px",
+            background: msg.user_edited ? "#f9f0ff" : "#fafafa",
+            borderRadius: 6,
+            border: "1px solid #f0f0f0",
+            whiteSpace: "pre-wrap",
+            cursor: editingDisabled ? "default" : "text",
+          }}
+          title={editingDisabled ? "송신 완료 상태에서는 편집할 수 없습니다" : "클릭하여 편집"}
+        >
+          {display}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface ApproveModalProps {
+  open: boolean;
+  loading: boolean;
+  onClose: () => void;
+  onConfirm: (scheduledStart: string | null) => Promise<void>;
+}
+
+function ApproveModal({ open, loading, onClose, onConfirm }: ApproveModalProps) {
+  const [scheduled, setScheduled] = useState<Dayjs | null>(null);
+
+  useEffect(() => {
+    if (!open) setScheduled(null);
+  }, [open]);
+
+  const handleOk = async () => {
+    await onConfirm(scheduled ? scheduled.toISOString() : null);
+  };
+
+  return (
+    <Modal
+      title="세션 승인"
+      open={open}
+      onCancel={onClose}
+      onOk={() => {
+        void handleOk();
+      }}
+      okText="승인"
+      cancelText="취소"
+      confirmLoading={loading}
+      destroyOnClose
+    >
+      <Paragraph>
+        승인 후 워커가 픽업하여 송신합니다. 예약 시각을 비워두면 즉시 송신
+        가능 상태로 전환됩니다.
+      </Paragraph>
+      <Form layout="vertical">
+        <Form.Item label="예약 송신 시각 (선택)">
+          <DatePicker
+            showTime
+            value={scheduled}
+            onChange={setScheduled}
+            style={{ width: "100%" }}
+            format="YYYY-MM-DD HH:mm"
+            placeholder="비워두면 즉시 송신 가능"
+          />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
+interface RejectModalProps {
+  open: boolean;
+  loading: boolean;
+  onClose: () => void;
+  onConfirm: (reason: string) => Promise<void>;
+}
+
+function RejectModal({ open, loading, onClose, onConfirm }: RejectModalProps) {
+  const [reason, setReason] = useState<string>("");
+
+  useEffect(() => {
+    if (!open) setReason("");
+  }, [open]);
+
+  const handleOk = async () => {
+    await onConfirm(reason.trim());
+  };
+
+  return (
+    <Modal
+      title="세션 거부"
+      open={open}
+      onCancel={onClose}
+      onOk={() => {
+        void handleOk();
+      }}
+      okText="거부"
+      okType="danger"
+      cancelText="취소"
+      confirmLoading={loading}
+      destroyOnClose
+    >
+      <Paragraph>거부 사유를 남기면 운영 로그에 기록됩니다 (선택).</Paragraph>
+      <TextArea
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        autoSize={{ minRows: 3, maxRows: 6 }}
+        maxLength={500}
+        showCount
+        placeholder="예: 톤 어색함, 가격 정보 오타"
+      />
+    </Modal>
+  );
+}
+
+export default function SessionDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const [detail, setDetail] = useState<SessionDetail | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [approveOpen, setApproveOpen] = useState<boolean>(false);
+  const [rejectOpen, setRejectOpen] = useState<boolean>(false);
+  const [actionLoading, setActionLoading] = useState<boolean>(false);
+  const [sendNowLoading, setSendNowLoading] = useState<boolean>(false);
+
+  const fetchData = useCallback(async () => {
+    if (!id) return;
+    setLoading(true);
+    try {
+      const next = await getSession(id);
+      setDetail(next);
+    } catch (err: unknown) {
+      message.error(extractErrorDetail(err, "세션 상세 조회 실패"));
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    const run = async () => {
+      await fetchData();
+    };
+    void run();
+  }, [fetchData]);
+
+  const session = detail?.session ?? null;
+  const messages = useMemo(() => detail?.messages ?? [], [detail]);
+
+  // 누적 send_after_sec — 메시지 순서대로 합산.
+  const cumulativeOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let acc = 0;
+    for (const msg of messages) {
+      acc += msg.send_after_sec;
+      offsets.push(acc);
+    }
+    return offsets;
+  }, [messages]);
+
+  const handleMessageSaved = useCallback((next: MessageItem) => {
+    setDetail((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        messages: current.messages.map((m) => (m.id === next.id ? next : m)),
+      };
+    });
+  }, []);
+
+  const handleApprove = async (scheduledStart: string | null) => {
+    if (!session) return;
+    setActionLoading(true);
+    try {
+      await approveSession(session.id, scheduledStart);
+      message.success("세션을 승인했습니다.");
+      setApproveOpen(false);
+      await fetchData();
+    } catch (err: unknown) {
+      message.error(extractErrorDetail(err, "승인 실패"));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReject = async (reason: string) => {
+    if (!session) return;
+    setActionLoading(true);
+    try {
+      await rejectSession(session.id, reason.length > 0 ? reason : undefined);
+      message.success("세션을 거부했습니다.");
+      setRejectOpen(false);
+      await fetchData();
+    } catch (err: unknown) {
+      message.error(extractErrorDetail(err, "거부 실패"));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSendNow = async () => {
+    if (!session) return;
+    setSendNowLoading(true);
+    try {
+      const res = await sendSessionNow(session.id);
+      if (res.status === "sent") {
+        message.success(
+          `송신 완료 — 성공 ${res.sent_count}건 / 실패 ${res.failed_count}건`,
+        );
+      } else if (res.status === "failed") {
+        message.error(
+          `송신 실패 — ${res.error ?? "알 수 없는 오류"} (성공 ${res.sent_count}건 / 실패 ${res.failed_count}건)`,
+        );
+      } else {
+        message.info(`상태: ${SESSION_STATUS_LABEL[res.status]}`);
+      }
+      await fetchData();
+    } catch (err: unknown) {
+      message.error(extractErrorDetail(err, "송신 실패"));
+    } finally {
+      setSendNowLoading(false);
+    }
+  };
+
+  if (!id) {
+    return <Empty description="세션 ID 가 없습니다" />;
+  }
+
+  if (loading && !detail) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: 64 }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div style={{ maxWidth: 720 }}>
+        <Empty description="세션을 찾을 수 없습니다" />
+        <div style={{ marginTop: 16, textAlign: "center" }}>
+          <Link to="/distribution/sessions">
+            <Button icon={<ArrowLeftOutlined />}>목록으로</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const status = session.status;
+  const editingDisabled = status === "sent" || status === "sending";
+
+  return (
+    <div style={{ maxWidth: 1080 }}>
+      <div style={{ marginBottom: 16 }}>
+        <Link to="/distribution/sessions">
+          <Button type="link" icon={<ArrowLeftOutlined />} style={{ paddingLeft: 0 }}>
+            목록으로
+          </Button>
+        </Link>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <Title level={3} style={{ margin: 0, letterSpacing: "-0.02em" }}>
+          세션 상세
+        </Title>
+        <Paragraph type="secondary" style={{ margin: "4px 0 0" }}>
+          메시지 본문을 클릭해 편집한 뒤 승인 또는 즉시 송신할 수 있습니다.
+        </Paragraph>
+      </div>
+
+      <Card
+        size="small"
+        style={{ marginBottom: 16 }}
+        title={
+          <Space>
+            <Text strong>{session.scenario_name}</Text>
+            <Tag color={SESSION_STATUS_TAG_COLOR[status]}>
+              {SESSION_STATUS_LABEL[status]}
+            </Tag>
+          </Space>
+        }
+        extra={
+          <Space wrap>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => {
+                void fetchData();
+              }}
+            >
+              새로고침
+            </Button>
+            {status === "pending" && (
+              <>
+                <Button
+                  type="primary"
+                  icon={<CheckOutlined />}
+                  onClick={() => setApproveOpen(true)}
+                >
+                  승인
+                </Button>
+                <Button
+                  danger
+                  icon={<CloseOutlined />}
+                  onClick={() => setRejectOpen(true)}
+                >
+                  거부
+                </Button>
+              </>
+            )}
+            {status === "approved" && (
+              <>
+                <Popconfirm
+                  title="지금 바로 송신할까요?"
+                  description="송신 결과가 즉시 반영됩니다."
+                  okText="송신"
+                  cancelText="취소"
+                  onConfirm={() => {
+                    void handleSendNow();
+                  }}
+                >
+                  <Button
+                    type="primary"
+                    icon={<SendOutlined />}
+                    loading={sendNowLoading}
+                  >
+                    지금 송신
+                  </Button>
+                </Popconfirm>
+                <Button
+                  danger
+                  icon={<StopOutlined />}
+                  onClick={() => setRejectOpen(true)}
+                >
+                  거부로 변경
+                </Button>
+              </>
+            )}
+          </Space>
+        }
+      >
+        <Descriptions size="small" column={2} bordered>
+          <Descriptions.Item label="발신">
+            {session.sender_account_label}
+          </Descriptions.Item>
+          <Descriptions.Item label="수신">
+            {session.receiver_account_label}
+          </Descriptions.Item>
+          <Descriptions.Item label="메시지 수">
+            {session.message_count}
+          </Descriptions.Item>
+          <Descriptions.Item label="비용 (USD)">
+            {formatCost(session.llm_cost_usd)}
+          </Descriptions.Item>
+          <Descriptions.Item label="생성일">
+            {formatDateTime(session.generated_at)}
+          </Descriptions.Item>
+          <Descriptions.Item label="승인일">
+            {formatDateTime(session.approved_at)}
+          </Descriptions.Item>
+          <Descriptions.Item label="예약 송신">
+            {formatDateTime(session.scheduled_start)}
+          </Descriptions.Item>
+          <Descriptions.Item label="완료일">
+            {formatDateTime(session.completed_at)}
+          </Descriptions.Item>
+        </Descriptions>
+
+        {status === "sent" && (
+          <Alert
+            type="success"
+            showIcon
+            style={{ marginTop: 16 }}
+            message="송신이 완료된 세션입니다."
+            description="이 세션은 더 이상 편집할 수 없습니다."
+          />
+        )}
+        {status === "failed" && (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginTop: 16 }}
+            message="송신에 실패한 세션입니다."
+            description="문제 메시지를 확인한 뒤 필요 시 재승인하거나 거부 처리하세요."
+          />
+        )}
+        {status === "rejected" && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 16 }}
+            message="거부된 세션입니다."
+          />
+        )}
+        {status === "sending" && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginTop: 16 }}
+            message="송신이 진행 중입니다."
+            description="워커가 작업을 끝낼 때까지 편집·재승인은 권장하지 않습니다."
+          />
+        )}
+      </Card>
+
+      <Card title="메시지 타임라인" size="small">
+        {messages.length === 0 ? (
+          <Empty description="메시지가 없습니다" />
+        ) : (
+          <Timeline
+            items={messages.map((msg, idx) => ({
+              color: msg.status === "sent" ? "green" : msg.status === "failed" ? "red" : "blue",
+              children: (
+                <MessageRow
+                  key={msg.id}
+                  msg={msg}
+                  cumulativeOffset={cumulativeOffsets[idx] ?? 0}
+                  onSaved={handleMessageSaved}
+                  editingDisabled={editingDisabled}
+                />
+              ),
+            }))}
+          />
+        )}
+      </Card>
+
+      <ApproveModal
+        open={approveOpen}
+        loading={actionLoading}
+        onClose={() => setApproveOpen(false)}
+        onConfirm={handleApprove}
+      />
+
+      <RejectModal
+        open={rejectOpen}
+        loading={actionLoading}
+        onClose={() => setRejectOpen(false)}
+        onConfirm={handleReject}
+      />
+
+    </div>
+  );
+}

@@ -31,6 +31,8 @@ import PersonasPage from "./pages/distribution/PersonasPage";
 import DataUploadPage from "./pages/distribution/DataUploadPage";
 import WeeklyDataPage from "./pages/distribution/WeeklyDataPage";
 import ProductsPage from "./pages/distribution/ProductsPage";
+import SessionsPage from "./pages/distribution/SessionsPage";
+import SessionDetailPage from "./pages/distribution/SessionDetailPage";
 
 function App() {
   const { user, loading, logout, checkAuth } = useAuth();
@@ -248,6 +250,22 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="distribution">
                     <ProductsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/distribution/sessions"
+                element={
+                  <ProtectedRoute user={user} module="distribution">
+                    <SessionsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/distribution/sessions/:id"
+                element={
+                  <ProtectedRoute user={user} module="distribution">
+                    <SessionDetailPage />
                   </ProtectedRoute>
                 }
               />

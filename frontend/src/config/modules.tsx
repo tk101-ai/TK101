@@ -1,6 +1,7 @@
 import {
   ApartmentOutlined,
   BankOutlined,
+  CheckSquareOutlined,
   CloudUploadOutlined,
   ContactsOutlined,
   DashboardOutlined,
@@ -100,6 +101,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "distribution-data-upload", path: "/distribution/data/upload", label: "데이터 업로드", icon: <CloudUploadOutlined />, module: "distribution", category: "new_business" },
   { key: "distribution-data-weekly", path: "/distribution/data/weekly", label: "주차별 종합", icon: <TableOutlined />, module: "distribution", category: "new_business" },
   { key: "distribution-data-products", path: "/distribution/data/products", label: "명품재고대장", icon: <GoldOutlined />, module: "distribution", category: "new_business" },
+  { key: "distribution-sessions", path: "/distribution/sessions", label: "대화 세션 검수", icon: <CheckSquareOutlined />, module: "distribution", category: "new_business" },
   { key: "playground", path: "/playground", label: "AI Playground", icon: <RobotOutlined />, module: "playground", category: "system" },
   { key: "users", path: "/users", label: "사용자 관리", icon: <TeamOutlined />, module: "users", category: "system" },
 ];

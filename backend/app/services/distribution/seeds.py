@@ -49,6 +49,62 @@ KR_A1_TONE: dict = {
     "time_active": [9, 11, 14, 17],
 }
 
+# KR-A2: 친근/캐주얼 톤. 이모지·줄임말 약간 더 자주.
+# 샘플 패턴: "안녕하세용~", "넵넵", "ㅎㅎ" 등 가벼운 표현.
+KR_A2_TONE: dict = {
+    "formality": 0.25,
+    "emoji_freq": 0.18,
+    "typo_rate": 0.025,
+    "preferred_endings": ["~", "요", "용", "어요", "네요", "ㅎㅎ"],
+    "common_phrases": [
+        "안녕하세용~",
+        "넵넵",
+        "ㅎㅎ",
+        "그쵸",
+        "감사해용",
+        "확인했어요",
+    ],
+    "msg_split": "high",
+    "time_active": [10, 12, 15, 18],
+}
+
+# KR-A3: 조심/정중 톤. 격식 높고 이모지 거의 없음.
+# 샘플 패턴: "안녕하십니까", "확인 부탁드립니다", "감사합니다."
+KR_A3_TONE: dict = {
+    "formality": 0.85,
+    "emoji_freq": 0.0,
+    "typo_rate": 0.005,
+    "preferred_endings": ["습니다", "입니다", "드립니다", "있습니다"],
+    "common_phrases": [
+        "안녕하십니까",
+        "확인 부탁드립니다",
+        "감사합니다",
+        "수고하셨습니다",
+        "검토 후 회신드리겠습니다",
+    ],
+    "msg_split": "medium",
+    "time_active": [9, 11, 14, 16],
+}
+
+# KR-A4: 효율 위주. 짧은 메시지·단답형, 메시지 분할 적음.
+# 샘플 패턴: "넵", "확인", "ok", "공유해주세요" 위주.
+KR_A4_TONE: dict = {
+    "formality": 0.35,
+    "emoji_freq": 0.02,
+    "typo_rate": 0.015,
+    "preferred_endings": ["요", "다", "넵", "확인"],
+    "common_phrases": [
+        "넵",
+        "확인",
+        "ok",
+        "공유 부탁",
+        "전달 완료",
+        "확인했습니다",
+    ],
+    "msg_split": "low",
+    "time_active": [9, 13, 17],
+}
+
 # VN-A: 베트남 창고(중국) 측. 더 단정·짧은 응답.
 # 샘플 패턴: "넵 알겠습니다", "받았습니다", "감사합니다" 위주.
 VN_A_TONE: dict = {
@@ -72,9 +128,33 @@ PERSONA_SEEDS: list[dict] = [
     {
         "account_label": "KR-A1",
         "role": "domestic_admin",
-        "display_name": "한국 관리자",
+        "display_name": "한국 관리자 A1",
         "telegram_phone": "+820000000000",  # 실 등록 시 어드민 UI 에서 갱신
         "tone_profile": KR_A1_TONE,
+        "daily_msg_limit": 30,
+    },
+    {
+        "account_label": "KR-A2",
+        "role": "domestic_admin",
+        "display_name": "한국 관리자 A2",
+        "telegram_phone": "+820000000002",
+        "tone_profile": KR_A2_TONE,
+        "daily_msg_limit": 30,
+    },
+    {
+        "account_label": "KR-A3",
+        "role": "domestic_admin",
+        "display_name": "한국 관리자 A3",
+        "telegram_phone": "+820000000003",
+        "tone_profile": KR_A3_TONE,
+        "daily_msg_limit": 30,
+    },
+    {
+        "account_label": "KR-A4",
+        "role": "domestic_admin",
+        "display_name": "한국 관리자 A4",
+        "telegram_phone": "+820000000004",
+        "tone_profile": KR_A4_TONE,
         "daily_msg_limit": 30,
     },
     {
@@ -196,6 +276,73 @@ SCENARIO_SEEDS: list[dict] = [
             {"sender": "KR-A1", "content": "477개"},
         ],
         "raw_text": "[샘플 2026-02-13 발췌]",
+    },
+    # -----------------------------------------------------------------------
+    # B-2 신규 시나리오 — 종합관리시트 주간 + 명품재고대장 연동 (0518 요구사항)
+    # -----------------------------------------------------------------------
+    {
+        "name": "주간 정산 요약",
+        "trigger_event": "weekly_settlement",
+        "sender_role": "domestic_admin",
+        "receiver_role": "vietnam_admin",
+        "beats": [
+            {"step": 1, "intent": "한국이 안부 인사", "tone_hint": "친근"},
+            {"step": 2, "intent": "지난주 매입 금액 공유 + 입금요청 안내(40%)", "tone_hint": "분할"},
+            {"step": 3, "intent": "재고이동 금액 공유 + 30% 입금요청 추가 안내", "tone_hint": "정보 분할"},
+            {"step": 4, "intent": "매출완료 금액 확인 질문", "tone_hint": "정중"},
+            {"step": 5, "intent": "베트남이 숫자 확인 응답", "tone_hint": "단정"},
+            {"step": 6, "intent": "한국이 계좌입금/현금캐리 수령 확인 + 감사 표현", "tone_hint": "마무리"},
+        ],
+        "example_msgs": [
+            {"sender": "KR-A1", "content": "안녕하세요 담당님~"},
+            {"sender": "KR-A1", "content": "지난주 매입 {kr_purchase}원 입니다, 입금 {kr_purchase_deposit_req}원 부탁드립니다."},
+            {"sender": "KR-A1", "content": "재고이동은 {vn_inventory_move}원 이니까 입금 {vn_inventory_deposit_req}원 추가입니다."},
+            {"sender": "KR-A1", "content": "매출 확정 {vn_sales_completed}원이라고 주셨는데 이상 없으시죠?"},
+            {"sender": "VN-A", "content": "넵 숫자 맞습니다."},
+            {"sender": "VN-A", "content": "확인했습니다."},
+            {"sender": "KR-A1", "content": "계좌 입금이랑, 현금캐리 잘 받았습니다. 감사합니다~"},
+        ],
+        "raw_text": "[0518 요구사항 — 종합관리시트 주간 정산]",
+    },
+    {
+        "name": "명품 추가 매입 요청",
+        "trigger_event": "product_request",
+        "sender_role": "vietnam_admin",
+        "receiver_role": "domestic_admin",
+        "beats": [
+            {"step": 1, "intent": "베트남이 안부 인사", "tone_hint": "친근"},
+            {"step": 2, "intent": "베스트 브랜드/제품 언급 (루이비통/고야드/반클리프/Cartier 등)", "tone_hint": "정보"},
+            {"step": 3, "intent": "이 제품들 무한으로 오더 가능하다고 전달", "tone_hint": "단정"},
+            {"step": 4, "intent": "특정 카테고리 추가 확보 가능 여부 질문 (가방/주얼리 등)", "tone_hint": None},
+            {"step": 5, "intent": "한국이 다음주 입고 확인 후 전달하겠다고 응답", "tone_hint": "정중"},
+        ],
+        "example_msgs": [
+            {"sender": "VN-A", "content": "안녕하세요~ 이번주 명품 재고 확인했습니다."},
+            {"sender": "VN-A", "content": "루이비통, 반클리프, 고야드 베스트 제품들 숫자 무한으로 오더드립니다."},
+            {"sender": "VN-A", "content": "특히 가방류 더 확보 가능할까요?"},
+            {"sender": "KR-A1", "content": "넵 다음주 입고 분 확인해서 전달드리겠습니다."},
+            {"sender": "KR-A1", "content": "브랜드별 수량은 정리해서 다시 공유드릴게요~"},
+        ],
+        "raw_text": "[0518 요구사항 — 명품재고대장 기반 추가 매입 대화]",
+    },
+    {
+        "name": "가벼운 스몰토크",
+        "trigger_event": "smalltalk",
+        "sender_role": "domestic_admin",
+        "receiver_role": "vietnam_admin",
+        "beats": [
+            {"step": 1, "intent": "한국이 안부 + 날씨/주말/식사 등 가벼운 멘트", "tone_hint": "친근"},
+            {"step": 2, "intent": "베트남이 본인 현지 상황 가볍게 응답", "tone_hint": "친근"},
+            {"step": 3, "intent": "한 두 마디 더 주고받기", "tone_hint": "자연스럽게"},
+            {"step": 4, "intent": "건강/주말 잘 보내라 등으로 마무리", "tone_hint": "마무리"},
+        ],
+        "example_msgs": [
+            {"sender": "KR-A1", "content": "이번주 한국은 추워졌어요~"},
+            {"sender": "VN-A", "content": "베트남도 우기 시작했습니다 ㅎㅎ"},
+            {"sender": "KR-A1", "content": "건강 챙기세요~"},
+            {"sender": "VN-A", "content": "네 감사합니다, 한국도 따뜻하게 입으세요."},
+        ],
+        "raw_text": "[0518 요구사항 — 일상 스몰토크]",
     },
 ]
 
