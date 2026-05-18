@@ -33,6 +33,7 @@ jobs:
           GOOGLE_YOUTUBE_API_KEY=${{ secrets.GOOGLE_YOUTUBE_API_KEY }}
           INTERNAL_API_TOKEN=${{ secrets.TK101_INTERNAL_API_TOKEN }}
           NAS_MOUNT_PATH=/mnt/nas
+          DISTRIBUTION_FERNET_KEY=${{ secrets.DISTRIBUTION_FERNET_KEY }}
           ENVEOF
           sed -i 's/^[[:space:]]*//' .env
 
@@ -51,6 +52,21 @@ jobs:
 
       - name: "전체 서비스 배포 (v${{ env.VERSION }})"
         run: docker compose up -d --build --force-recreate --remove-orphans
+
+      - name: "DB 마이그레이션 적용 (idempotent)"
+        # alembic upgrade head 는 이미 head 상태면 no-op. 새 마이그레이션만 적용됨.
+        # 예전엔 워크플로우에 없어서 누락됐는데 T9 부터 자동화.
+        run: |
+          echo "Backend 가 postgres 연결 확보 대기 (15초)..."
+          sleep 15
+          docker compose exec -T backend alembic upgrade head
+
+      - name: "T9 신사업유통 시드 (idempotent)"
+        # 페르소나 placeholder 2종 + 시나리오 5종. 이미 존재하면 skip.
+        # 실패해도 배포는 성공으로 둠 (모듈 미사용 환경 가정).
+        run: |
+          docker compose exec -T backend python -m app.services.distribution.seeds \
+            || echo "[INFO] T9 시드 모듈 없거나 이미 시드됨 — 건너뜀"
 
       - name: "서비스 상태 확인"
         run: |
