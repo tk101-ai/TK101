@@ -82,11 +82,6 @@ function formatMoney(value: number | null | undefined): string {
   return NUMBER_FORMATTER.format(Math.round(value));
 }
 
-function formatPercent(rate: number): string {
-  if (!Number.isFinite(rate)) return "—";
-  return `${(rate * 100).toFixed(1)}%`;
-}
-
 function toIsoDate(d: Dayjs | null | undefined): string | undefined {
   if (!d) return undefined;
   return d.format("YYYY-MM-DD");

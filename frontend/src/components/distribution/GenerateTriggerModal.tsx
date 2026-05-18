@@ -81,7 +81,7 @@ export default function GenerateTriggerModal({
         const [personaList, scenarioList, weekList] = await Promise.all([
           listPersonas(),
           listScenarios(),
-          listWeeklySummary(50),
+          listWeeklySummary({ limit: 50 }),
         ]);
         // 한국 어드민 + 자격증명 보유만 노출.
         const usableKr = personaList.filter(
