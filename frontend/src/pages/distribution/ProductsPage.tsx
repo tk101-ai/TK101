@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
+  Col,
   Input,
+  Row,
   Select,
   Space,
+  Statistic,
   Table,
   Tag,
   Typography,
@@ -20,6 +23,7 @@ import dayjs from "dayjs";
 import { Link } from "react-router-dom";
 import {
   COMPANY_FILTER_OPTIONS,
+  DISTRIBUTION_COMPANIES,
   type DistributionCompany,
   listProducts,
   type ProductOut,
@@ -106,20 +110,19 @@ export default function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [searchInput, setSearchInput] = useState("");
 
+  // 회사별 비교 카드를 위해 전체 데이터 1회 fetch — 회사 필터는 클라이언트.
+  // 4 회사 풀 적재 시 ~2000 행 가정, limit 5000 안전 마진.
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const items = await listProducts({
-        limit: 1000,
-        company_label: company === "all" ? undefined : company,
-      });
+      const items = await listProducts({ limit: 5000 });
       setData(items);
     } catch (err: unknown) {
       message.error(extractErrorDetail(err, "명품재고 조회 실패"));
     } finally {
       setLoading(false);
     }
-  }, [company]);
+  }, []);
 
   useEffect(() => {
     const run = async () => {
@@ -128,22 +131,84 @@ export default function ProductsPage() {
     void run();
   }, [fetchData]);
 
-  // 브랜드 목록 (필터 옵션용) — 현재 회사 컨텍스트의 데이터 기준.
+  // 회사 필터 적용된 데이터 — 통계·테이블 모두 이 컨텍스트 기준.
+  const companyScoped = useMemo(() => {
+    if (company === "all") return data;
+    return data.filter((p) => p.company_label === company);
+  }, [data, company]);
+
+  // 회사별 비교 — 항상 전체 데이터 기준 4 회사 row (0이어도 표시).
+  const companyStats = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        count: number;
+        totalPurchaseQty: number;
+        totalStockQty: number;
+        totalPurchasePrice: number;
+      }
+    >();
+    for (const company of DISTRIBUTION_COMPANIES) {
+      map.set(company, {
+        count: 0,
+        totalPurchaseQty: 0,
+        totalStockQty: 0,
+        totalPurchasePrice: 0,
+      });
+    }
+    for (const p of data) {
+      const key = p.company_label ?? "(미지정)";
+      const prev = map.get(key) ?? {
+        count: 0,
+        totalPurchaseQty: 0,
+        totalStockQty: 0,
+        totalPurchasePrice: 0,
+      };
+      const price = p.purchase_price ? Number(p.purchase_price) || 0 : 0;
+      map.set(key, {
+        count: prev.count + 1,
+        totalPurchaseQty: prev.totalPurchaseQty + (p.purchase_qty ?? 0),
+        totalStockQty: prev.totalStockQty + (p.domestic_stock_qty ?? 0),
+        totalPurchasePrice: prev.totalPurchasePrice + price,
+      });
+    }
+    return Array.from(map.entries()).map(([label, stats]) => ({
+      label,
+      ...stats,
+    }));
+  }, [data]);
+
+  // 전체 총합 (현재 회사 컨텍스트 기준) — 페이지 상단 KPI 카드.
+  const grandTotal = useMemo(() => {
+    let count = 0;
+    let totalPurchaseQty = 0;
+    let totalStockQty = 0;
+    let totalPurchasePrice = 0;
+    for (const p of companyScoped) {
+      count += 1;
+      totalPurchaseQty += p.purchase_qty ?? 0;
+      totalStockQty += p.domestic_stock_qty ?? 0;
+      totalPurchasePrice += p.purchase_price ? Number(p.purchase_price) || 0 : 0;
+    }
+    return { count, totalPurchaseQty, totalStockQty, totalPurchasePrice };
+  }, [companyScoped]);
+
+  // 브랜드 목록 (필터 옵션용) — 현재 회사 컨텍스트 기준.
   const brandOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const p of data) set.add(p.brand);
+    for (const p of companyScoped) set.add(p.brand);
     return [
       { value: "all", label: "전체 브랜드" },
       ...Array.from(set)
         .sort()
         .map((b) => ({ value: b, label: b })),
     ];
-  }, [data]);
+  }, [companyScoped]);
 
   // 카테고리 목록 (필터 옵션용).
   const categoryOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const p of data) {
+    for (const p of companyScoped) {
       if (p.category) set.add(p.category);
     }
     return [
@@ -152,15 +217,15 @@ export default function ProductsPage() {
         .sort()
         .map((c) => ({ value: c, label: c })),
     ];
-  }, [data]);
+  }, [companyScoped]);
 
-  // 브랜드별 그룹 통계 (현재 회사 컨텍스트의 전체 데이터 기준 — 필터 적용 전).
+  // 브랜드별 그룹 통계 (현재 회사 컨텍스트 기준 — 검색/카테고리 필터 적용 전).
   const brandStats = useMemo(() => {
     const map = new Map<
       string,
       { count: number; totalPurchaseQty: number; totalStockQty: number }
     >();
-    for (const p of data) {
+    for (const p of companyScoped) {
       const prev = map.get(p.brand) ?? {
         count: 0,
         totalPurchaseQty: 0,
@@ -175,13 +240,12 @@ export default function ProductsPage() {
     return Array.from(map.entries())
       .map(([brand, stats]) => ({ brand, ...stats }))
       .sort((a, b) => b.totalStockQty - a.totalStockQty);
-  }, [data]);
+  }, [companyScoped]);
 
-  // 필터 적용 — 회사 필터는 fetch 단계에서 이미 적용됨.
-  // backend 가 search/brand/category 를 무시할 경우를 대비해 클라이언트 측에서도 한 번 더 거른다.
+  // 테이블 표시용 — 회사 + 브랜드 + 카테고리 + 검색 모두 적용.
   const filtered = useMemo(() => {
     const q = searchInput.trim().toLowerCase();
-    return data.filter((p) => {
+    return companyScoped.filter((p) => {
       if (brandFilter !== "all" && p.brand !== brandFilter) return false;
       if (categoryFilter !== "all" && p.category !== categoryFilter)
         return false;
@@ -193,7 +257,7 @@ export default function ProductsPage() {
       }
       return true;
     });
-  }, [data, brandFilter, categoryFilter, searchInput]);
+  }, [companyScoped, brandFilter, categoryFilter, searchInput]);
 
   const columns: ColumnsType<ProductOut> = [
     {
@@ -338,7 +402,153 @@ export default function ProductsPage() {
         </Space>
       </div>
 
-      {/* 브랜드별 요약 카드 — 가시성 ↑ */}
+      {/* 전체 총합 KPI — 현재 회사 컨텍스트 기준 */}
+      <Row gutter={12} style={{ marginBottom: 16 }}>
+        <Col xs={12} md={6}>
+          <Card size="small">
+            <Statistic
+              title={
+                <Space size={4}>
+                  <Text>총 제품 수</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {company === "all" ? "(전체)" : `(${company})`}
+                  </Text>
+                </Space>
+              }
+              value={grandTotal.count}
+              suffix="건"
+            />
+          </Card>
+        </Col>
+        <Col xs={12} md={6}>
+          <Card size="small">
+            <Statistic
+              title="총 매입수량"
+              value={grandTotal.totalPurchaseQty}
+              suffix="개"
+              valueStyle={{ color: "#1677ff" }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} md={6}>
+          <Card size="small">
+            <Statistic
+              title="총 국내재고"
+              value={grandTotal.totalStockQty}
+              suffix="개"
+              valueStyle={{ color: "#52c41a" }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} md={6}>
+          <Card size="small">
+            <Statistic
+              title="총 매입금액 (KRW)"
+              value={grandTotal.totalPurchasePrice}
+              precision={0}
+              groupSeparator=","
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* 회사별 비교 — 항상 4 회사 노출 (회사 Select와 무관) */}
+      <Card
+        size="small"
+        style={{ marginBottom: 16 }}
+        title={
+          <Space>
+            <Text strong>회사별 재고 요약</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              (4 업체 비교 — 항상 전체 데이터 기준)
+            </Text>
+          </Space>
+        }
+      >
+        <div
+          style={{
+            display: "grid",
+            gap: 12,
+            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+          }}
+        >
+          {companyStats.map((s) => {
+            const isSelected = company === s.label;
+            return (
+              <div
+                key={s.label}
+                onClick={() => setCompany(s.label as CompanyChoice)}
+                style={{
+                  padding: "12px 14px",
+                  background: isSelected ? "#e6f4ff" : "#fafafa",
+                  border: `1px solid ${isSelected ? "#1677ff" : "#f0f0f0"}`,
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Text strong style={{ fontSize: 15 }}>
+                    {s.label}
+                  </Text>
+                  <Tag color="geekblue" style={{ margin: 0 }}>
+                    {s.count}건
+                  </Tag>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 4,
+                  }}
+                >
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      매입
+                    </Text>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        fontVariantNumeric: "tabular-nums",
+                        color: "#1677ff",
+                      }}
+                    >
+                      {formatNumber(s.totalPurchaseQty)}
+                    </div>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      재고
+                    </Text>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        fontVariantNumeric: "tabular-nums",
+                        color: "#52c41a",
+                      }}
+                    >
+                      {formatNumber(s.totalStockQty)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* 브랜드별 요약 카드 — 현재 회사 컨텍스트 기준 */}
       {brandStats.length > 0 && (
         <Card
           size="small"
