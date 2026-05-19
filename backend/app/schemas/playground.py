@@ -157,6 +157,9 @@ class PlaygroundTaskStatus(BaseModel):
     output_url: str | None = None
     error_message: str | None = None
     raw: dict | None = None
+    # 백엔드 DB 의 PlaygroundMedia.id — 다운로드 버튼이 안정 URL (/api/playground/media/{id}/file)
+    # 을 사용할 수 있게 폴링 응답에 같이 노출. 2026-05-19 추가.
+    media_id: uuid.UUID | None = None
 
 
 # ---------------------------------------------------------------------------

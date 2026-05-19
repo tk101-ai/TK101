@@ -161,8 +161,14 @@ export default function SessionList({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch {
-      message.error("세션 내보내기 실패");
+    } catch (err: unknown) {
+      // 정확한 에러 메시지 노출 — 백엔드 401/404/500 등 구분.
+      const detail =
+        (err as { response?: { data?: { detail?: string } }; message?: string })
+          ?.response?.data?.detail ||
+        (err as Error)?.message ||
+        "알 수 없는 오류";
+      message.error(`세션 내보내기 실패: ${detail}`);
     }
   };
 

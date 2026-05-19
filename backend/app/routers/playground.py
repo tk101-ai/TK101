@@ -35,7 +35,7 @@ from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -267,18 +267,14 @@ async def export_session_endpoint(
         lines.append("")
 
     body_text = "\n".join(lines)
-
-    async def _gen():
-        yield body_text.encode("utf-8")
-
     safe_title = "".join(c for c in title if c.isalnum() or c in ("-", "_")) or "session"
     filename = f"{safe_title}.md"
-    return StreamingResponse(
-        _gen(),
+    # 2026-05-19: StreamingResponse + axios responseType="text" 호환 이슈 발견 →
+    # 일반 Response 로 단순화. 파일명은 Content-Disposition 으로 전달.
+    return Response(
+        content=body_text.encode("utf-8"),
         media_type="text/markdown; charset=utf-8",
-        headers={
-            "Content-Disposition": f"attachment; filename=\"{filename}\"",
-        },
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""},
     )
 
 
@@ -683,6 +679,7 @@ async def describe_task_endpoint(
         output_url=output_url,
         error_message=error_message,
         raw=resp,
+        media_id=media_row.id if media_row is not None else None,
     )
 
 

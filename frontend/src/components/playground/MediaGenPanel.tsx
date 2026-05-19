@@ -14,7 +14,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { PlayCircleOutlined } from "@ant-design/icons";
+import { DownloadOutlined, PlayCircleOutlined } from "@ant-design/icons";
 import {
   QUOTA_EXCEEDED_MESSAGE,
   createImageTask,
@@ -177,6 +177,9 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
                   status: status.status,
                   outputUrl: status.output_url,
                   errorMessage: status.error_message,
+                  // 폴링 응답의 media_id 로 mediaId 갱신 — 신규 생성 task 도
+                  // 폴링 완료 시 다운로드 버튼이 안정 URL 을 쓸 수 있게.
+                  mediaId: status.media_id ?? t.mediaId,
                 }
               : t,
           ),
@@ -302,8 +305,13 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
       if (isQuotaExceededError(err)) {
         message.error(QUOTA_EXCEEDED_MESSAGE);
       } else {
-        const msg = err instanceof Error ? err.message : "영상 생성 요청 실패";
-        message.error(msg);
+        // 백엔드 503/400 등의 detail 메시지 우선 노출 — 텐센트 i2v raw 오류 그대로 보임.
+        const detail =
+          (err as { response?: { data?: { detail?: string } }; message?: string })
+            ?.response?.data?.detail ||
+          (err as Error)?.message ||
+          "영상 생성 요청 실패";
+        message.error(`영상 생성 실패: ${detail}`);
       }
     }
   };
@@ -439,6 +447,64 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
   );
 }
 
+/**
+ * 결과물(이미지/영상)을 사용자 PC 로 즉시 다운로드.
+ *
+ * - mediaId 가 있으면 백엔드 안정 URL(`/api/playground/media/{id}/file`) 사용 — same-origin
+ *   이라 fetch + Blob 다 통과. 백엔드 디스크에 영구 보관된 파일이라 만료 위험도 없음.
+ * - mediaId 없으면 텐센트 임시 URL 로 fallback. cross-origin 차단 시 새 탭으로.
+ */
+async function downloadTaskOutput(task: ActiveTask): Promise<void> {
+  const ext = task.kind === "image" ? "png" : "mp4";
+  const safeModel = (task.modelKey || "media").replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const filename = `${safeModel}_${task.taskId.slice(0, 12)}.${ext}`;
+
+  // 1) 안정 URL — 백엔드 stream 통해 다운로드.
+  if (task.mediaId) {
+    try {
+      const res = await fetch(`/api/playground/media/${task.mediaId}/file`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+      return;
+    } catch (err) {
+      // fall through 텐센트 URL 시도.
+      console.warn("백엔드 미디어 fetch 실패, 텐센트 URL 로 fallback", err);
+    }
+  }
+
+  // 2) 텐센트 임시 URL fallback — cross-origin CORS 허용되면 fetch+blob, 아니면 새 탭.
+  if (!task.outputUrl) {
+    message.error("다운로드 URL 이 없습니다");
+    return;
+  }
+  try {
+    const res = await fetch(task.outputUrl);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(blobUrl);
+  } catch {
+    // CORS 거부 시 — 그냥 새 탭 열어서 사용자가 브라우저 다운로드 사용.
+    window.open(task.outputUrl, "_blank", "noopener,noreferrer");
+  }
+}
+
 function TaskCard({
   task,
   onConvertToVideo,
@@ -502,14 +568,19 @@ function TaskCard({
             style={{
               marginTop: 6,
               display: "flex",
-              gap: 12,
+              gap: 8,
               alignItems: "center",
               flexWrap: "wrap",
             }}
           >
-            <a href={task.outputUrl} target="_blank" rel="noreferrer">
-              원본 다운로드
-            </a>
+            <Button
+              size="small"
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={() => downloadTaskOutput(task)}
+            >
+              다운로드
+            </Button>
             {canConvert && (
               <Button
                 size="small"

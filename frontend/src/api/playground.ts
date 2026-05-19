@@ -383,6 +383,8 @@ export interface PlaygroundTaskStatus {
   output_url: string | null;
   error_message: string | null;
   raw: Record<string, unknown> | null;
+  /** 백엔드 DB의 PlaygroundMedia.id. 다운로드 안정 URL 생성에 사용. */
+  media_id: string | null;
 }
 
 export interface CreateImageBody {
