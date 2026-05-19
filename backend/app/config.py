@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     # 폴링 최대 대기 시간 (초). 영상은 30~60초 걸릴 수 있어 넉넉히.
     tencent_aigc_task_poll_timeout: int = 300
 
+    # Playground 영속화 ----------------------------------------------------------
+    # 텐센트 임시 URL (7일 만료) 을 영구 보관하기 위한 백엔드 디스크 루트.
+    # docker-compose 에 volume mount: ``playground_media:/var/lib/playground/media``
+    playground_media_root: str = "/var/lib/playground/media"
+    # 미디어 보관 기간 (일). 이후 cron 으로 정리.
+    playground_media_retention_days: int = 30
+
     # T9 신사업유통 텔레그램 자동화 (T9 PRD) ----------------------------------
     # Fernet 마스터 키 — api_id/api_hash 암호화 저장에 사용.
     # 생성: ``python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"``

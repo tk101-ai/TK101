@@ -33,7 +33,12 @@ Thumbs.db
 # 평문 키/메모 — 절대 commit 금지 (텐센트 API.txt 등에 SecretKey 평문 포함)
 업무개선요구사항/AI 플레이그라운드/텐센트 API.txt
 업무개선요구사항/AI 플레이그라운드/API 호출 예시.txt
+
+# 1회용 probe / dump 스크립트와 산출물 — 평문 키 박혀있는 경우 있음
 scripts/smoke_tencent_token.py
+scripts/probe_*.py
+scripts/dump_*.py
+scripts/_*.txt
 
 # Claude Code worktrees (병렬 에이전트 격리 작업 폴더 — commit 대상 아님)
 .claude/worktrees/

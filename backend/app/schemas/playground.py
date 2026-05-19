@@ -149,11 +149,7 @@ class PlaygroundTaskCreated(BaseModel):
 
 
 class PlaygroundTaskStatus(BaseModel):
-    """이미지/영상 작업 폴링 응답.
-
-    raw 는 텐센트 응답 원문 (필드 그대로). 정식 spec 미공개 단계라
-    프론트엔드가 raw 를 보고 화면을 맞춰갈 수 있도록 그대로 전달.
-    """
+    """이미지/영상 작업 폴링 응답."""
 
     task_id: str
     kind: str  # "image" | "video"
@@ -161,3 +157,72 @@ class PlaygroundTaskStatus(BaseModel):
     output_url: str | None = None
     error_message: str | None = None
     raw: dict | None = None
+
+
+# ---------------------------------------------------------------------------
+# 미디어 영속화 — 본인 갤러리 목록
+# ---------------------------------------------------------------------------
+
+
+class PlaygroundMediaOut(BaseModel):
+    """playground_media 1행 응답 (갤러리 목록용)."""
+
+    id: uuid.UUID
+    media_type: str  # "image" | "video"
+    task_id: str | None
+    model_key: str | None
+    prompt: str | None
+    status: str
+    error_message: str | None
+    # 텐센트 임시 URL (만료 시 None 가능) + 백엔드 자체 서빙 URL (/api/playground/media/{id}/file).
+    url: str | None
+    file_path: str | None
+    duration_sec: Decimal | None
+    width: int | None
+    height: int | None
+    cost_usd: Decimal | None
+    expires_at: datetime | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# 사용량 대시보드 (admin only)
+# ---------------------------------------------------------------------------
+
+
+class PlaygroundUsageByModel(BaseModel):
+    """모델별 집계 1행."""
+
+    model: str
+    kind: str  # "text" | "image" | "video"
+    request_count: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: Decimal
+
+
+class PlaygroundUsageByUser(BaseModel):
+    """사용자별 집계 1행."""
+
+    user_id: uuid.UUID
+    user_email: str
+    request_count: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: Decimal
+
+
+class PlaygroundUsageReport(BaseModel):
+    """관리자 대시보드용 통합 응답.
+
+    period: 시작·종료 (ISO 8601). 빈 값이면 전체 기간.
+    """
+
+    period_start: datetime | None
+    period_end: datetime | None
+    total_cost_usd: Decimal
+    total_requests: int
+    by_model: list[PlaygroundUsageByModel]
+    by_user: list[PlaygroundUsageByUser]

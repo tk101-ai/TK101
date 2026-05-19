@@ -107,7 +107,8 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "distribution-settlement", path: "/distribution/settlement", label: "정산 / 자금 흐름", icon: <CalculatorOutlined />, module: "distribution", category: "new_business" },
   { key: "distribution-sessions", path: "/distribution/sessions", label: "대화 세션 검수", icon: <CheckSquareOutlined />, module: "distribution", category: "new_business" },
   { key: "distribution-analytics", path: "/distribution/analytics", label: "분석/비용", icon: <LineChartOutlined />, module: "distribution", category: "new_business" },
-  { key: "playground", path: "/playground", label: "AI Playground", icon: <RobotOutlined />, module: "playground", category: "system" },
+  // 2026-05-19: admin only 정책 해제 — 일반 직원도 사이드바에 노출. common 그룹.
+  { key: "playground", path: "/playground", label: "AI Playground", icon: <RobotOutlined />, module: "playground", category: "common" },
   { key: "users", path: "/users", label: "사용자 관리", icon: <TeamOutlined />, module: "users", category: "system" },
 ];
 

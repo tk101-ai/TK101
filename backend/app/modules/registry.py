@@ -23,6 +23,7 @@ DEPARTMENT_MODULES: dict[str, list[str]] = {
         Module.FINANCE.value,
         Module.NAS_SEARCH.value,
         Module.FORM_FILLER.value,
+        Module.PLAYGROUND.value,
     ],
     Department.MARKETING_1.value: [
         Module.DASHBOARD.value,
@@ -31,11 +32,13 @@ DEPARTMENT_MODULES: dict[str, list[str]] = {
         Module.FORM_FILLER.value,
         # 체험단 번역: 마케팅1팀(현대아울렛 등 체험단 운영) 주관.
         Module.REVIEW_TRANSLATION.value,
+        Module.PLAYGROUND.value,
     ],
     Department.MARKETING_2.value: [
         Module.DASHBOARD.value,
         Module.NAS_SEARCH.value,
         Module.FORM_FILLER.value,
+        Module.PLAYGROUND.value,
     ],
     Department.NEW_BUSINESS.value: [
         Module.DASHBOARD.value,
@@ -43,16 +46,19 @@ DEPARTMENT_MODULES: dict[str, list[str]] = {
         Module.FORM_FILLER.value,
         # T9 트랙 — 신사업팀 주관 모듈 (라이브 1차 2계정 → 점진 확장).
         Module.DISTRIBUTION.value,
+        Module.PLAYGROUND.value,
     ],
     Department.NEW_MEDIA.value: [
         Module.DASHBOARD.value,
         Module.NAS_SEARCH.value,
         Module.FORM_FILLER.value,
+        Module.PLAYGROUND.value,
     ],
     Department.DESIGN.value: [
         Module.DASHBOARD.value,
         Module.NAS_SEARCH.value,
         Module.FORM_FILLER.value,
+        Module.PLAYGROUND.value,
     ],
 }
 

@@ -90,6 +90,7 @@ async def update_metrics(
     reasoning_tokens: int | None = None,
     latency_ms: int | None = None,
     raw_response: dict | None = None,
+    cost_usd: "Decimal | None" = None,
 ) -> PlaygroundMessage | None:
     """assistant 메시지 메트릭 백필.
 
@@ -121,6 +122,8 @@ async def update_metrics(
         row.total_tokens = i + o + c
     if raw_response is not None:
         row.raw_response = raw_response
+    if cost_usd is not None:
+        row.cost_usd = cost_usd
     await db.commit()
     await db.refresh(row)
     return row
