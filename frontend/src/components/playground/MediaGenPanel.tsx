@@ -377,7 +377,8 @@ function TaskCard({ task }: { task: ActiveTask }) {
           </Text>
           {task.costUsd !== null && task.costUsd !== undefined && (
             <Text type="secondary" style={{ fontSize: 11 }}>
-              ${task.costUsd.toFixed(4)}
+              {/* 백엔드 Decimal 은 JSON 직렬화 시 string 으로 옴 — Number() 강제 변환 후 toFixed. */}
+              ${Number(task.costUsd).toFixed(4)}
             </Text>
           )}
         </Space>
