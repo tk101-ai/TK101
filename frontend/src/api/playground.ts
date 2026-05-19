@@ -92,6 +92,61 @@ export type PlaygroundChunk =
 
 const BASE = "/api/playground";
 
+/**
+ * 백엔드 SSE chunk 의 raw shape (`text_delta`는 `delta`, `usage`는 `input_tokens` 등)을
+ * 프론트엔드 hook이 기대하는 normalized shape (`content`, `input/output/...`) 로 변환.
+ *
+ * Phase 1 작성 시점부터 양쪽 키 이름이 어긋나 있어 "undefined" 가 누적되던 문제 보정.
+ */
+function normalizeChunk(raw: Record<string, unknown>): PlaygroundChunk {
+  const t = raw.type;
+  if (t === "text_delta") {
+    const delta =
+      (typeof raw.delta === "string" && raw.delta) ||
+      (typeof raw.content === "string" && raw.content) ||
+      "";
+    return { type: "text_delta", content: delta };
+  }
+  if (t === "usage") {
+    const num = (k: string): number | undefined => {
+      const v = raw[k];
+      return typeof v === "number" ? v : undefined;
+    };
+    const cacheRead = num("cache_read_input_tokens") ?? 0;
+    const cacheCreate = num("cache_creation_input_tokens") ?? 0;
+    const cachedTotal =
+      cacheRead + cacheCreate > 0 ? cacheRead + cacheCreate : num("cached");
+    const input = num("input_tokens") ?? num("input");
+    const output = num("output_tokens") ?? num("output");
+    return {
+      type: "usage",
+      input,
+      output,
+      reasoning: num("reasoning_tokens") ?? num("reasoning"),
+      cached: cachedTotal,
+      total:
+        num("total_tokens") ??
+        num("total") ??
+        (input !== undefined && output !== undefined ? input + output : undefined),
+      latency_ms: num("latency_ms"),
+      model: typeof raw.model === "string" ? raw.model : undefined,
+    };
+  }
+  if (t === "done") {
+    return {
+      type: "done",
+      message_id: typeof raw.message_id === "string" ? raw.message_id : undefined,
+    };
+  }
+  if (t === "error") {
+    return {
+      type: "error",
+      message: typeof raw.message === "string" ? raw.message : "스트림 오류",
+    };
+  }
+  return raw as unknown as PlaygroundChunk;
+}
+
 /** 백엔드 `/api/playground/providers` 응답 (PlaygroundProviderMeta). */
 interface BackendProvider {
   provider_key: string;
@@ -136,7 +191,12 @@ export async function getSessionMessages(id: string): Promise<PlaygroundMessage[
 
 export interface StreamChatBody {
   session_id: string;
-  content: string;
+  /** 백엔드 `PlaygroundChatRequest.message` 필드와 매칭. */
+  message: string;
+  provider: PlaygroundProviderKey;
+  model: string;
+  system_prompt?: string | null;
+  temperature?: number;
 }
 
 export interface StreamChatHandlers {
@@ -216,8 +276,8 @@ export async function streamChat(
           continue;
         }
         try {
-          const parsed = JSON.parse(dataStr) as PlaygroundChunk;
-          handlers.onChunk(parsed);
+          const raw = JSON.parse(dataStr) as Record<string, unknown>;
+          handlers.onChunk(normalizeChunk(raw));
         } catch {
           // 잘못된 JSON은 무시 (heartbeat 등).
         }

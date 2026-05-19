@@ -147,7 +147,14 @@ export function usePlaygroundChat(args: UsePlaygroundChatArgs) {
       abortRef.current = controller;
 
       await streamChat(
-        { session_id: sid, content: trimmed },
+        {
+          session_id: sid,
+          message: trimmed,
+          provider: args.provider,
+          model: args.model,
+          system_prompt: args.systemPrompt || null,
+          temperature: args.temperature,
+        },
         {
           signal: controller.signal,
           onChunk: (chunk: PlaygroundChunk) => {
@@ -211,7 +218,15 @@ export function usePlaygroundChat(args: UsePlaygroundChatArgs) {
       setSending(false);
       abortRef.current = null;
     },
-    [sending, ensureSession, args.model, updateAssistant],
+    [
+      sending,
+      ensureSession,
+      args.provider,
+      args.model,
+      args.systemPrompt,
+      args.temperature,
+      updateAssistant,
+    ],
   );
 
   const resetSession = useCallback(() => {
