@@ -1,13 +1,15 @@
-"""텐센트 임시 스토리지 URL → 백엔드 디스크로 다운로드.
+"""텐센트 임시 스토리지 URL → NAS RW 마운트로 다운로드.
 
-텐센트 vod 임시 URL 은 7일 만료. 그 전에 우리 서버 디스크로 복사해서 영구 보관.
-저장 위치는 ``settings.playground_media_root`` (docker volume mount 권장).
+텐센트 vod 임시 URL 은 7일 만료. 그 전에 NAS 로 복사해서 영구 보관.
+저장 위치는 ``settings.playground_media_root`` (라이브 환경은 NAS RW 마운트
+``/mnt/nas-rw/playground``, 사용자가 NAS DSM 에서 직접 보고 관리 가능).
 
-저장 경로 패턴:
-    {root}/{user_id}/{kind}/{task_id}.{ext}
+저장 경로 패턴 (2026-05-19 부서·사용자 분리 보강):
+    {root}/{department}/{user_id}/{kind}/{task_id}.{ext}
 
+- 사용자 의도: 1차 부서 단위, 2차 사용자 단위 폴더. NAS DSM 에서 직관적으로 탐색.
 - ext 는 URL 의 파일 확장자 그대로 (없으면 image=png, video=mp4 fallback).
-- 디렉토리는 자동 생성. 권한 0700 으로 만든다.
+- 디렉토리는 자동 생성.
 """
 from __future__ import annotations
 
@@ -45,19 +47,28 @@ def _safe_root() -> Path:
     return root
 
 
+def _sanitize_segment(value: str) -> str:
+    """경로 세그먼트를 파일시스템 안전 문자로 제한 (NAS 호환)."""
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", value).strip(".")
+    return safe or "unknown"
+
+
 async def download_media(
     *,
     url: str,
     user_id: uuid.UUID,
+    department: str | None,
     task_id: str,
     kind: str,
 ) -> str | None:
-    """텐센트 결과 URL 을 디스크로 다운로드 → 절대 경로 반환. 실패 시 None.
+    """텐센트 결과 URL 을 NAS RW 마운트로 다운로드 → 절대 경로 반환. 실패 시 None.
 
     이미 같은 파일이 있으면 덮어쓰지 않고 기존 경로 반환 (idempotent).
+    경로: ``{root}/{department}/{user_id}/{kind}/{task_id}.{ext}``
     """
     ext = _guess_ext(url, kind)
-    user_dir = _safe_root() / str(user_id) / kind
+    dept = _sanitize_segment(department or "unknown")
+    user_dir = _safe_root() / dept / str(user_id) / kind
     user_dir.mkdir(parents=True, exist_ok=True)
 
     # task_id 에 슬래시 등이 들어갈 가능성 차단.

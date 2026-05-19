@@ -106,8 +106,10 @@ services:
       DISTRIBUTION_FERNET_KEY: ${DISTRIBUTION_FERNET_KEY:-}
       DISTRIBUTION_TELETHON_SESSION_DIR: ${DISTRIBUTION_TELETHON_SESSION_DIR:-/var/lib/distribution/sessions}
       DISTRIBUTION_CLAUDE_MODEL: ${DISTRIBUTION_CLAUDE_MODEL:-claude-sonnet-4-6}
-      # T8 Playground 미디어 영속화 (텐센트 URL 7일 만료 → 백엔드 디스크에 영구 보관)
-      PLAYGROUND_MEDIA_ROOT: ${PLAYGROUND_MEDIA_ROOT:-/var/lib/playground/media}
+      # T8 Playground 미디어 영속화. 2026-05-19 부로 NAS RW 마운트로 저장.
+      # 경로 패턴: {root}/{department}/{user_id}/{kind}/{task_id}.{ext}
+      # 호스트 /mnt/nas-rw → NAS /volume1/TK101AI (sshfs rw 마운트).
+      PLAYGROUND_MEDIA_ROOT: ${PLAYGROUND_MEDIA_ROOT:-/mnt/nas-rw/playground}
       PLAYGROUND_MEDIA_RETENTION_DAYS: ${PLAYGROUND_MEDIA_RETENTION_DAYS:-30}
     volumes:
       # 호스트 NAS SSHFS 마운트를 컨테이너에 read-only bind. 호스트 fstab은 ro 마운트 권장.
@@ -120,8 +122,11 @@ services:
       - distribution_telethon_data:/var/lib/distribution
       # T9 자격증명 JSON 드롭 위치 (.local/t9_credentials.json) — 컨테이너에서 읽기 위해 mount.
       - ./.local:/srv/.local
-      # T8 Playground 결과물 (이미지/영상). 텐센트 임시 URL 7일 만료 전 다운로드해서 30일 보관.
+      # T8 Playground 결과물 — 기존 backend volume 유지 (이미 만든 미디어 file_path 보존).
       - playground_media:/var/lib/playground/media
+      # 2026-05-19: NAS RW bind mount. 호스트 fstab: tk101_indexer@.../TK101AI → /mnt/nas-rw.
+      # 신규 결과물은 여기에 저장, NAS DSM 에서도 직관적으로 탐색 가능.
+      - /mnt/nas-rw:/mnt/nas-rw:rw
     depends_on:
       postgres:
         condition: service_healthy

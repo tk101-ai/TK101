@@ -460,6 +460,7 @@ async def describe_task_endpoint(
             file_path = await download_media(
                 url=output_url,
                 user_id=user.id,
+                department=user.department,
                 task_id=task_id,
                 kind=kind,
             )
