@@ -144,7 +144,7 @@ export default function UsagePage() {
             />
             <RangePicker
               showTime
-              onChange={(dates, strings) =>
+              onChange={(_dates, strings) =>
                 setRange([strings[0] || null, strings[1] || null])
               }
               placeholder={["시작", "종료"]}
