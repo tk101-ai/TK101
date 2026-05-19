@@ -1,5 +1,6 @@
-import { ConfigProvider, Spin } from "antd";
+import { ConfigProvider, Spin, theme as antdTheme } from "antd";
 import koKR from "antd/locale/ko_KR";
+import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import AppLayout from "./components/AppLayout";
@@ -38,8 +39,20 @@ import SessionDetailPage from "./pages/distribution/SessionDetailPage";
 import AnalyticsPage from "./pages/distribution/AnalyticsPage";
 import SettlementPage from "./pages/distribution/SettlementPage";
 
+const DARK_MODE_KEY = "tk101_dark_mode";
+
 function App() {
   const { user, loading, logout, checkAuth } = useAuth();
+  const [darkMode, setDarkMode] = useState<boolean>(
+    () => localStorage.getItem(DARK_MODE_KEY) === "true",
+  );
+
+  useEffect(() => {
+    localStorage.setItem(DARK_MODE_KEY, String(darkMode));
+    // 브라우저 native scrollbar/색 동기화.
+    document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
+    document.body.style.background = darkMode ? "#000" : "#f5f5f5";
+  }, [darkMode]);
 
   if (loading) {
     return (
@@ -50,12 +63,17 @@ function App() {
   }
 
   return (
-    <ConfigProvider locale={koKR}>
+    <ConfigProvider
+      locale={koKR}
+      theme={{
+        algorithm: darkMode ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+      }}
+    >
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={user ? <Navigate to="/" /> : <Login onLogin={checkAuth} />} />
           {user ? (
-            <Route element={<AppLayout user={user} onLogout={logout} />}>
+            <Route element={<AppLayout user={user} onLogout={logout} darkMode={darkMode} onToggleDark={() => setDarkMode((d) => !d)} />}>
               <Route path="/" element={<Dashboard />} />
               <Route
                 path="/transactions"
