@@ -29,34 +29,26 @@ from app.services.playground.token_manager import token_manager
 
 # UI 카드는 "모델 패밀리" 단위로 그룹핑 (텐센트 원본 화면과 동일).
 # 실제 API 호출 carrier 는 항상 텐센트 AIGC endpoint 단일.
+#
+# 2026-05-19 라이브 probe 결과:
+# - Claude / Grok: text-aigc OpenAI-compat 에서 모두 400 ("model not available").
+#   PPT slide 12 에 따르면 Claude 는 별도 Anthropic SDK wrap 경로 필요. Phase 별도.
+# - OpenAI: gpt-5-chat 만 200. 나머지(gpt-5.x, gpt-5-nano, gpt-4o)는 401 — 텐센트
+#   콘솔에서 모델 활성화/구매 필요. 활성화 후 추가 노출.
+# - MiniMax m2.5 는 401 (m2.7 만 200). 콘솔 활성화 후 추가.
 PROVIDER_CHIPS: list[dict] = [
-    {
-        "provider_key": "claude",
-        "provider_label": "Claude",
-        "models": [
-            {"key": MODEL_CLAUDE_HAIKU, "label": "Haiku 4.5", "badge": "빠름·저비용"},
-            {"key": MODEL_CLAUDE_SONNET, "label": "Sonnet 4.6", "badge": "균형"},
-            {"key": "claude-opus-4-5", "label": "Opus 4.5", "badge": None},
-            {"key": MODEL_CLAUDE_OPUS, "label": "Opus 4.7", "badge": "최신"},
-        ],
-    },
     {
         "provider_key": "openai",
         "provider_label": "OpenAI",
         "models": [
-            {"key": "gpt-5.4", "label": "GPT-5.4", "badge": None},
-            {"key": "gpt-5.2", "label": "GPT-5.2", "badge": None},
-            {"key": "gpt-5.1", "label": "GPT-5.1", "badge": None},
             {"key": "gpt-5-chat", "label": "GPT-5 Chat", "badge": None},
-            {"key": "gpt-5-nano", "label": "GPT-5 Nano", "badge": "초경량"},
-            {"key": "gpt-4o", "label": "GPT-4o", "badge": None},
         ],
     },
     {
         "provider_key": "gemini",
         "provider_label": "Gemini",
         "models": [
-            {"key": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "badge": None},
+            {"key": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "badge": "빠름"},
             {"key": "gemini-2.5-pro", "label": "Gemini 2.5 Pro", "badge": None},
             {
                 "key": "gemini-3-flash-preview",
@@ -72,17 +64,6 @@ PROVIDER_CHIPS: list[dict] = [
                 "key": "gemini-3.1-flash-lite-preview",
                 "label": "Gemini 3.1 Flash Lite Preview",
                 "badge": "PREVIEW",
-            },
-        ],
-    },
-    {
-        "provider_key": "grok",
-        "provider_label": "Grok",
-        "models": [
-            {
-                "key": "grok4-1-fast-reasoning",
-                "label": "Grok 4.1 Fast Reasoning",
-                "badge": "REASONING",
             },
         ],
     },
@@ -106,7 +87,6 @@ PROVIDER_CHIPS: list[dict] = [
         "provider_key": "minimax",
         "provider_label": "MiniMax",
         "models": [
-            {"key": "minimax-m2.5", "label": "MiniMax M2.5", "badge": None},
             {"key": "minimax-m2.7", "label": "MiniMax M2.7", "badge": "최신"},
         ],
     },
