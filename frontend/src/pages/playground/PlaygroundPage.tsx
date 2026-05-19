@@ -1,4 +1,5 @@
 import { Tabs, Typography } from "antd";
+import ComparePanel from "../../components/playground/ComparePanel";
 import LlmChatPanel from "../../components/playground/LlmChatPanel";
 import MediaGenPanel from "../../components/playground/MediaGenPanel";
 
@@ -32,6 +33,11 @@ export default function PlaygroundPage() {
             key: "llm",
             label: "LLM Chat",
             children: <LlmChatPanel />,
+          },
+          {
+            key: "compare",
+            label: "비교 모드",
+            children: <ComparePanel />,
           },
           {
             key: "image",
