@@ -40,6 +40,9 @@ scripts/probe_*.py
 scripts/dump_*.py
 scripts/_*.txt
 
+# frontend 빌드 로그 임시 (Agent가 만들 수 있음)
+frontend/.build_*.txt
+
 # Claude Code worktrees (병렬 에이전트 격리 작업 폴더 — commit 대상 아님)
 .claude/worktrees/
 

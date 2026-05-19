@@ -14,7 +14,8 @@ main.py 에서 별도 include:
 설계:
 - 기간 필터는 query string ``from`` / ``to`` (alias). 둘 다 옵션. None 이면 전체.
 - ``company_label`` 도 옵션 — None 이면 전체 회사 합산 (by-company 제외).
-- 라우터 전체 ``require_admin`` 게이트.
+- 권한 (T9 라우터 가드 정책 통일): ``require_module(Module.DISTRIBUTION.value)`` — 신사업팀 사용 가능.
+  정산 확정/마감 같은 mutation endpoint 추가 시 ``require_admin`` 추가 게이팅 필요.
 """
 from __future__ import annotations
 
@@ -25,7 +26,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_admin
+from app.dependencies import require_module
+from app.modules.constants import Module
 from app.schemas.distribution_settlement import (
     ByCompanyItem,
     CashFlowItem,
@@ -45,7 +47,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/distribution/settlement",
     tags=["distribution-settlement"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_module(Module.DISTRIBUTION.value))],
 )
 
 

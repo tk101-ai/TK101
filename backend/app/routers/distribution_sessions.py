@@ -14,7 +14,10 @@ Phase C 엔드포인트:
 - prefix 는 Phase A 라우터(``distribution.py``)와 동일한 ``/api/distribution`` 유지.
   FastAPI 는 경로별 매칭이므로 prefix 공유는 충돌 없음. 코드 분리는 책임 분리 목적.
 - ``main.py`` 에서 별도 ``include_router`` 호출 필요.
-- 라우터 전체 ``require_admin`` 게이트.
+- 권한 (T9 라우터 가드 정책 통일):
+  - 라우터 전체: ``require_module(Module.DISTRIBUTION.value)`` — admin + 신사업팀.
+  - send-now (실 텔레그램 송신): endpoint 별 ``require_admin`` 추가.
+  - 목록/상세/메시지 편집/승인/거부: 신사업팀 검수 가능.
 """
 from __future__ import annotations
 
@@ -25,8 +28,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_admin
+from app.dependencies import get_current_user, require_admin, require_module
 from app.models.user import User
+from app.modules.constants import Module
 from app.schemas.distribution_sessions import (
     ApproveRequest,
     MessageEditRequest,
@@ -44,7 +48,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/distribution",
     tags=["distribution-sessions"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_module(Module.DISTRIBUTION.value))],
 )
 
 
@@ -133,9 +137,9 @@ async def approve_session(
     session_id: UUID,
     payload: ApproveRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
-    """세션 승인 — status='approved', approved_by/at 기록.
+    """세션 승인 — status='approved', approved_by/at 기록. 신사업팀 검수 가능.
 
     ``status='pending'`` 만 승인 가능. 다른 상태면 409.
     """
@@ -190,8 +194,9 @@ async def reject_session(
 async def send_session_now(
     session_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> SendNowResult:
-    """승인된 세션을 즉시 동기 송신.
+    """승인된 세션을 즉시 동기 송신. **admin only** — 실 텔레그램 송신.
 
     응답:
     - 200: 전체 성공 또는 부분 성공.

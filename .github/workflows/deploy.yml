@@ -28,6 +28,9 @@ jobs:
           LANGFUSE_URL=${{ secrets.LANGFUSE_URL }}
           LANGFUSE_SECRET=${{ secrets.LANGFUSE_SECRET }}
           LANGFUSE_SALT=${{ secrets.LANGFUSE_SALT }}
+          LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_HOST=${{ secrets.LANGFUSE_HOST }}
           ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           GOOGLE_YOUTUBE_API_KEY=${{ secrets.GOOGLE_YOUTUBE_API_KEY }}

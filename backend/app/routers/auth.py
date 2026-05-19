@@ -6,9 +6,9 @@ from app.database import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.modules.registry import get_user_modules
-from app.schemas.auth import LoginRequest, TokenResponse
+from app.schemas.auth import LoginRequest, PasswordChangeRequest, TokenResponse
 from app.schemas.user import UserMe
-from app.services.auth import create_access_token, verify_password
+from app.services.auth import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -59,6 +59,33 @@ async def me(current_user: User = Depends(get_current_user)):
         created_at=current_user.created_at,
         modules=get_user_modules(current_user),
     )
+
+
+@router.patch("/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    body: PasswordChangeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """본인 비밀번호 변경.
+
+    - current_password 검증 실패 시 401
+    - new_password 길이/공백 검증은 PasswordChangeRequest 에서 422 로 처리
+    - 새 비번이 현재와 동일하면 400 (사실상 변경 없음 차단)
+    """
+    if not verify_password(body.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="현재 비밀번호가 일치하지 않습니다",
+        )
+    if verify_password(body.new_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="새 비밀번호는 현재 비밀번호와 달라야 합니다",
+        )
+    current_user.hashed_password = hash_password(body.new_password)
+    await db.commit()
+    return None
 
 
 @router.get("/admin-check")

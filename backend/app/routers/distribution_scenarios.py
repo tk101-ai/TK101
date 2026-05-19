@@ -17,15 +17,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_admin
+from app.dependencies import require_module
 from app.models.distribution import DistributionScenario
+from app.modules.constants import Module
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/distribution",
     tags=["distribution-scenarios"],
-    dependencies=[Depends(require_admin)],
+    # T9 라우터 가드 정책 통일: 시나리오 목록 조회 — 신사업팀 사용 가능.
+    dependencies=[Depends(require_module(Module.DISTRIBUTION.value))],
 )
 
 

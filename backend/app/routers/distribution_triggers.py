@@ -19,7 +19,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_admin
+from app.dependencies import require_module
+from app.modules.constants import Module
 from app.services.distribution.calendar_helper import (
     adjusted_trigger_dates, is_trigger_today,
 )
@@ -33,7 +34,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/distribution",
     tags=["distribution-triggers"],
-    dependencies=[Depends(require_admin)],
+    # T9 라우터 가드 정책 통일: 조회/체크 엔드포인트만 → 신사업팀 사용 가능.
+    dependencies=[Depends(require_module(Module.DISTRIBUTION.value))],
 )
 
 

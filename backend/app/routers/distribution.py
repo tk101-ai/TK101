@@ -14,7 +14,10 @@ Phase A 엔드포인트 (구현 완료):
 
 Phase B~E (예정): scenarios CRUD, BL upload, generate, sessions review, send-log.
 
-권한: 라우터 전체 ``require_admin``. 세부 작업별 분리는 Phase D 에서.
+권한 (T9 라우터 가드 정책 통일):
+- 라우터 전체: ``require_module(Module.DISTRIBUTION.value)`` — admin + 신사업팀 사용 가능.
+- 위험 작업 (페르소나 등록/수정/삭제/credentials 변경/로그아웃/로그인 절차): endpoint 별 ``require_admin`` 추가.
+- 조회/업로드/생성/헬스체크: 신사업팀 멤버 사용 가능.
 """
 from __future__ import annotations
 
@@ -27,8 +30,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_admin
+from app.dependencies import get_current_user, require_admin, require_module
 from app.models.user import User
+from app.modules.constants import Module
 from fastapi import UploadFile, File
 from pathlib import Path
 import tempfile
@@ -60,7 +64,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/distribution",
     tags=["distribution"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_module(Module.DISTRIBUTION.value))],
 )
 
 
@@ -85,7 +89,7 @@ async def upload_data(
     file: UploadFile = File(...),
     company_label: str | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ) -> DataUploadResult:
     """엑셀 파일 1개 업로드 → 종합관리시트 + 명품재고대장 동시 적재.
 
@@ -257,8 +261,9 @@ async def list_personas(
 async def create_persona(
     payload: PersonaCreate,
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> PersonaOut:
-    """새 페르소나 등록.
+    """새 페르소나 등록. **admin only** — credentials 입력 가드.
 
     Errors:
     - 409: 중복 account_label / phone (UNIQUE 제약).
@@ -285,8 +290,9 @@ async def update_persona(
     persona_id: UUID,
     payload: PersonaUpdate,
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> PersonaOut:
-    """페르소나 부분 수정 (display_name, tone_profile, daily_msg_limit, active, warmup_until)."""
+    """페르소나 부분 수정 (display_name, tone_profile, daily_msg_limit, active, warmup_until). **admin only**."""
     persona = await persona_service.update_persona(db, persona_id, payload)
     if persona is None:
         raise HTTPException(
@@ -299,8 +305,12 @@ async def update_persona(
 async def delete_persona(
     persona_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> Response:
-    """페르소나 hard delete + 세션 파일 삭제. 관련 messages/sessions 는 RESTRICT FK 로 보호 (수동 정리)."""
+    """페르소나 hard delete + 세션 파일 삭제. **admin only**.
+
+    관련 messages/sessions 는 RESTRICT FK 로 보호 (수동 정리).
+    """
     ok = await persona_service.delete_persona(db, persona_id)
     if not ok:
         raise HTTPException(
@@ -314,8 +324,9 @@ async def update_credentials(
     persona_id: UUID,
     payload: PersonaCredentialsUpdate,
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> PersonaOut:
-    """자격증명 갱신 (placeholder seed 채우기 / 키 회전).
+    """자격증명 갱신 (placeholder seed 채우기 / 키 회전). **admin only** — 평문 api_hash 입력.
 
     기존 Telethon 세션이 있으면 무효화됨 → 재로그인 필요.
     """
@@ -343,8 +354,9 @@ async def update_credentials(
 async def logout_persona(
     persona_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> PersonaOut:
-    """세션 파일 삭제 + telegram_user_id/session_path 클리어. 자격증명은 보존."""
+    """세션 파일 삭제 + telegram_user_id/session_path 클리어. **admin only**. 자격증명은 보존."""
     persona = await persona_service.logout_persona(db, persona_id)
     if persona is None:
         raise HTTPException(
@@ -362,8 +374,9 @@ async def logout_persona(
 async def login_init(
     persona_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> dict[str, str]:
-    """SMS 인증 코드 발송 트리거.
+    """SMS 인증 코드 발송 트리거. **admin only** — 텔레그램 계정 로그인 절차.
 
     Telethon 클라이언트는 백엔드 메모리에 5분 TTL 로 보관 → verify-code 에서 재사용.
 
@@ -406,8 +419,9 @@ async def verify_code(
     persona_id: UUID,
     payload: PersonaVerifyCode,
     db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
 ) -> dict[str, object]:
-    """SMS 코드 + (선택) 2FA 비밀번호 검증.
+    """SMS 코드 + (선택) 2FA 비밀번호 검증. **admin only** — 텔레그램 계정 로그인 절차.
 
     2FA 활성인데 password 미입력 시 422 반환 → UI 가 비밀번호 입력 후 재호출.
     SMS 코드 잘못이면 400.

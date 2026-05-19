@@ -29,12 +29,13 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_admin
+from app.dependencies import require_module
 from app.models.distribution import (
     DistributionPersona,
     DistributionScenario,
     DistributionWeeklySummary,
 )
+from app.modules.constants import Module
 from app.services.distribution.conversation_generator import GenerationError
 from app.services.distribution.generation_service import (
     TOP_PRODUCT_LIMIT,
@@ -50,7 +51,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/distribution",
     tags=["distribution-generate"],
-    dependencies=[Depends(require_admin)],
+    # T9 라우터 가드 정책 통일: 생성은 LLM만 호출 (실 송신 X) → 신사업팀 사용 가능.
+    dependencies=[Depends(require_module(Module.DISTRIBUTION.value))],
 )
 
 

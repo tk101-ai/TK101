@@ -16,7 +16,7 @@ main.py 에서 별도 include:
 설계:
 - 기간 필터는 query string ``from`` / ``to`` (alias). 둘 다 옵션. None 이면 전체.
 - 카테고리/브랜드 분포는 시점 데이터라 기간 필터 X.
-- 라우터 전체 ``require_admin`` 게이트.
+- 권한 (T9 라우터 가드 정책 통일): ``require_module(Module.DISTRIBUTION.value)`` — 신사업팀 사용 가능.
 """
 from __future__ import annotations
 
@@ -27,7 +27,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_admin
+from app.dependencies import require_module
+from app.modules.constants import Module
 from app.schemas.distribution_dashboard import (
     BrandDistItem,
     CategoryDistItem,
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/distribution/dashboard",
     tags=["distribution-dashboard"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_module(Module.DISTRIBUTION.value))],
 )
 
 

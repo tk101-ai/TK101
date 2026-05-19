@@ -1,0 +1,77 @@
+name: "TK101 Postgres 자동 백업 v0.1.0"
+
+on:
+  schedule:
+    # 매일 02:00 KST (= UTC 17:00 전날)
+    - cron: "0 17 * * *"
+  workflow_dispatch:
+
+env:
+  VERSION: "0.1.0"
+  BACKUP_DIR: "/mnt/nas-rw/backup/postgres"
+  RETENTION_DAYS: "7"
+
+jobs:
+  backup:
+    name: "Postgres 백업 — tk101 + langfuse"
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "백업 디렉토리 보장 (mkdir -p)"
+        run: |
+          docker compose exec -T postgres mkdir -p /tmp/backup
+          mkdir -p "${BACKUP_DIR}"
+
+      - name: "Postgres 컨테이너 가동 확인"
+        run: |
+          if ! docker compose ps postgres | grep -q "Up\|running"; then
+            echo "[FAIL] postgres 컨테이너가 실행 중이 아님"
+            docker compose ps postgres
+            exit 1
+          fi
+          echo "[OK] postgres 컨테이너 정상 가동 중"
+
+      - name: "tk101 DB 덤프 (gzip 압축)"
+        env:
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+        run: |
+          TS=$(date +%Y%m%d_%H%M%S)
+          OUT="${BACKUP_DIR}/tk101_${TS}.sql.gz"
+          echo "[INFO] tk101 → ${OUT}"
+          docker compose exec -T postgres pg_dump -U "${POSTGRES_USER:-tk101}" tk101 | gzip > "${OUT}"
+          if [ ! -s "${OUT}" ]; then
+            echo "[FAIL] tk101 백업 파일이 비어 있음: ${OUT}"
+            exit 1
+          fi
+          ls -lh "${OUT}"
+
+      - name: "langfuse DB 덤프 (gzip 압축)"
+        env:
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+        run: |
+          TS=$(date +%Y%m%d_%H%M%S)
+          OUT="${BACKUP_DIR}/langfuse_${TS}.sql.gz"
+          echo "[INFO] langfuse → ${OUT}"
+          docker compose exec -T postgres pg_dump -U "${POSTGRES_USER:-tk101}" langfuse | gzip > "${OUT}"
+          if [ ! -s "${OUT}" ]; then
+            echo "[FAIL] langfuse 백업 파일이 비어 있음: ${OUT}"
+            exit 1
+          fi
+          ls -lh "${OUT}"
+
+      - name: "오래된 백업 정리 (${{ env.RETENTION_DAYS }}일 회전)"
+        run: |
+          echo "[INFO] ${BACKUP_DIR} 에서 ${RETENTION_DAYS}일 이상 경과한 *.sql.gz 삭제"
+          find "${BACKUP_DIR}" -name "*.sql.gz" -mtime +${RETENTION_DAYS} -print -delete || true
+
+      - name: "백업 결과 요약"
+        run: |
+          echo "--- 현재 백업 목록 (${BACKUP_DIR}) ---"
+          ls -lh "${BACKUP_DIR}" | tail -20
+          echo "--- 디스크 사용량 ---"
+          du -sh "${BACKUP_DIR}" || true
+          df -h "${BACKUP_DIR}" || true
+
+      - name: "백업 완료 (v${{ env.VERSION }})"
+        run: echo "TK101 Postgres 백업 v${{ env.VERSION }} 완료"

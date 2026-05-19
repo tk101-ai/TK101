@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_admin
 from app.models.user import User
+from app.schemas.auth import PasswordResetRequest
 from app.schemas.user import DepartmentStat, UserCreate, UserRead, UserUpdate
 from app.services.auth import hash_password
 
@@ -46,6 +47,27 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_user_password(
+    user_id: str,
+    body: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """관리자 강제 비번 reset. current_password 검증 없이 새 해시로 교체.
+
+    - admin 가드는 라우터 레벨 dependencies=[Depends(require_admin)] 에서 처리
+    - new_password 검증은 PasswordResetRequest 에서 422
+    - 존재하지 않는 user_id 면 404
+    """
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다")
+    user.hashed_password = hash_password(body.new_password)
+    await db.commit()
+    return None
 
 
 @router.patch("/{user_id}", response_model=UserRead)

@@ -5,7 +5,9 @@ services:
     container_name: tk101-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      # 2026-05-19: 외부 노출 제거 — 호스트 자체에서만 접근 가능 (psql, pg_dump 등).
+      # docker network 내부 컨테이너는 영향 없음 (서비스명 'postgres'로 접근).
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-tk101}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
@@ -76,8 +78,11 @@ services:
     build: ./backend
     container_name: tk101-backend
     restart: unless-stopped
+    # 2026-05-19: 외부 노출 차단 + 호스트 스크립트 호환 — 127.0.0.1 만 바인딩.
+    # frontend nginx 는 docker network 내부에서 http://backend:8000 으로 프록시 (포트 매핑과 무관).
+    # 호스트 자체에서 실행되는 scripts/*.sh (healthcheck, admin-token 등) 는 그대로 동작.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tk101}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tk101}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
