@@ -103,3 +103,61 @@ class PlaygroundMessageOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# Image / Video — Phase 4/5 뼈대 (DB 영속화 없이 task_id 회전)
+# ---------------------------------------------------------------------------
+
+
+class PlaygroundMediaModelOption(BaseModel):
+    """이미지/영상 모델 선택 chip."""
+
+    key: str  # "GEM:3.1" 같은 Name:Version 합성 키
+    label: str
+    badge: str | None = None
+
+
+class PlaygroundImageRequest(BaseModel):
+    """POST /api/playground/image 요청 본문."""
+
+    prompt: str = Field(min_length=1, max_length=4000)
+    model_key: str = Field(default="GEM:3.1", max_length=100)
+    negative_prompt: str | None = Field(default=None, max_length=2000)
+    aspect_ratio: str = Field(default="1:1", max_length=20)
+    enhance_prompt: bool = True
+
+
+class PlaygroundVideoRequest(BaseModel):
+    """POST /api/playground/video 요청 본문."""
+
+    prompt: str = Field(min_length=1, max_length=4000)
+    model_key: str = Field(default="Kling:3.0-Omni", max_length=100)
+    duration: int = Field(default=5, ge=1, le=60)
+    resolution: str = Field(default="720P", max_length=20)
+    aspect_ratio: str = Field(default="16:9", max_length=20)
+    audio_generation: bool = False
+    enhance_prompt: bool = True
+
+
+class PlaygroundTaskCreated(BaseModel):
+    """이미지/영상 작업 생성 응답."""
+
+    task_id: str
+    request_id: str | None = None
+    kind: str  # "image" | "video"
+
+
+class PlaygroundTaskStatus(BaseModel):
+    """이미지/영상 작업 폴링 응답.
+
+    raw 는 텐센트 응답 원문 (필드 그대로). 정식 spec 미공개 단계라
+    프론트엔드가 raw 를 보고 화면을 맞춰갈 수 있도록 그대로 전달.
+    """
+
+    task_id: str
+    kind: str  # "image" | "video"
+    status: str  # "pending" | "running" | "succeeded" | "failed" | "unknown"
+    output_url: str | None = None
+    error_message: str | None = None
+    raw: dict | None = None

@@ -30,6 +30,11 @@ Thumbs.db
 # 로컬 자격증명 드롭 위치 — git commit 금지 (T9 텔레그램 자격증명, 임시 토큰 등)
 .local/
 
+# 평문 키/메모 — 절대 commit 금지 (텐센트 API.txt 등에 SecretKey 평문 포함)
+업무개선요구사항/AI 플레이그라운드/텐센트 API.txt
+업무개선요구사항/AI 플레이그라운드/API 호출 예시.txt
+scripts/smoke_tencent_token.py
+
 # Claude Code worktrees (병렬 에이전트 격리 작업 폴더 — commit 대상 아님)
 .claude/worktrees/
 

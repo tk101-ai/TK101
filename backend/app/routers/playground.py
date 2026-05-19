@@ -34,10 +34,15 @@ from app.models.playground import PlaygroundMessage, PlaygroundSession
 from app.models.user import User
 from app.schemas.playground import (
     PlaygroundChatRequest,
+    PlaygroundImageRequest,
+    PlaygroundMediaModelOption,
     PlaygroundMessageOut,
     PlaygroundProviderMeta,
     PlaygroundSessionCreate,
     PlaygroundSessionOut,
+    PlaygroundTaskCreated,
+    PlaygroundTaskStatus,
+    PlaygroundVideoRequest,
 )
 from app.services.playground import (
     PROVIDER_CHIPS,
@@ -48,6 +53,15 @@ from app.services.playground import (
     update_metrics,
 )
 from app.services.playground.session_manager import mask_request_payload
+from app.services.playground.tencent_aigc_media import (
+    IMAGE_MODELS,
+    VIDEO_MODELS,
+    create_image_task,
+    create_video_task,
+    describe_image_task,
+    describe_video_task,
+    parse_model_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +302,143 @@ async def chat_endpoint(
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Image / Video task — Phase 4/5 뼈대
+# ---------------------------------------------------------------------------
+
+
+@router.get("/media-models")
+async def list_media_models() -> dict[str, list[PlaygroundMediaModelOption]]:
+    """이미지/영상 모델 카탈로그 (UI chip 노출용)."""
+    return {
+        "image": [
+            PlaygroundMediaModelOption(key=m["key"], label=m["label"], badge=m["badge"] or None)
+            for m in IMAGE_MODELS
+        ],
+        "video": [
+            PlaygroundMediaModelOption(key=m["key"], label=m["label"], badge=m["badge"] or None)
+            for m in VIDEO_MODELS
+        ],
+    }
+
+
+@router.post("/image", response_model=PlaygroundTaskCreated)
+async def create_image_task_endpoint(
+    body: PlaygroundImageRequest,
+) -> PlaygroundTaskCreated:
+    """이미지 생성 task 생성 (비동기). 반환된 task_id 로 폴링."""
+    try:
+        name, version = parse_model_key(body.model_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        resp = await create_image_task(
+            prompt=body.prompt,
+            model_name=name,
+            model_version=version,
+            negative_prompt=body.negative_prompt,
+            aspect_ratio=body.aspect_ratio,
+            enhance_prompt=body.enhance_prompt,
+        )
+    except RuntimeError as exc:
+        logger.warning("create_image_task 실패: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    task_id = resp.get("TaskId")
+    if not task_id:
+        raise HTTPException(
+            status_code=502, detail=f"텐센트 응답에 TaskId 없음: {resp}"
+        )
+    return PlaygroundTaskCreated(
+        task_id=str(task_id),
+        request_id=resp.get("RequestId"),
+        kind="image",
+    )
+
+
+@router.post("/video", response_model=PlaygroundTaskCreated)
+async def create_video_task_endpoint(
+    body: PlaygroundVideoRequest,
+) -> PlaygroundTaskCreated:
+    """영상 생성 task 생성 (비동기). 반환된 task_id 로 폴링."""
+    try:
+        name, version = parse_model_key(body.model_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        resp = await create_video_task(
+            prompt=body.prompt,
+            model_name=name,
+            model_version=version,
+            duration=body.duration,
+            resolution=body.resolution,
+            aspect_ratio=body.aspect_ratio,
+            audio_generation=body.audio_generation,
+            enhance_prompt=body.enhance_prompt,
+        )
+    except RuntimeError as exc:
+        logger.warning("create_video_task 실패: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    task_id = resp.get("TaskId")
+    if not task_id:
+        raise HTTPException(
+            status_code=502, detail=f"텐센트 응답에 TaskId 없음: {resp}"
+        )
+    return PlaygroundTaskCreated(
+        task_id=str(task_id),
+        request_id=resp.get("RequestId"),
+        kind="video",
+    )
+
+
+@router.get("/tasks/{kind}/{task_id}", response_model=PlaygroundTaskStatus)
+async def describe_task_endpoint(kind: str, task_id: str) -> PlaygroundTaskStatus:
+    """이미지/영상 task 폴링. kind = "image" | "video"."""
+    if kind not in ("image", "video"):
+        raise HTTPException(status_code=400, detail="kind 는 image 또는 video")
+
+    try:
+        if kind == "image":
+            resp = await describe_image_task(task_id)
+        else:
+            resp = await describe_video_task(task_id)
+    except RuntimeError as exc:
+        logger.warning("describe %s task 실패: %s", kind, exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    # 텐센트 응답 필드명은 정식 spec 수령 전이라 휴리스틱.
+    # Status: "PROCESSING" / "SUCCESS" / "FAIL" 또는 유사. 정규화.
+    raw_status = str(resp.get("Status") or resp.get("TaskStatus") or "").upper()
+    if raw_status in {"SUCCESS", "SUCCEEDED", "FINISH", "FINISHED"}:
+        status_norm = "succeeded"
+    elif raw_status in {"FAIL", "FAILED", "ERROR"}:
+        status_norm = "failed"
+    elif raw_status in {"PROCESSING", "RUNNING"}:
+        status_norm = "running"
+    elif raw_status in {"PENDING", "WAITING", "QUEUED"}:
+        status_norm = "pending"
+    else:
+        status_norm = "unknown"
+
+    output_url = (
+        resp.get("OutputUrl")
+        or resp.get("Output", {}).get("Url") if isinstance(resp.get("Output"), dict) else None
+    )
+    error_message = resp.get("ErrorMsg") or resp.get("ErrorMessage")
+
+    return PlaygroundTaskStatus(
+        task_id=task_id,
+        kind=kind,
+        status=status_norm,
+        output_url=output_url,
+        error_message=error_message,
+        raw=resp,
     )
 
 

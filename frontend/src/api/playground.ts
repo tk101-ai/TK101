@@ -234,3 +234,87 @@ export async function streamChat(
 
   handlers.onClose?.();
 }
+
+// ---------------------------------------------------------------------------
+// Image / Video — Phase 4/5 뼈대
+// ---------------------------------------------------------------------------
+
+export interface PlaygroundMediaModelOption {
+  key: string;
+  label: string;
+  badge: string | null;
+}
+
+export interface PlaygroundMediaCatalog {
+  image: PlaygroundMediaModelOption[];
+  video: PlaygroundMediaModelOption[];
+}
+
+export interface PlaygroundTaskCreated {
+  task_id: string;
+  request_id: string | null;
+  kind: "image" | "video";
+}
+
+export type PlaygroundTaskStatusValue =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "unknown";
+
+export interface PlaygroundTaskStatus {
+  task_id: string;
+  kind: "image" | "video";
+  status: PlaygroundTaskStatusValue;
+  output_url: string | null;
+  error_message: string | null;
+  raw: Record<string, unknown> | null;
+}
+
+export interface CreateImageBody {
+  prompt: string;
+  model_key?: string;
+  negative_prompt?: string | null;
+  aspect_ratio?: string;
+  enhance_prompt?: boolean;
+}
+
+export interface CreateVideoBody {
+  prompt: string;
+  model_key?: string;
+  duration?: number;
+  resolution?: string;
+  aspect_ratio?: string;
+  audio_generation?: boolean;
+  enhance_prompt?: boolean;
+}
+
+export async function getMediaModels(): Promise<PlaygroundMediaCatalog> {
+  const res = await api.get<PlaygroundMediaCatalog>(`${BASE}/media-models`);
+  return res.data;
+}
+
+export async function createImageTask(
+  body: CreateImageBody,
+): Promise<PlaygroundTaskCreated> {
+  const res = await api.post<PlaygroundTaskCreated>(`${BASE}/image`, body);
+  return res.data;
+}
+
+export async function createVideoTask(
+  body: CreateVideoBody,
+): Promise<PlaygroundTaskCreated> {
+  const res = await api.post<PlaygroundTaskCreated>(`${BASE}/video`, body);
+  return res.data;
+}
+
+export async function describeTask(
+  kind: "image" | "video",
+  taskId: string,
+): Promise<PlaygroundTaskStatus> {
+  const res = await api.get<PlaygroundTaskStatus>(
+    `${BASE}/tasks/${kind}/${encodeURIComponent(taskId)}`,
+  );
+  return res.data;
+}

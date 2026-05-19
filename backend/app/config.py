@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     tencent_aigc_region: str = "ap-seoul"
     # 캐시 만료 (실 ApiToken TTL 1시간 가정, 보수적으로 55분).
     tencent_aigc_token_ttl_seconds: int = 3300
+    # Image/Video 생성 endpoint (international VOD). TC3-HMAC-SHA256 동일 서명.
+    # 메모 호출 예시 기준: vod.intl.tencentcloudapi.com / CreateAigcImageTask · CreateAigcVideoTask
+    tencent_aigc_vod_intl_endpoint: str = "vod.intl.tencentcloudapi.com"
+    # 비동기 task 폴링 간격 (초). 너무 짧으면 텐센트 RateLimited.
+    tencent_aigc_task_poll_interval: float = 3.0
+    # 폴링 최대 대기 시간 (초). 영상은 30~60초 걸릴 수 있어 넉넉히.
+    tencent_aigc_task_poll_timeout: int = 300
 
     # T9 신사업유통 텔레그램 자동화 (T9 PRD) ----------------------------------
     # Fernet 마스터 키 — api_id/api_hash 암호화 저장에 사용.
