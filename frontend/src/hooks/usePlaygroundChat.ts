@@ -1,9 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 import {
   createSession,
+  getSessionMessages,
   streamChat,
   type CreateSessionBody,
   type PlaygroundChunk,
+  type PlaygroundMessage as ApiPlaygroundMessage,
+  type PlaygroundSession as ApiPlaygroundSession,
 } from "../api/playground";
 
 /**
@@ -237,6 +240,41 @@ export function usePlaygroundChat(args: UsePlaygroundChatArgs) {
     setSending(false);
   }, []);
 
+  /** 기존 세션을 화면에 복원. 메시지 fetch 후 채팅 패널에 표시. */
+  const loadSession = useCallback(
+    async (session: ApiPlaygroundSession): Promise<void> => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      setSending(false);
+      setSessionId(session.id);
+      try {
+        const apiMessages = await getSessionMessages(session.id);
+        const restored: ChatMessage[] = apiMessages.map(
+          (m: ApiPlaygroundMessage): ChatMessage => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            metrics: {
+              inputTokens: m.input_tokens,
+              outputTokens: m.output_tokens,
+              reasoningTokens: m.reasoning_tokens,
+              cachedTokens: m.cached_tokens,
+              totalTokens: m.total_tokens,
+              latencyMs: m.latency_ms,
+              model: m.model,
+            },
+            streaming: false,
+          }),
+        );
+        setMessages(restored);
+      } catch {
+        // 세션은 존재하지만 메시지 fetch 실패 — 빈 화면 유지.
+        setMessages([]);
+      }
+    },
+    [],
+  );
+
   return {
     messages,
     sending,
@@ -244,5 +282,6 @@ export function usePlaygroundChat(args: UsePlaygroundChatArgs) {
     sessionId,
     sendMessage,
     resetSession,
+    loadSession,
   };
 }

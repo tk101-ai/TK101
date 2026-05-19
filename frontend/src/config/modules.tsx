@@ -109,6 +109,8 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "distribution-analytics", path: "/distribution/analytics", label: "분석/비용", icon: <LineChartOutlined />, module: "distribution", category: "new_business" },
   // 2026-05-19: admin only 정책 해제 — 일반 직원도 사이드바에 노출. common 그룹.
   { key: "playground", path: "/playground", label: "AI Playground", icon: <RobotOutlined />, module: "playground", category: "common" },
+  // admin 전용 통계 페이지. module=playground_usage 는 admin 만 자동 부여 (registry.ALL_MODULES).
+  { key: "playground-usage", path: "/playground/usage", label: "Playground 사용량", icon: <LineChartOutlined />, module: "playground_usage", category: "system" },
   { key: "users", path: "/users", label: "사용자 관리", icon: <TeamOutlined />, module: "users", category: "system" },
 ];
 

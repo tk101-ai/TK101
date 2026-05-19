@@ -27,6 +27,7 @@ import UploadHistory from "./pages/finance/UploadHistory";
 import CategoryPage from "./pages/settings/CategoryPage";
 import CounterpartPage from "./pages/settings/CounterpartPage";
 import PlaygroundPage from "./pages/playground/PlaygroundPage";
+import UsagePage from "./pages/playground/UsagePage";
 import DashboardPage from "./pages/distribution/DashboardPage";
 import PersonasPage from "./pages/distribution/PersonasPage";
 import DataUploadPage from "./pages/distribution/DataUploadPage";
@@ -221,6 +222,14 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="playground">
                     <PlaygroundPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/playground/usage"
+                element={
+                  <ProtectedRoute user={user} module="playground_usage">
+                    <UsagePage />
                   </ProtectedRoute>
                 }
               />

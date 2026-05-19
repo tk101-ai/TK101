@@ -18,8 +18,11 @@ import {
   createVideoTask,
   describeTask,
   getMediaModels,
+  getMyMedia,
+  mediaFileUrl,
 } from "../../api/playground";
 import type {
+  PlaygroundMediaItem,
   PlaygroundMediaModelOption,
   PlaygroundTaskStatus,
 } from "../../api/playground";
@@ -33,6 +36,8 @@ interface MediaGenPanelProps {
 }
 
 interface ActiveTask {
+  // DB row 의 id (있으면 안정 URL 서빙 가능).
+  mediaId: string | null;
   taskId: string;
   kind: MediaKind;
   prompt: string;
@@ -40,6 +45,21 @@ interface ActiveTask {
   status: PlaygroundTaskStatus["status"];
   outputUrl: string | null;
   errorMessage: string | null;
+  costUsd: number | null;
+}
+
+function itemToTask(item: PlaygroundMediaItem): ActiveTask {
+  return {
+    mediaId: item.id,
+    taskId: item.task_id ?? item.id,
+    kind: item.media_type,
+    prompt: item.prompt ?? "",
+    modelKey: item.model_key ?? "",
+    status: item.status,
+    outputUrl: item.file_path ? mediaFileUrl(item.id) : item.url,
+    errorMessage: item.error_message,
+    costUsd: item.cost_usd,
+  };
 }
 
 const POLL_INTERVAL_MS = 3000;
@@ -89,20 +109,31 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
   const [tasks, setTasks] = useState<ActiveTask[]>([]);
   const pollersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
 
-  // 1) 모델 카탈로그 fetch.
+  // 1) 모델 카탈로그 fetch + 본인 기존 미디어 갤러리 로드 (새로고침 후 복원).
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
       try {
-        const data = await getMediaModels();
+        const [models, history] = await Promise.all([
+          getMediaModels(),
+          getMyMedia(kind, 30),
+        ]);
         if (cancelled) return;
-        const list = kind === "image" ? data.image : data.video;
+        const list = kind === "image" ? models.image : models.video;
         setModels(list);
         if (list[0]) {
           form.setFieldValue("model_key", list[0].key);
         }
+        // DB에서 받아온 본인 미디어 → 최신순으로 카드 표시.
+        setTasks(history.map(itemToTask));
+        // 아직 running/pending 상태인 항목은 다시 폴링 등록.
+        for (const item of history) {
+          if (item.status === "pending" || item.status === "running") {
+            if (item.task_id) startPolling(item.task_id);
+          }
+        }
       } catch {
-        // 백엔드 미가동/권한 없음 — 빈 목록 유지, 사용자 안내는 안 함 (뼈대 단).
+        // 권한/네트워크 실패 — 빈 목록 유지.
       }
     };
     void run();
@@ -199,6 +230,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
 
       setTasks((prev) => [
         {
+          mediaId: null,
           taskId: res.task_id,
           kind,
           prompt: String(values.prompt),
@@ -206,6 +238,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
           status: "pending",
           outputUrl: null,
           errorMessage: null,
+          costUsd: null,
         },
         ...prev,
       ]);
@@ -342,6 +375,11 @@ function TaskCard({ task }: { task: ActiveTask }) {
           <Text code style={{ fontSize: 11 }}>
             {task.modelKey}
           </Text>
+          {task.costUsd !== null && task.costUsd !== undefined && (
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              ${task.costUsd.toFixed(4)}
+            </Text>
+          )}
         </Space>
       }
       extra={

@@ -1,13 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Card, Slider, Tooltip, Typography, message } from "antd";
 import { BugOutlined } from "@ant-design/icons";
-import type { PlaygroundProvider, PlaygroundProviderKey } from "../../api/playground";
+import type {
+  PlaygroundProvider,
+  PlaygroundProviderKey,
+  PlaygroundSession,
+} from "../../api/playground";
 import { getProviders } from "../../api/playground";
 import { usePlaygroundChat } from "../../hooks/usePlaygroundChat";
 import ChatInputBar from "./ChatInputBar";
 import ChatStream from "./ChatStream";
 import ModelChipList from "./ModelChipList";
 import ModelGrid from "./ModelGrid";
+import SessionList from "./SessionList";
 import SystemPromptBox from "./SystemPromptBox";
 import UsageCard from "./UsageCard";
 import { DEFAULT_MODEL_ID, DEFAULT_PROVIDER_KEY, STATIC_PROVIDERS } from "./providers";
@@ -77,6 +82,10 @@ export default function LlmChatPanel() {
     temperature,
   });
 
+  // SessionList 갱신 트리거 — 새 세션 생성/삭제 시 증가.
+  const [sessionListKey, setSessionListKey] = useState(0);
+  const bumpSessionList = useCallback(() => setSessionListKey((k) => k + 1), []);
+
   const onProviderSelect = (key: PlaygroundProviderKey) => {
     const next = providers.find((p) => p.key === key);
     if (!next || !next.enabled) return;
@@ -92,6 +101,33 @@ export default function LlmChatPanel() {
     chat.resetSession();
   };
 
+  const onSelectSession = useCallback(
+    async (s: PlaygroundSession) => {
+      // 세션의 provider/model 로 사이드바 동기화.
+      setProviderKey(s.provider);
+      setModelId(s.model);
+      setSystemPrompt(s.system_prompt ?? "");
+      setTemperature(Number(s.temperature) || 0.7);
+      await chat.loadSession(s);
+    },
+    [chat],
+  );
+
+  const onNewChat = useCallback(() => {
+    chat.resetSession();
+    bumpSessionList();
+  }, [chat, bumpSessionList]);
+
+  // 첫 메시지가 보내져서 sessionId가 새로 생성됐는지 트래킹.
+  // chat.sessionId 가 null → 값으로 바뀌면 SessionList 갱신.
+  const [lastSeenSessionId, setLastSeenSessionId] = useState<string | null>(null);
+  useEffect(() => {
+    if (chat.sessionId && chat.sessionId !== lastSeenSessionId) {
+      setLastSeenSessionId(chat.sessionId);
+      bumpSessionList();
+    }
+  }, [chat.sessionId, lastSeenSessionId, bumpSessionList]);
+
   return (
     <div
       style={{
@@ -101,7 +137,15 @@ export default function LlmChatPanel() {
         gap: 16,
       }}
     >
-      {/* 좌측 사이드바 */}
+      {/* 최좌측: 세션 목록 */}
+      <SessionList
+        activeSessionId={chat.sessionId}
+        onSelect={onSelectSession}
+        onNewChat={onNewChat}
+        refreshKey={sessionListKey}
+      />
+
+      {/* 모델/설정 사이드바 */}
       <div
         style={{
           width: SIDEBAR_WIDTH,

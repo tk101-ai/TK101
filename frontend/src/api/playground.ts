@@ -378,3 +378,80 @@ export async function describeTask(
   );
   return res.data;
 }
+
+// ---------------------------------------------------------------------------
+// 미디어 영속화 (갤러리) + 사용량 (admin only)
+// ---------------------------------------------------------------------------
+
+export interface PlaygroundMediaItem {
+  id: string;
+  media_type: "image" | "video";
+  task_id: string | null;
+  model_key: string | null;
+  prompt: string | null;
+  status: "pending" | "running" | "succeeded" | "failed" | "unknown";
+  error_message: string | null;
+  url: string | null;          // 텐센트 임시 URL (7일 만료)
+  file_path: string | null;    // 백엔드 디스크 절대 경로 (직접 노출 X)
+  duration_sec: number | null;
+  width: number | null;
+  height: number | null;
+  cost_usd: number | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export async function getMyMedia(
+  kind?: "image" | "video",
+  limit = 50,
+): Promise<PlaygroundMediaItem[]> {
+  const params: Record<string, string | number> = { limit };
+  if (kind) params.kind = kind;
+  const res = await api.get<PlaygroundMediaItem[]>(`${BASE}/media`, { params });
+  return res.data;
+}
+
+/** 본인 미디어 파일을 서빙하는 안정 URL (텐센트 임시 URL 만료 후에도 동작). */
+export function mediaFileUrl(mediaId: string): string {
+  return `${BASE}/media/${encodeURIComponent(mediaId)}/file`;
+}
+
+export interface PlaygroundUsageByModel {
+  model: string;
+  kind: "text" | "image" | "video";
+  request_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+export interface PlaygroundUsageByUser {
+  user_id: string;
+  user_email: string;
+  request_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+export interface PlaygroundUsageReport {
+  period_start: string | null;
+  period_end: string | null;
+  total_cost_usd: number;
+  total_requests: number;
+  by_model: PlaygroundUsageByModel[];
+  by_user: PlaygroundUsageByUser[];
+}
+
+export async function getAdminUsage(
+  start?: string,
+  end?: string,
+): Promise<PlaygroundUsageReport> {
+  const params: Record<string, string> = {};
+  if (start) params.start = start;
+  if (end) params.end = end;
+  const res = await api.get<PlaygroundUsageReport>(`${BASE}/admin/usage`, {
+    params,
+  });
+  return res.data;
+}
