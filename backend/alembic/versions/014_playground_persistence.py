@@ -70,11 +70,11 @@ def upgrade() -> None:
         "playground_media",
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
     )
-    # 조회 빈도 높은 컬럼 인덱스
-    op.create_index(
-        "ix_playground_media_user_created",
-        "playground_media",
-        ["user_id", sa.text("created_at DESC")],
+    # 조회 빈도 높은 컬럼 인덱스 — DESC 정렬은 raw SQL (alembic op.create_index 는
+    # 표현식 인덱스 호환성이 부족해서 137 OOM kill 사고 발생한 적 있음 2026-05-19).
+    op.execute(
+        "CREATE INDEX ix_playground_media_user_created "
+        "ON playground_media (user_id, created_at DESC)"
     )
     op.create_index(
         "ix_playground_media_status",

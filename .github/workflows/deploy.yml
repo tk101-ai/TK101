@@ -58,11 +58,21 @@ jobs:
 
       - name: "DB 마이그레이션 적용 (idempotent)"
         # alembic upgrade head 는 이미 head 상태면 no-op. 새 마이그레이션만 적용됨.
-        # 예전엔 워크플로우에 없어서 누락됐는데 T9 부터 자동화.
+        # backend startup (e5-large 모델 로딩 등) 이 길어질 수 있어 retry 로 보강.
+        # 2026-05-19: 15초 sleep + 단발 호출이 exit 137 (컨테이너 startup 중 SIGKILL) 발생.
         run: |
-          echo "Backend 가 postgres 연결 확보 대기 (15초)..."
-          sleep 15
-          docker compose exec -T backend alembic upgrade head
+          echo "Backend startup 대기 (최대 90초, 6초 간격 retry)..."
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            sleep 6
+            if docker compose exec -T backend alembic upgrade head; then
+              echo "[OK] alembic upgrade head 완료 (시도 ${i})"
+              exit 0
+            fi
+            echo "[retry ${i}/15] backend 가 아직 준비 안 됨, 6초 후 재시도..."
+          done
+          echo "[FAIL] alembic upgrade head 실패 (90초 초과)"
+          docker compose logs backend --tail 100 || true
+          exit 1
 
       - name: "T9 신사업유통 시드 (idempotent)"
         # 페르소나 placeholder 2종 + 시나리오 5종. 이미 존재하면 skip.
