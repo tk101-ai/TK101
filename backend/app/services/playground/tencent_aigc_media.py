@@ -188,7 +188,13 @@ async def create_video_task(
         },
     }
     if input_image_url:
-        body["Input"] = {"FileInfos": [{"FileUrl": input_image_url}]}
+        # 2026-05-19 라이브 probe: 23개 후보 필드/액션 모두 텐센트가 거부.
+        # CreateAigcVideoTask 의 i2v 정식 spec 이 PPT 에 명시되지 않음.
+        # 활성화하려면 텐센트 담당자 (Justinkim) 한테 정확한 호출 spec 확인 필요.
+        raise RuntimeError(
+            "텐센트 i2v API spec 확정 전 — 텐센트 담당자에게 "
+            "CreateAigcVideoTask 의 입력 이미지 필드명 문의 필요"
+        )
     return await _call_vod_intl("CreateAigcVideoTask", body)
 
 

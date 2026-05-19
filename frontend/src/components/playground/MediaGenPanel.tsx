@@ -11,6 +11,7 @@ import {
   Space,
   Switch,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from "antd";
@@ -582,13 +583,16 @@ function TaskCard({
               다운로드
             </Button>
             {canConvert && (
-              <Button
-                size="small"
-                icon={<PlayCircleOutlined />}
-                onClick={onConvertToVideo}
-              >
-                이 이미지로 영상 만들기
-              </Button>
+              <Tooltip title="텐센트 i2v API spec 확정 전 — 임시 비활성. 텐센트 담당자에게 정확한 호출 spec 문의 필요.">
+                <Button
+                  size="small"
+                  icon={<PlayCircleOutlined />}
+                  onClick={onConvertToVideo}
+                  disabled
+                >
+                  이 이미지로 영상 (준비 중)
+                </Button>
+              </Tooltip>
             )}
           </div>
         </div>

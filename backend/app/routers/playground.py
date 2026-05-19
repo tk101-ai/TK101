@@ -234,48 +234,60 @@ async def export_session_endpoint(
     format: Literal["md"] = Query(default="md"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> StreamingResponse:
+) -> Response:
     """세션 메타 + 메시지 순서대로 Markdown 으로 내보내기."""
     session = await _fetch_session_or_404(db, session_id, user)
-    stmt = (
-        select(PlaygroundMessage)
-        .where(PlaygroundMessage.session_id == session.id)
-        .order_by(PlaygroundMessage.created_at.asc())
-    )
-    messages = (await db.execute(stmt)).scalars().all()
+    try:
+        stmt = (
+            select(PlaygroundMessage)
+            .where(PlaygroundMessage.session_id == session.id)
+            .order_by(PlaygroundMessage.created_at.asc())
+        )
+        messages = (await db.execute(stmt)).scalars().all()
 
-    title = session.title or "(제목 없음)"
-    lines: list[str] = []
-    lines.append(f"# {title}")
-    lines.append("")
-    lines.append(f"- 모델: {session.provider}/{session.model}")
-    lines.append(f"- 생성: {session.created_at.isoformat()}")
-    if session.system_prompt:
-        lines.append(f"- System Prompt: {session.system_prompt}")
-    lines.append("")
-    lines.append("---")
-    lines.append("")
-    for msg in messages:
-        if msg.role == "user":
-            lines.append("## User")
-        elif msg.role == "assistant":
-            lines.append("## Assistant")
-        else:
-            lines.append(f"## {msg.role.capitalize()}")
+        title = session.title or "(제목 없음)"
+        lines: list[str] = []
+        lines.append(f"# {title}")
         lines.append("")
-        lines.append(msg.content or "")
+        lines.append(f"- 모델: {session.provider}/{session.model}")
+        created = (
+            session.created_at.isoformat() if session.created_at else "unknown"
+        )
+        lines.append(f"- 생성: {created}")
+        if session.system_prompt:
+            lines.append(f"- System Prompt: {session.system_prompt}")
         lines.append("")
+        lines.append("---")
+        lines.append("")
+        for msg in messages:
+            if msg.role == "user":
+                lines.append("## User")
+            elif msg.role == "assistant":
+                lines.append("## Assistant")
+            else:
+                lines.append(f"## {msg.role.capitalize()}")
+            lines.append("")
+            lines.append(msg.content or "")
+            lines.append("")
 
-    body_text = "\n".join(lines)
-    safe_title = "".join(c for c in title if c.isalnum() or c in ("-", "_")) or "session"
-    filename = f"{safe_title}.md"
-    # 2026-05-19: StreamingResponse + axios responseType="text" 호환 이슈 발견 →
-    # 일반 Response 로 단순화. 파일명은 Content-Disposition 으로 전달.
-    return Response(
-        content=body_text.encode("utf-8"),
-        media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""},
-    )
+        body_text = "\n".join(lines)
+        safe_title = (
+            "".join(c for c in title if c.isalnum() or c in ("-", "_"))
+            or "session"
+        )
+        filename = f"{safe_title}.md"
+        return Response(
+            content=body_text.encode("utf-8"),
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{filename}\""
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — 정확한 detail 노출 (500 generic 방지)
+        logger.exception("export 실패 session_id=%s", session_id)
+        raise HTTPException(
+            status_code=500, detail=f"export 실패: {exc.__class__.__name__}: {exc}"
+        ) from exc
 
 
 # ===========================================================================
