@@ -6,12 +6,16 @@ import type {
   PlaygroundProviderKey,
   PlaygroundSession,
 } from "../../api/playground";
-import { getProviders } from "../../api/playground";
+import {
+  QUOTA_EXCEEDED_MESSAGE,
+  getProviders,
+} from "../../api/playground";
 import { usePlaygroundChat } from "../../hooks/usePlaygroundChat";
 import ChatInputBar from "./ChatInputBar";
 import ChatStream from "./ChatStream";
 import ModelChipList from "./ModelChipList";
 import ModelGrid from "./ModelGrid";
+import QuotaIndicator from "./QuotaIndicator";
 import SessionList from "./SessionList";
 import SystemPromptBox from "./SystemPromptBox";
 import UsageCard from "./UsageCard";
@@ -85,6 +89,31 @@ export default function LlmChatPanel() {
   // SessionList 갱신 트리거 — 새 세션 생성/삭제 시 증가.
   const [sessionListKey, setSessionListKey] = useState(0);
   const bumpSessionList = useCallback(() => setSessionListKey((k) => k + 1), []);
+
+  // Quota 표시 — sending 이 true→false 로 바뀔 때마다 재조회.
+  const [quotaRefreshKey, setQuotaRefreshKey] = useState(0);
+  const [prevSending, setPrevSending] = useState(chat.sending);
+  useEffect(() => {
+    if (prevSending && !chat.sending) {
+      setQuotaRefreshKey((k) => k + 1);
+    }
+    setPrevSending(chat.sending);
+  }, [chat.sending, prevSending]);
+
+  // 마지막 assistant 메시지 에러 = 한도 초과 메시지면 토스트 한 번 띄움.
+  // (스트리밍 시작 후 onError 가 호출되어 chat.messages 의 마지막 항목에 error 가 박힘.)
+  const lastErrorMsg = chat.messages[chat.messages.length - 1]?.error ?? null;
+  const [shownQuotaError, setShownQuotaError] = useState<string | null>(null);
+  useEffect(() => {
+    if (
+      lastErrorMsg &&
+      lastErrorMsg.includes(QUOTA_EXCEEDED_MESSAGE) &&
+      lastErrorMsg !== shownQuotaError
+    ) {
+      message.error(QUOTA_EXCEEDED_MESSAGE);
+      setShownQuotaError(lastErrorMsg);
+    }
+  }, [lastErrorMsg, shownQuotaError]);
 
   const onProviderSelect = (key: PlaygroundProviderKey) => {
     const next = providers.find((p) => p.key === key);
@@ -193,6 +222,8 @@ export default function LlmChatPanel() {
             tooltip={{ formatter: (v) => (typeof v === "number" ? v.toFixed(2) : "") }}
           />
         </div>
+
+        <QuotaIndicator refreshKey={quotaRefreshKey} />
 
         <UsageCard usage={chat.usage} />
       </div>

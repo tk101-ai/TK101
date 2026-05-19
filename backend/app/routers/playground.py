@@ -45,14 +45,20 @@ from app.dependencies import get_current_user, require_admin
 from app.models.playground import PlaygroundMedia, PlaygroundMessage, PlaygroundSession
 from app.models.user import User
 from app.schemas.playground import (
+    PlaygroundAdminQuotaUpdate,
+    PlaygroundAdminSessionOut,
+    PlaygroundAdminUserQuotaOut,
     PlaygroundChatRequest,
+    PlaygroundI2VRequest,
     PlaygroundImageRequest,
     PlaygroundMediaModelOption,
     PlaygroundMediaOut,
     PlaygroundMessageOut,
     PlaygroundProviderMeta,
+    PlaygroundQuotaInfo,
     PlaygroundSessionCreate,
     PlaygroundSessionOut,
+    PlaygroundSessionTitleUpdate,
     PlaygroundTaskCreated,
     PlaygroundTaskStatus,
     PlaygroundUsageByModel,
@@ -82,6 +88,10 @@ from app.services.playground.tencent_aigc_media import (
     create_video_task,
     describe_image_task,
     parse_model_key,
+)
+from app.services.playground.usage_check import (
+    check_quota_or_raise,
+    get_user_usage_summary,
 )
 
 logger = logging.getLogger(__name__)
@@ -146,10 +156,32 @@ async def create_session_endpoint(
 
 @router.get("/sessions", response_model=list[PlaygroundSessionOut])
 async def list_sessions_endpoint(
+    q: str | None = Query(default=None, description="제목/메시지 내용 ILIKE 검색"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[PlaygroundSessionOut]:
-    rows = await list_sessions(db, user_id=user.id)
+    """본인 세션 목록. q 가 있으면 title ILIKE 또는 messages.content ILIKE 매칭."""
+    if not q:
+        rows = await list_sessions(db, user_id=user.id)
+        return [PlaygroundSessionOut.model_validate(r) for r in rows]
+
+    pattern = f"%{q}%"
+    # 메시지 내용에 매칭되는 세션 id subquery.
+    msg_subq = (
+        select(PlaygroundMessage.session_id)
+        .where(PlaygroundMessage.content.ilike(pattern))
+        .distinct()
+    )
+    stmt = (
+        select(PlaygroundSession)
+        .where(
+            PlaygroundSession.user_id == user.id,
+            (PlaygroundSession.title.ilike(pattern)) | (PlaygroundSession.id.in_(msg_subq)),
+        )
+        .order_by(PlaygroundSession.created_at.desc())
+        .limit(50)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
     return [PlaygroundSessionOut.model_validate(r) for r in rows]
 
 
@@ -181,6 +213,90 @@ async def delete_session_endpoint(
     await db.commit()
 
 
+@router.patch("/sessions/{session_id}", response_model=PlaygroundSessionOut)
+async def update_session_title_endpoint(
+    session_id: uuid.UUID,
+    body: PlaygroundSessionTitleUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PlaygroundSessionOut:
+    """본인 세션 제목 수정."""
+    session = await _fetch_session_or_404(db, session_id, user)
+    session.title = body.title
+    await db.commit()
+    await db.refresh(session)
+    return PlaygroundSessionOut.model_validate(session)
+
+
+@router.get("/sessions/{session_id}/export")
+async def export_session_endpoint(
+    session_id: uuid.UUID,
+    format: Literal["md"] = Query(default="md"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """세션 메타 + 메시지 순서대로 Markdown 으로 내보내기."""
+    session = await _fetch_session_or_404(db, session_id, user)
+    stmt = (
+        select(PlaygroundMessage)
+        .where(PlaygroundMessage.session_id == session.id)
+        .order_by(PlaygroundMessage.created_at.asc())
+    )
+    messages = (await db.execute(stmt)).scalars().all()
+
+    title = session.title or "(제목 없음)"
+    lines: list[str] = []
+    lines.append(f"# {title}")
+    lines.append("")
+    lines.append(f"- 모델: {session.provider}/{session.model}")
+    lines.append(f"- 생성: {session.created_at.isoformat()}")
+    if session.system_prompt:
+        lines.append(f"- System Prompt: {session.system_prompt}")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    for msg in messages:
+        if msg.role == "user":
+            lines.append("## User")
+        elif msg.role == "assistant":
+            lines.append("## Assistant")
+        else:
+            lines.append(f"## {msg.role.capitalize()}")
+        lines.append("")
+        lines.append(msg.content or "")
+        lines.append("")
+
+    body_text = "\n".join(lines)
+
+    async def _gen():
+        yield body_text.encode("utf-8")
+
+    safe_title = "".join(c for c in title if c.isalnum() or c in ("-", "_")) or "session"
+    filename = f"{safe_title}.md"
+    return StreamingResponse(
+        _gen(),
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{filename}\"",
+        },
+    )
+
+
+# ===========================================================================
+# 본인 한도 / 사용량
+# ===========================================================================
+
+
+@router.get("/me/quota", response_model=PlaygroundQuotaInfo)
+async def get_my_quota_endpoint(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PlaygroundQuotaInfo:
+    """본인 월 한도 + 이번 월 누적 사용량 + 잔여."""
+    summary = await get_user_usage_summary(db, user.id)
+    return PlaygroundQuotaInfo(**summary)
+
+
 # ===========================================================================
 # 채팅 (SSE)
 # ===========================================================================
@@ -192,6 +308,8 @@ async def chat_endpoint(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> StreamingResponse:
+    # 한도 초과 체크 — 초과 시 402.
+    await check_quota_or_raise(db, user)
     # 세션 확보 (없으면 생성).
     if body.session_id is None:
         session = await create_session(
@@ -307,6 +425,7 @@ async def create_image_task_endpoint(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> PlaygroundTaskCreated:
+    await check_quota_or_raise(db, user)
     try:
         name, version = parse_model_key(body.model_key)
     except ValueError as exc:
@@ -349,6 +468,7 @@ async def create_video_task_endpoint(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> PlaygroundTaskCreated:
+    await check_quota_or_raise(db, user)
     try:
         name, version = parse_model_key(body.model_key)
     except ValueError as exc:
@@ -386,6 +506,87 @@ async def create_video_task_endpoint(
     await db.commit()
 
     return PlaygroundTaskCreated(task_id=str(task_id), request_id=resp.get("RequestId"), kind="video")
+
+
+@router.post("/video/from-media", response_model=PlaygroundTaskCreated)
+async def create_video_from_media_endpoint(
+    body: PlaygroundI2VRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PlaygroundTaskCreated:
+    """Image-to-Video (i2v).
+
+    image_media_id 로 본인의 완료된 이미지 PlaygroundMedia 를 참조해서
+    텐센트 영상 task 생성. ``Input.FileInfos[0].FileUrl`` 필드명은 추정치 —
+    라이브 probe 후 필요 시 ``tencent_aigc_media.create_video_task`` 의 매핑 수정.
+    """
+    await check_quota_or_raise(db, user)
+
+    # 참조 이미지 row 조회 (본인 + 성공한 image task 만).
+    stmt = select(PlaygroundMedia).where(
+        PlaygroundMedia.id == body.image_media_id,
+        PlaygroundMedia.user_id == user.id,
+        PlaygroundMedia.media_type == "image",
+        PlaygroundMedia.status == "succeeded",
+    )
+    image_row = (await db.execute(stmt)).scalar_one_or_none()
+    if image_row is None:
+        raise HTTPException(
+            status_code=404, detail="참조 이미지 미디어를 찾을 수 없습니다",
+        )
+    # 텐센트 임시 URL 이 있고 만료 안 됐으면 그걸 우선 사용. 아니면 거부 (백엔드
+    # 파일 → 텐센트 노출 URL 만들기는 별도 작업 필요).
+    image_url = image_row.url
+    if not image_url:
+        raise HTTPException(
+            status_code=400,
+            detail="참조 이미지의 텐센트 URL 이 없습니다 (만료되었거나 미보관)",
+        )
+    if image_row.expires_at and image_row.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=400, detail="참조 이미지 URL 이 만료되었습니다",
+        )
+
+    try:
+        name, version = parse_model_key(body.model_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        resp = await create_video_task(
+            prompt=body.prompt,
+            model_name=name,
+            model_version=version,
+            duration=body.duration,
+            resolution=body.resolution,
+            aspect_ratio=body.aspect_ratio,
+            audio_generation=body.audio_generation,
+            enhance_prompt=body.enhance_prompt,
+            input_image_url=image_url,
+        )
+    except RuntimeError as exc:
+        logger.warning("create_video_task (i2v) 실패: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    task_id = resp.get("TaskId")
+    if not task_id:
+        raise HTTPException(status_code=502, detail=f"텐센트 응답에 TaskId 없음: {resp}")
+
+    media = PlaygroundMedia(
+        user_id=user.id,
+        media_type="video",
+        task_id=str(task_id),
+        model_key=body.model_key,
+        prompt=body.prompt,
+        status="running",
+        duration_sec=Decimal(body.duration),
+    )
+    db.add(media)
+    await db.commit()
+
+    return PlaygroundTaskCreated(
+        task_id=str(task_id), request_id=resp.get("RequestId"), kind="video",
+    )
 
 
 @router.get("/tasks/{kind}/{task_id}", response_model=PlaygroundTaskStatus)
@@ -695,6 +896,185 @@ async def admin_usage_endpoint(
         by_model=sorted(by_model, key=lambda r: r.cost_usd, reverse=True),
         by_user=sorted(by_user, key=lambda r: r.cost_usd, reverse=True),
     )
+
+
+# ===========================================================================
+# 관리자: 전 사용자 세션·메시지 / 한도 관리 / 백엔드 로그
+# ===========================================================================
+
+
+@router.get(
+    "/admin/sessions",
+    response_model=list[PlaygroundAdminSessionOut],
+)
+async def admin_list_sessions_endpoint(
+    user_id: uuid.UUID | None = Query(default=None),
+    q: str | None = Query(default=None, description="제목/메시지 ILIKE"),
+    limit: int = Query(default=50, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> list[PlaygroundAdminSessionOut]:
+    """모든 사용자 세션 list. user_id / q 필터, JOIN users 로 email 포함."""
+    stmt = (
+        select(
+            PlaygroundSession.id.label("id"),
+            PlaygroundSession.user_id.label("user_id"),
+            User.email.label("user_email"),
+            PlaygroundSession.title.label("title"),
+            PlaygroundSession.provider.label("provider"),
+            PlaygroundSession.model.label("model"),
+            PlaygroundSession.created_at.label("created_at"),
+            PlaygroundSession.updated_at.label("updated_at"),
+        )
+        .join(User, User.id == PlaygroundSession.user_id)
+        .order_by(PlaygroundSession.created_at.desc())
+        .limit(limit)
+    )
+    if user_id is not None:
+        stmt = stmt.where(PlaygroundSession.user_id == user_id)
+    if q:
+        pattern = f"%{q}%"
+        msg_subq = (
+            select(PlaygroundMessage.session_id)
+            .where(PlaygroundMessage.content.ilike(pattern))
+            .distinct()
+        )
+        stmt = stmt.where(
+            (PlaygroundSession.title.ilike(pattern))
+            | (PlaygroundSession.id.in_(msg_subq))
+        )
+    rows = (await db.execute(stmt)).all()
+    return [
+        PlaygroundAdminSessionOut(
+            id=r.id,
+            user_id=r.user_id,
+            user_email=r.user_email,
+            title=r.title,
+            provider=r.provider,
+            model=r.model,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+        )
+        for r in rows
+    ]
+
+
+@router.get(
+    "/admin/sessions/{session_id}/messages",
+    response_model=list[PlaygroundMessageOut],
+)
+async def admin_list_session_messages_endpoint(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> list[PlaygroundMessageOut]:
+    """관리자: 임의 세션의 메시지 전체 (본인 체크 없이)."""
+    # 세션 존재 확인.
+    exists_stmt = select(PlaygroundSession.id).where(PlaygroundSession.id == session_id)
+    if (await db.execute(exists_stmt)).scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+
+    stmt = (
+        select(PlaygroundMessage)
+        .where(PlaygroundMessage.session_id == session_id)
+        .order_by(PlaygroundMessage.created_at.asc())
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [PlaygroundMessageOut.model_validate(r) for r in rows]
+
+
+@router.get(
+    "/admin/users/quota",
+    response_model=list[PlaygroundAdminUserQuotaOut],
+)
+async def admin_list_users_quota_endpoint(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> list[PlaygroundAdminUserQuotaOut]:
+    """전 사용자별 quota + 이번 월 사용량 list."""
+    users_stmt = select(User).where(User.is_active == True).order_by(User.email.asc())  # noqa: E712
+    users = (await db.execute(users_stmt)).scalars().all()
+
+    results: list[PlaygroundAdminUserQuotaOut] = []
+    for u in users:
+        summary = await get_user_usage_summary(db, u.id)
+        results.append(
+            PlaygroundAdminUserQuotaOut(
+                user_id=u.id,
+                user_email=u.email,
+                user_name=u.name,
+                department=u.department,
+                role=u.role,
+                monthly_quota_usd=summary["monthly_quota_usd"],
+                current_usage_usd=summary["current_usage_usd"],
+                remaining_usd=summary["remaining_usd"],
+            )
+        )
+    return results
+
+
+@router.put(
+    "/admin/users/{target_user_id}/quota",
+    response_model=PlaygroundAdminUserQuotaOut,
+)
+async def admin_update_user_quota_endpoint(
+    target_user_id: uuid.UUID,
+    body: PlaygroundAdminQuotaUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> PlaygroundAdminUserQuotaOut:
+    """사용자 월 한도 변경."""
+    target = (
+        await db.execute(select(User).where(User.id == target_user_id))
+    ).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
+
+    target.monthly_quota_usd = body.monthly_quota_usd
+    await db.commit()
+    await db.refresh(target)
+
+    summary = await get_user_usage_summary(db, target.id)
+    return PlaygroundAdminUserQuotaOut(
+        user_id=target.id,
+        user_email=target.email,
+        user_name=target.name,
+        department=target.department,
+        role=target.role,
+        monthly_quota_usd=summary["monthly_quota_usd"],
+        current_usage_usd=summary["current_usage_usd"],
+        remaining_usd=summary["remaining_usd"],
+    )
+
+
+@router.get("/admin/logs")
+async def admin_tail_logs_endpoint(
+    tail: int = Query(default=200, ge=1, le=10_000),
+    _: User = Depends(require_admin),
+) -> StreamingResponse:
+    """백엔드 로그 파일의 마지막 N 줄을 text/plain 으로 반환.
+
+    파일이 없으면 빈 응답. 큰 파일 안전을 위해 deque 로 끝에서만 읽음.
+    """
+    log_path = settings.playground_log_path
+    body_text: str
+    if not os.path.exists(log_path):
+        body_text = ""
+    else:
+        from collections import deque
+
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
+                last_lines = deque(fh, maxlen=tail)
+            body_text = "".join(last_lines)
+        except OSError as exc:
+            logger.warning("admin logs tail 실패: %s", exc)
+            raise HTTPException(status_code=503, detail="로그 파일 읽기 실패") from exc
+
+    async def _gen():
+        yield body_text.encode("utf-8")
+
+    return StreamingResponse(_gen(), media_type="text/plain; charset=utf-8")
 
 
 # ===========================================================================

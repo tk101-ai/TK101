@@ -162,8 +162,15 @@ async def create_video_task(
     aspect_ratio: str = "16:9",
     audio_generation: bool = False,
     enhance_prompt: bool = True,
+    input_image_url: str | None = None,
 ) -> dict[str, Any]:
-    """Create video generation task. Returns {TaskId, RequestId}."""
+    """Create video generation task. Returns {TaskId, RequestId}.
+
+    ``input_image_url`` 가 주어지면 image-to-video (i2v) 모드.
+    body 에 ``Input.FileInfos[0].FileUrl`` 을 추가한다. 텐센트 i2v 의 정확한
+    필드명은 라이브 probe 가 안 끝나 추정치 — 라이브에서 400 이면
+    필드명 (예: ``InputImage`` / ``ReferenceImage``) 변경 필요.
+    """
     body: dict[str, Any] = {
         "SubAppId": int(settings.tencent_aigc_subapp_id),
         "ModelName": model_name,
@@ -180,6 +187,8 @@ async def create_video_task(
             "OutputComplianceCheck": "Enabled",
         },
     }
+    if input_image_url:
+        body["Input"] = {"FileInfos": [{"FileUrl": input_image_url}]}
     return await _call_vod_intl("CreateAigcVideoTask", body)
 
 

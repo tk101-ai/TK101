@@ -44,6 +44,10 @@ class Module(str, Enum):
     PLAYGROUND = "playground"
     # T8 통계 대시보드 — admin only. 모델별/사용자별 토큰·비용 집계.
     PLAYGROUND_USAGE = "playground_usage"
+    # T8 관리자 — 전 사용자 세션/메시지 열람. admin only.
+    PLAYGROUND_ADMIN_SESSIONS = "playground_admin_sessions"
+    # T8 관리자 — 백엔드 로그 tail. admin only.
+    PLAYGROUND_LOGS = "playground_logs"
     # T9 트랙: 신사업유통 텔레그램 대화 자동화 (T9 PRD).
     # 신사업팀 + admin 접근. 검수/페르소나 관리 등 세부 권한은 라우터 단 require_admin 으로 추가 게이팅.
     DISTRIBUTION = "distribution"

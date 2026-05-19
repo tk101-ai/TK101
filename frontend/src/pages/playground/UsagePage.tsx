@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
+  Button,
   Card,
   DatePicker,
+  Form,
+  InputNumber,
+  Modal,
   Statistic,
   Table,
   Tag,
@@ -10,8 +14,12 @@ import {
   Space,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import { EditOutlined } from "@ant-design/icons";
 import {
+  adminGetUserQuotas,
+  adminUpdateUserQuota,
   getAdminUsage,
+  type PlaygroundAdminUserQuota,
   type PlaygroundUsageByModel,
   type PlaygroundUsageByUser,
   type PlaygroundUsageReport,
@@ -49,6 +57,111 @@ export default function UsagePage() {
       cancelled = true;
     };
   }, [range]);
+
+  // 사용자 한도 관리.
+  const [quotas, setQuotas] = useState<PlaygroundAdminUserQuota[]>([]);
+  const [quotasLoading, setQuotasLoading] = useState(false);
+  const [editTarget, setEditTarget] = useState<PlaygroundAdminUserQuota | null>(
+    null,
+  );
+  const [quotaForm] = Form.useForm<{ monthly_quota_usd: number }>();
+  const [editSaving, setEditSaving] = useState(false);
+
+  const fetchQuotas = useCallback(async () => {
+    setQuotasLoading(true);
+    try {
+      const data = await adminGetUserQuotas();
+      setQuotas(data);
+    } catch {
+      message.error("사용자 한도 조회 실패");
+    } finally {
+      setQuotasLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchQuotas();
+  }, [fetchQuotas]);
+
+  const openEditQuota = (q: PlaygroundAdminUserQuota) => {
+    setEditTarget(q);
+    quotaForm.setFieldsValue({
+      monthly_quota_usd: Number(q.monthly_quota_usd),
+    });
+  };
+
+  const submitEditQuota = async () => {
+    if (!editTarget) return;
+    try {
+      const values = await quotaForm.validateFields();
+      setEditSaving(true);
+      await adminUpdateUserQuota(editTarget.user_id, values.monthly_quota_usd);
+      message.success(`${editTarget.user_email} 한도가 변경되었습니다`);
+      setEditTarget(null);
+      void fetchQuotas();
+    } catch (err: unknown) {
+      if ((err as { errorFields?: unknown }).errorFields) {
+        return;
+      }
+      message.error("한도 수정 실패");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const quotaCols: ColumnsType<PlaygroundAdminUserQuota> = [
+    {
+      title: "사용자",
+      dataIndex: "user_email",
+      render: (v: string) => <Typography.Text style={{ fontSize: 12 }}>{v}</Typography.Text>,
+    },
+    {
+      title: "월 한도 (USD)",
+      dataIndex: "monthly_quota_usd",
+      width: 140,
+      align: "right",
+      render: (v: number | string) => `$${Number(v).toFixed(2)}`,
+      sorter: (a, b) =>
+        Number(a.monthly_quota_usd) - Number(b.monthly_quota_usd),
+    },
+    {
+      title: "이번 달 사용",
+      dataIndex: "current_usage_usd",
+      width: 140,
+      align: "right",
+      render: (v: number | string) => `$${Number(v).toFixed(4)}`,
+      sorter: (a, b) =>
+        Number(a.current_usage_usd) - Number(b.current_usage_usd),
+    },
+    {
+      title: "남은 한도",
+      dataIndex: "remaining_usd",
+      width: 140,
+      align: "right",
+      render: (v: number | string) => {
+        const n = Number(v);
+        return (
+          <Typography.Text style={{ color: n <= 0 ? "#ff4d4f" : undefined }}>
+            ${n.toFixed(4)}
+          </Typography.Text>
+        );
+      },
+    },
+    {
+      title: "작업",
+      key: "actions",
+      width: 110,
+      render: (_, record) => (
+        <Button
+          size="small"
+          icon={<EditOutlined />}
+          onClick={() => openEditQuota(record)}
+        >
+          한도 수정
+        </Button>
+      ),
+    },
+  ];
 
   const modelCols: ColumnsType<PlaygroundUsageByModel> = [
     {
@@ -173,7 +286,53 @@ export default function UsagePage() {
             pagination={{ pageSize: 20, showSizeChanger: false }}
           />
         </Card>
+
+        <Card title="사용자 한도 관리" size="small">
+          <Table
+            size="small"
+            rowKey={(r) => r.user_id}
+            columns={quotaCols}
+            dataSource={quotas}
+            loading={quotasLoading}
+            pagination={{ pageSize: 20, showSizeChanger: false }}
+          />
+        </Card>
       </Space>
+
+      <Modal
+        title={editTarget ? `한도 수정 — ${editTarget.user_email}` : "한도 수정"}
+        open={editTarget !== null}
+        onCancel={() => setEditTarget(null)}
+        onOk={() => void submitEditQuota()}
+        confirmLoading={editSaving}
+        okText="저장"
+        cancelText="취소"
+        destroyOnClose
+      >
+        <Form form={quotaForm} layout="vertical" preserve={false}>
+          <Form.Item
+            name="monthly_quota_usd"
+            label="월 한도 (USD)"
+            rules={[
+              { required: true, message: "한도를 입력하세요" },
+              {
+                type: "number",
+                min: 0,
+                message: "0 이상의 값이어야 합니다",
+              },
+            ]}
+          >
+            <InputNumber
+              min={0}
+              step={1}
+              precision={2}
+              prefix="$"
+              style={{ width: "100%" }}
+              autoFocus
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

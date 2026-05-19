@@ -29,6 +29,8 @@ import CategoryPage from "./pages/settings/CategoryPage";
 import CounterpartPage from "./pages/settings/CounterpartPage";
 import PlaygroundPage from "./pages/playground/PlaygroundPage";
 import UsagePage from "./pages/playground/UsagePage";
+import AdminSessionsPage from "./pages/playground/AdminSessionsPage";
+import LogsPage from "./pages/playground/LogsPage";
 import DashboardPage from "./pages/distribution/DashboardPage";
 import PersonasPage from "./pages/distribution/PersonasPage";
 import DataUploadPage from "./pages/distribution/DataUploadPage";
@@ -248,6 +250,22 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="playground_usage">
                     <UsagePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/playground/admin/sessions"
+                element={
+                  <ProtectedRoute user={user} module="playground_admin_sessions">
+                    <AdminSessionsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/playground/admin/logs"
+                element={
+                  <ProtectedRoute user={user} module="playground_logs">
+                    <LogsPage />
                   </ProtectedRoute>
                 }
               />

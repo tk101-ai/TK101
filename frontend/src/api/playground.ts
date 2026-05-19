@@ -175,13 +175,55 @@ export async function createSession(body: CreateSessionBody): Promise<Playground
   return res.data;
 }
 
-export async function listSessions(): Promise<PlaygroundSession[]> {
-  const res = await api.get<PlaygroundSession[]>(`${BASE}/sessions`);
+export async function listSessions(q?: string): Promise<PlaygroundSession[]> {
+  const params: Record<string, string> = {};
+  if (q && q.trim()) params.q = q.trim();
+  const res = await api.get<PlaygroundSession[]>(`${BASE}/sessions`, { params });
+  return res.data;
+}
+
+/** 검색어 q 기반 세션 검색 (listSessions 의 명시적 별칭). */
+export async function searchSessions(
+  q: string,
+  limit = 50,
+): Promise<PlaygroundSession[]> {
+  const params: Record<string, string | number> = { limit };
+  if (q && q.trim()) params.q = q.trim();
+  const res = await api.get<PlaygroundSession[]>(`${BASE}/sessions`, { params });
   return res.data;
 }
 
 export async function deleteSession(id: string): Promise<void> {
   await api.delete(`${BASE}/sessions/${id}`);
+}
+
+export interface PatchSessionBody {
+  title: string;
+}
+
+export async function patchSession(
+  id: string,
+  body: PatchSessionBody,
+): Promise<PlaygroundSession> {
+  const res = await api.patch<PlaygroundSession>(`${BASE}/sessions/${id}`, body);
+  return res.data;
+}
+
+/**
+ * 세션 export — 백엔드가 text/markdown (또는 다른 format) 으로 반환.
+ * 호출자는 응답 text 를 Blob 으로 변환하여 다운로드한다.
+ */
+export async function exportSession(
+  id: string,
+  format: "md" | "json" = "md",
+): Promise<string> {
+  const res = await api.get<string>(`${BASE}/sessions/${id}/export`, {
+    params: { format },
+    responseType: "text",
+    // axios 가 text/markdown 을 JSON 으로 파싱하지 않도록.
+    transformResponse: [(data: unknown) => (typeof data === "string" ? data : String(data ?? ""))],
+  });
+  return res.data;
 }
 
 export async function getSessionMessages(id: string): Promise<PlaygroundMessage[]> {
@@ -242,6 +284,17 @@ export async function streamChat(
   }
 
   if (!response.ok || !response.body) {
+    // 한도 초과 (402) 는 명시적 메시지로 변환 — 호출자가 isQuotaExceededError 로 분기 가능.
+    if (response.status === 402) {
+      const err = new Error(QUOTA_EXCEEDED_MESSAGE) as Error & {
+        status?: number;
+        response?: { status: number };
+      };
+      err.status = 402;
+      err.response = { status: 402 };
+      handlers.onError?.(err);
+      return;
+    }
     handlers.onError?.(new Error(`Playground SSE 응답 실패 (${response.status})`));
     return;
   }
@@ -369,6 +422,31 @@ export async function createVideoTask(
   return res.data;
 }
 
+export interface CreateVideoFromMediaBody {
+  prompt: string;
+  image_media_id: string; // UUID of existing image media row
+  model_key: string;
+  duration: number;
+  resolution: string;
+  aspect_ratio: string;
+  audio_generation: boolean;
+  enhance_prompt: boolean;
+}
+
+/**
+ * 기존 이미지 미디어(image_media_id)를 기반으로 영상 task 를 생성.
+ * 백엔드 endpoint: POST /api/playground/video/from-media
+ */
+export async function createVideoFromMedia(
+  body: CreateVideoFromMediaBody,
+): Promise<PlaygroundTaskCreated> {
+  const res = await api.post<PlaygroundTaskCreated>(
+    `${BASE}/video/from-media`,
+    body,
+  );
+  return res.data;
+}
+
 export async function describeTask(
   kind: "image" | "video",
   taskId: string,
@@ -455,3 +533,125 @@ export async function getAdminUsage(
   });
   return res.data;
 }
+
+// ---------------------------------------------------------------------------
+// 본인 한도 (모든 사용자) + admin 한도 관리
+// ---------------------------------------------------------------------------
+
+/**
+ * 백엔드 Numeric (Decimal) 필드는 JSON 직렬화 시 string 으로 옴.
+ * 표시 시점에 항상 `Number(v).toFixed(...)` 로 wrap 한다.
+ */
+export interface PlaygroundQuotaInfo {
+  monthly_quota_usd: number | string;
+  current_usage_usd: number | string;
+  remaining_usd: number | string;
+  period_start: string;
+  period_end: string;
+}
+
+export async function getMyQuota(): Promise<PlaygroundQuotaInfo> {
+  const res = await api.get<PlaygroundQuotaInfo>(`${BASE}/me/quota`);
+  return res.data;
+}
+
+// ---------------------------------------------------------------------------
+// Admin: 세션 모니터링 / 사용자 한도 관리 / 로그 tail
+// ---------------------------------------------------------------------------
+
+export interface PlaygroundAdminSession {
+  id: string;
+  user_id: string;
+  user_email: string;
+  title: string | null;
+  provider: string;
+  model: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminSessionFilters {
+  user_id?: string;
+  q?: string;
+  limit?: number;
+}
+
+export async function adminListSessions(
+  filters: AdminSessionFilters = {},
+): Promise<PlaygroundAdminSession[]> {
+  const params: Record<string, string | number> = {};
+  if (filters.user_id && filters.user_id.trim()) {
+    params.user_id = filters.user_id.trim();
+  }
+  if (filters.q && filters.q.trim()) {
+    params.q = filters.q.trim();
+  }
+  params.limit = filters.limit ?? 50;
+  const res = await api.get<PlaygroundAdminSession[]>(
+    `${BASE}/admin/sessions`,
+    { params },
+  );
+  return res.data;
+}
+
+export async function adminGetMessages(
+  sessionId: string,
+): Promise<PlaygroundMessage[]> {
+  const res = await api.get<PlaygroundMessage[]>(
+    `${BASE}/admin/sessions/${encodeURIComponent(sessionId)}/messages`,
+  );
+  return res.data;
+}
+
+export interface PlaygroundAdminUserQuota {
+  user_id: string;
+  user_email: string;
+  monthly_quota_usd: number | string;
+  current_usage_usd: number | string;
+  remaining_usd: number | string;
+}
+
+export async function adminGetUserQuotas(): Promise<PlaygroundAdminUserQuota[]> {
+  const res = await api.get<PlaygroundAdminUserQuota[]>(
+    `${BASE}/admin/users/quota`,
+  );
+  return res.data;
+}
+
+export async function adminUpdateUserQuota(
+  userId: string,
+  monthly_quota_usd: number,
+): Promise<void> {
+  await api.put(`${BASE}/admin/users/${encodeURIComponent(userId)}/quota`, {
+    monthly_quota_usd,
+  });
+}
+
+export async function adminGetLogs(tail = 200): Promise<string> {
+  const res = await api.get<string>(`${BASE}/admin/logs`, {
+    params: { tail },
+    responseType: "text",
+    transformResponse: [
+      (data: unknown) => (typeof data === "string" ? data : String(data ?? "")),
+    ],
+  });
+  return res.data;
+}
+
+/**
+ * Axios 에러에서 HTTP 402 (한도 초과) 를 감지하는 helper.
+ *
+ * 각 패널/뷰에서 catch 블록 안에 사용:
+ *   if (isQuotaExceededError(err)) {
+ *     message.error("이번 달 사용량 한도를 초과했습니다. 관리자에게 문의해주세요");
+ *     return;
+ *   }
+ */
+export function isQuotaExceededError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const maybe = err as { response?: { status?: number }; status?: number };
+  return maybe.response?.status === 402 || maybe.status === 402;
+}
+
+export const QUOTA_EXCEEDED_MESSAGE =
+  "이번 달 사용량 한도를 초과했습니다. 관리자에게 문의해주세요";

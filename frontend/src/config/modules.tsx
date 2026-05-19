@@ -1,5 +1,6 @@
 import {
   ApartmentOutlined,
+  AuditOutlined,
   BankOutlined,
   CalculatorOutlined,
   CheckSquareOutlined,
@@ -7,6 +8,7 @@ import {
   ContactsOutlined,
   DashboardOutlined,
   EditOutlined,
+  FileSearchOutlined,
   FileTextOutlined,
   GoldOutlined,
   HistoryOutlined,
@@ -111,6 +113,8 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "playground", path: "/playground", label: "AI Playground", icon: <RobotOutlined />, module: "playground", category: "common" },
   // admin 전용 통계 페이지. module=playground_usage 는 admin 만 자동 부여 (registry.ALL_MODULES).
   { key: "playground-usage", path: "/playground/usage", label: "Playground 사용량", icon: <LineChartOutlined />, module: "playground_usage", category: "system" },
+  { key: "playground-admin-sessions", path: "/playground/admin/sessions", label: "Playground 세션 모니터링", icon: <FileSearchOutlined />, module: "playground_admin_sessions", category: "system" },
+  { key: "playground-logs", path: "/playground/admin/logs", label: "Playground 로그", icon: <AuditOutlined />, module: "playground_logs", category: "system" },
   { key: "users", path: "/users", label: "사용자 관리", icon: <TeamOutlined />, module: "users", category: "system" },
 ];
 

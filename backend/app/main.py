@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.logging_setup import setup_logging
 from app.routers import (
     accounts,
     attachments,
@@ -36,6 +37,7 @@ from app.routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()
     yield
 
 

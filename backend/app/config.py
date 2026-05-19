@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     playground_media_root: str = "/var/lib/playground/media"
     # 미디어 보관 기간 (일). 이후 cron 으로 정리.
     playground_media_retention_days: int = 30
+    # Playground 로그 — NAS 영구 저장 (RotatingFileHandler, 10MB × 5).
+    # 운영 환경에서 NAS RW 마운트 ``/mnt/nas-rw/logs/backend/`` 위에 저장.
+    playground_log_path: str = "/mnt/nas-rw/logs/backend/backend.log"
 
     # T9 신사업유통 텔레그램 자동화 (T9 PRD) ----------------------------------
     # Fernet 마스터 키 — api_id/api_hash 암호화 저장에 사용.

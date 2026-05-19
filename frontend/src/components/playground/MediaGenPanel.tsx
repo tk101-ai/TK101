@@ -6,6 +6,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Modal,
   Select,
   Space,
   Switch,
@@ -13,12 +14,16 @@ import {
   Typography,
   message,
 } from "antd";
+import { PlayCircleOutlined } from "@ant-design/icons";
 import {
+  QUOTA_EXCEEDED_MESSAGE,
   createImageTask,
+  createVideoFromMedia,
   createVideoTask,
   describeTask,
   getMediaModels,
   getMyMedia,
+  isQuotaExceededError,
   mediaFileUrl,
 } from "../../api/playground";
 import type {
@@ -26,6 +31,7 @@ import type {
   PlaygroundMediaModelOption,
   PlaygroundTaskStatus,
 } from "../../api/playground";
+import QuotaIndicator from "./QuotaIndicator";
 
 const { Text, Paragraph } = Typography;
 
@@ -105,8 +111,11 @@ const VIDEO_RESOLUTION_OPTIONS: Array<{ value: string; label: string }> = [
 export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
   const [form] = Form.useForm();
   const [models, setModels] = useState<PlaygroundMediaModelOption[]>([]);
+  const [videoModels, setVideoModels] = useState<PlaygroundMediaModelOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [tasks, setTasks] = useState<ActiveTask[]>([]);
+  const [quotaRefreshKey, setQuotaRefreshKey] = useState(0);
+  const [i2vTarget, setI2vTarget] = useState<ActiveTask | null>(null);
   const pollersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
 
   // 1) 모델 카탈로그 fetch + 본인 기존 미디어 갤러리 로드 (새로고침 후 복원).
@@ -121,6 +130,8 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
         if (cancelled) return;
         const list = kind === "image" ? models.image : models.video;
         setModels(list);
+        // 영상 모델은 image kind 일 때 i2v 모달에서 사용.
+        setVideoModels(models.video);
         if (list[0]) {
           form.setFieldValue("model_key", list[0].key);
         }
@@ -244,18 +255,66 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
       ]);
       startPolling(res.task_id);
       message.success(`${kind === "image" ? "이미지" : "영상"} 생성 요청 접수`);
+      setQuotaRefreshKey((k) => k + 1);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "요청 실패";
-      message.error(msg);
+      if (isQuotaExceededError(err)) {
+        message.error(QUOTA_EXCEEDED_MESSAGE);
+      } else {
+        const msg = err instanceof Error ? err.message : "요청 실패";
+        message.error(msg);
+      }
     } finally {
       setSubmitting(false);
     }
   };
 
+  const handleI2VSubmit = async (
+    values: {
+      prompt: string;
+      model_key: string;
+      duration: number;
+      resolution: string;
+      aspect_ratio: string;
+      audio_generation: boolean;
+      enhance_prompt: boolean;
+    },
+    target: ActiveTask,
+  ) => {
+    if (!target.mediaId) {
+      message.error("이미지 ID를 찾을 수 없습니다 (DB 영속 안 됨)");
+      return;
+    }
+    try {
+      await createVideoFromMedia({
+        prompt: values.prompt,
+        image_media_id: target.mediaId,
+        model_key: values.model_key,
+        duration: values.duration,
+        resolution: values.resolution,
+        aspect_ratio: values.aspect_ratio,
+        audio_generation: values.audio_generation,
+        enhance_prompt: values.enhance_prompt,
+      });
+      message.success("영상 생성 작업 시작 — Video Gen 탭에서 확인하세요");
+      setI2vTarget(null);
+      setQuotaRefreshKey((k) => k + 1);
+    } catch (err: unknown) {
+      if (isQuotaExceededError(err)) {
+        message.error(QUOTA_EXCEEDED_MESSAGE);
+      } else {
+        const msg = err instanceof Error ? err.message : "영상 생성 요청 실패";
+        message.error(msg);
+      }
+    }
+  };
+
   return (
     <div style={{ display: "flex", gap: 16 }}>
-      {/* 좌: 입력 폼 */}
-      <Card size="small" style={{ width: 420, flexShrink: 0 }}>
+      {/* 좌: 입력 폼 + 한도 표시 */}
+      <div style={{ width: 420, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+        <QuotaIndicator refreshKey={quotaRefreshKey} />
+      <Card size="small">
+
         <Form
           form={form}
           layout="vertical"
@@ -343,6 +402,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
           </Button>
         </Form>
       </Card>
+      </div>
 
       {/* 우: 작업 목록 */}
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -356,16 +416,42 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
         ) : (
           <Space direction="vertical" size={12} style={{ width: "100%" }}>
             {tasks.map((t) => (
-              <TaskCard key={t.taskId} task={t} />
+              <TaskCard
+                key={t.taskId}
+                task={t}
+                onConvertToVideo={
+                  kind === "image" ? () => setI2vTarget(t) : undefined
+                }
+              />
             ))}
           </Space>
         )}
       </div>
+
+      {/* I2V 모달 — image kind 에서만 사용 */}
+      <I2VModal
+        target={i2vTarget}
+        videoModels={videoModels}
+        onCancel={() => setI2vTarget(null)}
+        onSubmit={handleI2VSubmit}
+      />
     </div>
   );
 }
 
-function TaskCard({ task }: { task: ActiveTask }) {
+function TaskCard({
+  task,
+  onConvertToVideo,
+}: {
+  task: ActiveTask;
+  onConvertToVideo?: () => void;
+}) {
+  // i2v 버튼 노출 조건: image kind + 성공 + DB persist 된 mediaId 존재.
+  const canConvert =
+    Boolean(onConvertToVideo) &&
+    task.kind === "image" &&
+    task.status === "succeeded" &&
+    Boolean(task.mediaId);
   return (
     <Card
       size="small"
@@ -412,10 +498,27 @@ function TaskCard({ task }: { task: ActiveTask }) {
               style={{ maxWidth: "100%", borderRadius: 6 }}
             />
           )}
-          <div style={{ marginTop: 6 }}>
+          <div
+            style={{
+              marginTop: 6,
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
             <a href={task.outputUrl} target="_blank" rel="noreferrer">
               원본 다운로드
             </a>
+            {canConvert && (
+              <Button
+                size="small"
+                icon={<PlayCircleOutlined />}
+                onClick={onConvertToVideo}
+              >
+                이 이미지로 영상 만들기
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -429,5 +532,130 @@ function TaskCard({ task }: { task: ActiveTask }) {
         />
       )}
     </Card>
+  );
+}
+
+interface I2VFormValues {
+  prompt: string;
+  model_key: string;
+  duration: number;
+  resolution: string;
+  aspect_ratio: string;
+  audio_generation: boolean;
+  enhance_prompt: boolean;
+}
+
+function I2VModal({
+  target,
+  videoModels,
+  onCancel,
+  onSubmit,
+}: {
+  target: ActiveTask | null;
+  videoModels: PlaygroundMediaModelOption[];
+  onCancel: () => void;
+  onSubmit: (values: I2VFormValues, target: ActiveTask) => Promise<void>;
+}) {
+  const [form] = Form.useForm<I2VFormValues>();
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (target) {
+      form.setFieldsValue({
+        prompt: target.prompt,
+        model_key: videoModels[0]?.key ?? "",
+        duration: 5,
+        resolution: "720P",
+        aspect_ratio: "16:9",
+        audio_generation: false,
+        enhance_prompt: true,
+      });
+    }
+    // 닫힐 때 form 초기화는 destroyOnClose 가 처리.
+  }, [target, videoModels, form]);
+
+  const handleOk = async () => {
+    if (!target) return;
+    try {
+      const values = await form.validateFields();
+      setSubmitting(true);
+      await onSubmit(values, target);
+    } catch {
+      // validation error — 모달 유지.
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="이 이미지로 영상 만들기"
+      open={target !== null}
+      onCancel={onCancel}
+      onOk={() => void handleOk()}
+      okText="영상 생성"
+      cancelText="취소"
+      confirmLoading={submitting}
+      destroyOnClose
+      width={520}
+    >
+      {target?.outputUrl && (
+        <div style={{ marginBottom: 12, textAlign: "center" }}>
+          <img
+            src={target.outputUrl}
+            alt="source"
+            style={{
+              maxWidth: "100%",
+              maxHeight: 200,
+              borderRadius: 6,
+              border: "1px solid rgba(0,0,0,0.08)",
+            }}
+          />
+        </div>
+      )}
+      <Form form={form} layout="vertical" preserve={false}>
+        <Form.Item
+          name="prompt"
+          label="영상 프롬프트"
+          rules={[{ required: true, message: "프롬프트를 입력하세요" }]}
+        >
+          <Input.TextArea rows={3} placeholder="예: 카메라가 천천히 줌인하며 캐릭터가 미소 짓는다" />
+        </Form.Item>
+        <Form.Item
+          name="model_key"
+          label="영상 모델"
+          rules={[{ required: true, message: "모델을 선택하세요" }]}
+        >
+          <Select
+            options={videoModels.map((m) => ({
+              value: m.key,
+              label: m.badge ? `${m.label} (${m.badge})` : m.label,
+            }))}
+            placeholder={
+              videoModels.length === 0 ? "모델 목록 로딩 중…" : "모델을 선택하세요"
+            }
+          />
+        </Form.Item>
+        <Form.Item name="duration" label="영상 길이 (초)">
+          <InputNumber min={1} max={60} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="resolution" label="해상도">
+          <Select options={VIDEO_RESOLUTION_OPTIONS} />
+        </Form.Item>
+        <Form.Item name="aspect_ratio" label="화면 비율">
+          <Select options={ASPECT_RATIO_OPTIONS} />
+        </Form.Item>
+        <Form.Item name="audio_generation" label="오디오 생성" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+        <Form.Item
+          name="enhance_prompt"
+          label="프롬프트 자동 보강"
+          valuePropName="checked"
+        >
+          <Switch />
+        </Form.Item>
+      </Form>
+    </Modal>
   );
 }

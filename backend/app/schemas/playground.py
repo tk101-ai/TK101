@@ -226,3 +226,74 @@ class PlaygroundUsageReport(BaseModel):
     total_requests: int
     by_model: list[PlaygroundUsageByModel]
     by_user: list[PlaygroundUsageByUser]
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-19 백엔드 확장 — quota / 세션 제목 / 관리자 페이지 / i2v
+# ---------------------------------------------------------------------------
+
+
+class PlaygroundQuotaInfo(BaseModel):
+    """GET /api/playground/me/quota 응답 (본인 한도+사용량)."""
+
+    monthly_quota_usd: Decimal
+    current_usage_usd: Decimal
+    remaining_usd: Decimal
+    period_start: datetime
+    period_end: datetime
+
+
+class PlaygroundSessionTitleUpdate(BaseModel):
+    """PATCH /api/playground/sessions/{id} 요청 본문."""
+
+    title: str = Field(min_length=1, max_length=200)
+
+
+class PlaygroundAdminSessionOut(BaseModel):
+    """관리자 전 세션 목록 1행 — JOIN users 로 email 포함."""
+
+    id: uuid.UUID
+    user_id: uuid.UUID
+    user_email: str
+    title: str | None
+    provider: str
+    model: str
+    created_at: datetime
+    updated_at: datetime | None
+
+    model_config = {"from_attributes": True}
+
+
+class PlaygroundAdminUserQuotaOut(BaseModel):
+    """관리자 사용자별 한도+이번 월 사용량 1행."""
+
+    user_id: uuid.UUID
+    user_email: str
+    user_name: str
+    department: str
+    role: str
+    monthly_quota_usd: Decimal
+    current_usage_usd: Decimal
+    remaining_usd: Decimal
+
+
+class PlaygroundAdminQuotaUpdate(BaseModel):
+    """PUT /api/playground/admin/users/{id}/quota 요청 본문."""
+
+    monthly_quota_usd: Decimal = Field(ge=0)
+
+
+class PlaygroundI2VRequest(BaseModel):
+    """POST /api/playground/video/from-media 요청 본문.
+
+    image_media_id 로 본인의 완료된 이미지 task 를 참조해 i2v 영상 생성.
+    """
+
+    prompt: str = Field(min_length=1, max_length=4000)
+    image_media_id: uuid.UUID
+    model_key: str = Field(default="Kling:3.0-Omni", max_length=100)
+    duration: int = Field(default=5, ge=1, le=60)
+    resolution: str = Field(default="720P", max_length=20)
+    aspect_ratio: str = Field(default="16:9", max_length=20)
+    audio_generation: bool = False
+    enhance_prompt: bool = True

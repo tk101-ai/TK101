@@ -12,10 +12,12 @@ import {
 } from "antd";
 import { ClearOutlined, SendOutlined } from "@ant-design/icons";
 import {
+  QUOTA_EXCEEDED_MESSAGE,
   createImageTask,
   createVideoTask,
   describeTask,
   getMediaModels,
+  isQuotaExceededError,
   type PlaygroundMediaModelOption,
   type PlaygroundTaskStatus,
 } from "../../api/playground";
@@ -196,14 +198,26 @@ export default function MediaCompareView({ kind }: MediaCompareViewProps) {
         if (r.status === "fulfilled") {
           return { ...lane, taskId: r.value.task_id, status: "running" };
         }
+        const errMsg = isQuotaExceededError(r.reason)
+          ? QUOTA_EXCEEDED_MESSAGE
+          : r.reason instanceof Error
+            ? r.reason.message
+            : "task 생성 실패";
         return {
           ...lane,
           status: "failed",
-          errorMessage:
-            r.reason instanceof Error ? r.reason.message : "task 생성 실패",
+          errorMessage: errMsg,
         };
       }),
     );
+
+    // 한도 초과가 1건이라도 있으면 토스트.
+    const anyQuotaErr = results.some(
+      (r) => r.status === "rejected" && isQuotaExceededError(r.reason),
+    );
+    if (anyQuotaErr) {
+      message.error(QUOTA_EXCEEDED_MESSAGE);
+    }
 
     // 폴링 등록.
     for (const r of results) {
