@@ -399,38 +399,54 @@ async def create_video_task_endpoint(
 
 @router.get("/tasks/{kind}/{task_id}", response_model=PlaygroundTaskStatus)
 async def describe_task_endpoint(kind: str, task_id: str) -> PlaygroundTaskStatus:
-    """이미지/영상 task 폴링. kind = "image" | "video"."""
+    """이미지/영상 task 폴링. kind = "image" | "video".
+
+    텐센트 vod DescribeTaskDetail 응답 구조 (2026-05-19 라이브 probe 확정):
+        Status: "PROCESSING" | "FINISH" | "FAIL"
+        TaskType: "AigcImageTask" | "AigcVideoTask"
+        AigcImageTask / AigcVideoTask: {
+            Status, Progress, ErrCode, Message,
+            Output: { FileInfos: [{ FileUrl, ExpireTime, MetaData{...} }] }
+        }
+    """
     if kind not in ("image", "video"):
         raise HTTPException(status_code=400, detail="kind 는 image 또는 video")
 
     try:
-        if kind == "image":
-            resp = await describe_image_task(task_id)
-        else:
-            resp = await describe_video_task(task_id)
+        # describe_task_detail 은 image/video 통합 — kind 와 무관하게 같은 액션.
+        resp = await describe_image_task(task_id)
     except RuntimeError as exc:
         logger.warning("describe %s task 실패: %s", kind, exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    # 텐센트 응답 필드명은 정식 spec 수령 전이라 휴리스틱.
-    # Status: "PROCESSING" / "SUCCESS" / "FAIL" 또는 유사. 정규화.
-    raw_status = str(resp.get("Status") or resp.get("TaskStatus") or "").upper()
-    if raw_status in {"SUCCESS", "SUCCEEDED", "FINISH", "FINISHED"}:
+    # 상위 Status 정규화 (텐센트: PROCESSING / FINISH / FAIL).
+    raw_status = str(resp.get("Status") or "").upper()
+    if raw_status == "FINISH":
         status_norm = "succeeded"
-    elif raw_status in {"FAIL", "FAILED", "ERROR"}:
+    elif raw_status == "FAIL":
         status_norm = "failed"
-    elif raw_status in {"PROCESSING", "RUNNING"}:
+    elif raw_status == "PROCESSING":
         status_norm = "running"
     elif raw_status in {"PENDING", "WAITING", "QUEUED"}:
         status_norm = "pending"
     else:
         status_norm = "unknown"
 
-    output_url = (
-        resp.get("OutputUrl")
-        or resp.get("Output", {}).get("Url") if isinstance(resp.get("Output"), dict) else None
-    )
-    error_message = resp.get("ErrorMsg") or resp.get("ErrorMessage")
+    # 결과 URL 추출 — TaskType 에 따라 AigcImageTask / AigcVideoTask 키 안의 Output.FileInfos[0].FileUrl
+    inner_key = "AigcImageTask" if kind == "image" else "AigcVideoTask"
+    inner = resp.get(inner_key) or {}
+    output_url: str | None = None
+    error_message: str | None = None
+    if isinstance(inner, dict):
+        file_infos = (inner.get("Output") or {}).get("FileInfos") or []
+        if file_infos:
+            output_url = file_infos[0].get("FileUrl")
+        # ErrCode != 0 이면 실패. Message 가 있으면 사용자에게 노출.
+        err_code = inner.get("ErrCode")
+        msg = inner.get("Message")
+        if err_code and err_code != 0:
+            status_norm = "failed"
+            error_message = msg or f"ErrCode={err_code}"
 
     return PlaygroundTaskStatus(
         task_id=task_id,

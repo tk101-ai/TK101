@@ -1,34 +1,30 @@
-"""Tencent AIGC Image/Video task 클라이언트 (T8 Phase 4/5 뼈대).
+"""Tencent AIGC Image/Video task 클라이언트 (T8 Phase 4/5).
 
-메모 (`업무개선요구사항/AI 플레이그라운드/API 호출 예시.txt`) 기준 호출 구조:
+라이브 probe (2026-05-19) 로 확정된 호출 구조:
 
-이미지:
+이미지 생성 (Create):
     POST https://vod.intl.tencentcloudapi.com/
-    Action=CreateAigcImageTask · TC3-HMAC-SHA256
+    service=vod  version=2018-07-17  action=CreateAigcImageTask
     body = {SubAppId, ModelName, ModelVersion, Prompt, NegativePrompt?, EnhancePrompt?, OutputConfig}
     response = {Response: {TaskId, RequestId}}
 
-영상:
+영상 생성 (Create):
     POST https://vod.intl.tencentcloudapi.com/
-    Action=CreateAigcVideoTask · 동일 서명
-    body = {SubAppId, ModelName, ModelVersion, Prompt, EnhancePrompt?, OutputConfig{Duration, Resolution, AspectRatio, ...}}
-    response = {Response: {TaskId, RequestId}}
+    action=CreateAigcVideoTask
+    body = {SubAppId, ModelName, ModelVersion, Prompt, EnhancePrompt?, OutputConfig{Duration, Resolution, ...}}
 
-폴링:
-    Action=DescribeAigcImageTask / DescribeAigcVideoTask
+폴링 (Describe):
+    같은 endpoint, **action=DescribeTaskDetail** (Image/Video 통합 — DescribeAigc*Task 는 vod 에 없음)
     body = {SubAppId, TaskId}
-    response = {Response: {Status, OutputUrl?, ErrorMsg?, ...}}  (정확한 필드명은 텐센트 spec 미공개분 — 라이브 시험으로 확정)
+    response 핵심 필드:
+        Status             — "PROCESSING" | "FINISH" | "FAIL"
+        TaskType           — "AigcImageTask" | "AigcVideoTask"
+        AigcImageTask      — { Status, Progress, ErrCode, Message, Input, Output{FileInfos[]} }
+        AigcVideoTask      — 같은 구조 (Output.FileInfos[0].FileUrl)
+        Output.FileInfos[0].FileUrl  — 7일 임시 스토리지 URL
 
-뼈대 단계:
-- DB 영속화 없음. 라우터가 task_id 를 그대로 반환, 프론트엔드가 폴링.
-- 서명 헬퍼는 token_manager 의 ``_build_signed_headers`` 를 재사용 (텐센트 v3 표준).
-- SecretId/Key/SubAppId 누락 시 RuntimeError → 라우터가 503 으로 응답.
-
-운영 메모:
-- 텐센트 콘솔에서 "액세스 키 관리" 페이지를 보면 SecretId 와 SecretKey 가 한 쌍으로 발급된다.
-  SecretId 만 보고 그것이 SecretKey 라고 착각하지 말 것 — 두 값이 별도다.
-- 모델 식별자(ModelName/ModelVersion) 는 텐센트 콘솔 "모델 카탈로그" 페이지의 정식 spec 기준.
-  뼈대 단계에서는 메모 예시값(`GEM 3.1`, `Kling 3.0-Omni`) 을 기본값으로 둔다.
+서명: token_manager 의 ``_build_signed_headers`` 재사용 (텐센트 v3 표준).
+설정: TENCENT_AIGC_{SECRET_ID,SECRET_KEY,SUBAPP_ID} env 필수.
 """
 from __future__ import annotations
 
@@ -68,7 +64,9 @@ async def _call_vod_intl(action: str, payload_obj: dict[str, Any]) -> dict[str, 
 
     host = settings.tencent_aigc_vod_intl_endpoint
     url = f"https://{host}"
-    payload = json.dumps(payload_obj, separators=(",", ":"), ensure_ascii=False)
+    # ensure_ascii=True 로 명시: TC3 서명은 payload 의 byte 단위 SHA256 을 사용하므로
+    # 클라이언트와 서버 양쪽이 같은 byte 시퀀스를 봐야 함. 비ASCII 가 prompt 에 들어가도 안전.
+    payload = json.dumps(payload_obj, separators=(",", ":"), ensure_ascii=True)
     timestamp = int(datetime.now(timezone.utc).timestamp())
 
     headers = _build_signed_headers(
@@ -103,8 +101,8 @@ async def _call_vod_intl(action: str, payload_obj: dict[str, Any]) -> dict[str, 
 async def create_image_task(
     *,
     prompt: str,
-    model_name: str = "GEM",
-    model_version: str = "3.1",
+    model_name: str = "Kling",
+    model_version: str = "2.1",
     negative_prompt: str | None = None,
     aspect_ratio: str = "1:1",
     enhance_prompt: bool = True,
@@ -130,13 +128,25 @@ async def create_image_task(
     return await _call_vod_intl("CreateAigcImageTask", body)
 
 
-async def describe_image_task(task_id: str) -> dict[str, Any]:
-    """Image task 상태 조회."""
+async def describe_task_detail(task_id: str) -> dict[str, Any]:
+    """Image/Video 통합 폴링 (vod DescribeTaskDetail).
+
+    응답 핵심:
+        Status = "PROCESSING" | "FINISH" | "FAIL"
+        TaskType = "AigcImageTask" | "AigcVideoTask"
+        AigcImageTask = { Status, Progress, ErrCode, Message, Output{FileInfos[]} }
+        AigcVideoTask = 같은 구조
+    """
     body = {
         "SubAppId": int(settings.tencent_aigc_subapp_id),
         "TaskId": task_id,
     }
-    return await _call_vod_intl("DescribeAigcImageTask", body)
+    return await _call_vod_intl("DescribeTaskDetail", body)
+
+
+# 하위 호환 alias — 라우터/외부 코드가 describe_image_task/describe_video_task 를 import 해도 동작.
+describe_image_task = describe_task_detail
+describe_video_task = describe_task_detail
 
 
 # ---------------------------------------------------------------------------
@@ -173,27 +183,28 @@ async def create_video_task(
     return await _call_vod_intl("CreateAigcVideoTask", body)
 
 
-async def describe_video_task(task_id: str) -> dict[str, Any]:
-    """Video task 상태 조회."""
-    body = {
-        "SubAppId": int(settings.tencent_aigc_subapp_id),
-        "TaskId": task_id,
-    }
-    return await _call_vod_intl("DescribeAigcVideoTask", body)
-
-
 # ---------------------------------------------------------------------------
-# 모델 카탈로그 — UI 노출용 (메모 예시 + 텐센트 PPT 추정 기준)
-# 정식 spec 수령 후 식별자 미세 조정. 키/라벨 변경만으로 UI 자동 반영.
+# 모델 카탈로그 — 2026-05-19 라이브 probe 로 통과 확인된 모델만.
 # ---------------------------------------------------------------------------
 IMAGE_MODELS: list[dict[str, str]] = [
-    {"key": "GEM:3.1", "name": "GEM", "version": "3.1", "label": "GEM 3.1", "badge": "메모 예시"},
-    {"key": "GEM:3.0", "name": "GEM", "version": "3.0", "label": "GEM 3.0", "badge": ""},
+    {"key": "Kling:2.1", "name": "Kling", "version": "2.1", "label": "Kling 2.1", "badge": "빠름"},
+    {"key": "Kling:3.0", "name": "Kling", "version": "3.0", "label": "Kling 3.0", "badge": ""},
+    {"key": "Seedream:4.5", "name": "Seedream", "version": "4.5", "label": "Seedream 4.5", "badge": ""},
+    {"key": "Seedream:5.0-lite", "name": "Seedream", "version": "5.0-lite", "label": "Seedream 5.0 Lite", "badge": "최신"},
+    {"key": "Qwen:0925", "name": "Qwen", "version": "0925", "label": "Qwen 0925", "badge": ""},
+    {"key": "Jimeng:4.0", "name": "Jimeng", "version": "4.0", "label": "Jimeng 4.0", "badge": ""},
 ]
 
 VIDEO_MODELS: list[dict[str, str]] = [
-    {"key": "Kling:3.0-Omni", "name": "Kling", "version": "3.0-Omni", "label": "Kling 3.0 Omni", "badge": "메모 예시"},
-    {"key": "Kling:2.1", "name": "Kling", "version": "2.1", "label": "Kling 2.1", "badge": ""},
+    {"key": "Kling:2.6", "name": "Kling", "version": "2.6", "label": "Kling 2.6", "badge": ""},
+    {"key": "Kling:3.0", "name": "Kling", "version": "3.0", "label": "Kling 3.0", "badge": ""},
+    {"key": "Kling:3.0-Omni", "name": "Kling", "version": "3.0-Omni", "label": "Kling 3.0 Omni", "badge": "최신"},
+    {"key": "Kling:O1", "name": "Kling", "version": "O1", "label": "Kling O1", "badge": ""},
+    {"key": "Hailuo:02", "name": "Hailuo", "version": "02", "label": "Hailuo 02", "badge": ""},
+    {"key": "Hailuo:2.3", "name": "Hailuo", "version": "2.3", "label": "Hailuo 2.3", "badge": ""},
+    {"key": "Mingmou:1.0", "name": "Mingmou", "version": "1.0", "label": "Mingmou 1.0", "badge": ""},
+    {"key": "Vidu:q2", "name": "Vidu", "version": "q2", "label": "Vidu q2", "badge": ""},
+    {"key": "Vidu:q3", "name": "Vidu", "version": "q3", "label": "Vidu q3", "badge": "최신"},
 ]
 
 
