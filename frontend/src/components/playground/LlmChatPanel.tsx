@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
 import { Button, Card, Slider, Tooltip, Typography, message } from "antd";
-import { BugOutlined } from "@ant-design/icons";
+import { BugOutlined, CloudUploadOutlined } from "@ant-design/icons";
 import type {
   PlaygroundProvider,
   PlaygroundProviderKey,
@@ -10,6 +17,7 @@ import {
   QUOTA_EXCEEDED_MESSAGE,
   getProviders,
 } from "../../api/playground";
+import { useChatAttachments } from "../../hooks/useChatAttachments";
 import { usePlaygroundChat } from "../../hooks/usePlaygroundChat";
 import ChatInputBar from "./ChatInputBar";
 import ChatStream from "./ChatStream";
@@ -85,6 +93,40 @@ export default function LlmChatPanel() {
     systemPrompt,
     temperature,
   });
+
+  // 첨부 상태는 hook 으로 분리 — ChatInputBar + 채팅 카드 drop zone 이 공유.
+  const att = useChatAttachments(chat.sessionId);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
+
+  const onDragEnter = (e: DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    dragCounter.current += 1;
+    setIsDragging(true);
+  };
+  const onDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setIsDragging(false);
+    }
+  };
+  const onDragOver = (e: DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+  const onDrop = async (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length === 0) return;
+    await att.addFiles(files);
+  };
 
   // SessionList 갱신 트리거 — 새 세션 생성/삭제 시 증가.
   const [sessionListKey, setSessionListKey] = useState(0);
@@ -228,46 +270,88 @@ export default function LlmChatPanel() {
         <UsageCard usage={chat.usage} />
       </div>
 
-      {/* 우측 채팅 영역 */}
-      <Card
-        size="small"
-        styles={{ body: { padding: 0, display: "flex", flexDirection: "column", height: "100%" } }}
-        style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}
+      {/* 우측 채팅 영역 — 카드 전체가 드롭 zone */}
+      <div
+        onDragEnter={onDragEnter}
+        onDragLeave={onDragLeave}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minWidth: 0,
+          position: "relative",
+        }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "10px 24px",
-            borderBottom: "1px solid rgba(0,0,0,0.08)",
-            flexShrink: 0,
-          }}
+        <Card
+          size="small"
+          styles={{ body: { padding: 0, display: "flex", flexDirection: "column", height: "100%" } }}
+          style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}
         >
-          <Text strong style={{ fontSize: 13 }}>
-            {selectedProvider?.name ?? "Chat"} · {modelId}
-          </Text>
-          <Tooltip title="Debug 패널은 Phase 2에서 활성화됩니다">
-            <Button
-              icon={<BugOutlined />}
-              size="small"
-              onClick={() => message.info("Phase 2에서 활성화")}
-            >
-              Debug
-            </Button>
-          </Tooltip>
-        </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "10px 24px",
+              borderBottom: "1px solid rgba(0,0,0,0.08)",
+              flexShrink: 0,
+            }}
+          >
+            <Text strong style={{ fontSize: 13 }}>
+              {selectedProvider?.name ?? "Chat"} · {modelId}
+            </Text>
+            <Tooltip title="Debug 패널은 Phase 2에서 활성화됩니다">
+              <Button
+                icon={<BugOutlined />}
+                size="small"
+                onClick={() => message.info("Phase 2에서 활성화")}
+              >
+                Debug
+              </Button>
+            </Tooltip>
+          </div>
 
-        <ChatStream messages={chat.messages} sending={chat.sending} />
+          <ChatStream messages={chat.messages} sending={chat.sending} />
 
-        <ChatInputBar
-          onSend={chat.sendMessage}
-          onNewChat={chat.resetSession}
-          sending={chat.sending}
-          model={modelId}
-          sessionId={chat.sessionId}
-        />
-      </Card>
+          <ChatInputBar
+            onSend={chat.sendMessage}
+            onNewChat={chat.resetSession}
+            sending={chat.sending}
+            model={modelId}
+            attachments={att.attachments}
+            uploading={att.uploading}
+            onAddFiles={att.addFiles}
+            onRemoveAttachment={att.remove}
+            onAfterSend={att.clear}
+          />
+        </Card>
+
+        {isDragging && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 8,
+              border: "2px dashed #1677ff",
+              background: "rgba(22, 119, 255, 0.08)",
+              borderRadius: 8,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              pointerEvents: "none",
+              zIndex: 10,
+              color: "#1677ff",
+              fontWeight: 600,
+            }}
+          >
+            <CloudUploadOutlined style={{ fontSize: 36 }} />
+            <div>파일을 여기에 놓으세요 — 이미지·PDF·텍스트·DOCX</div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

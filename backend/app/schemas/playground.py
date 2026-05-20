@@ -149,6 +149,9 @@ class PlaygroundImageRequest(BaseModel):
     negative_prompt: str | None = Field(default=None, max_length=2000)
     aspect_ratio: str = Field(default="1:1", max_length=20)
     enhance_prompt: bool = True
+    # 2026-05-20: 사용자 업로드한 베이스 이미지 (playground_attachments.id).
+    # 텐센트 reference-image spec 확인 후 정식 활성화. 현재는 graceful 503.
+    reference_attachment_id: uuid.UUID | None = None
 
 
 class PlaygroundVideoRequest(BaseModel):
@@ -161,6 +164,9 @@ class PlaygroundVideoRequest(BaseModel):
     aspect_ratio: str = Field(default="16:9", max_length=20)
     audio_generation: bool = False
     enhance_prompt: bool = True
+    # 2026-05-20: 사용자 업로드한 베이스 이미지 (playground_attachments.id).
+    # 텐센트 reference-image spec 확인 후 정식 활성화.
+    reference_attachment_id: uuid.UUID | None = None
 
 
 class PlaygroundTaskCreated(BaseModel):

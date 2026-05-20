@@ -28,10 +28,12 @@ import {
   mediaFileUrl,
 } from "../../api/playground";
 import type {
+  PlaygroundAttachment,
   PlaygroundMediaItem,
   PlaygroundMediaModelOption,
   PlaygroundTaskStatus,
 } from "../../api/playground";
+import BaseImagePicker from "./BaseImagePicker";
 import QuotaIndicator from "./QuotaIndicator";
 
 const { Text, Paragraph } = Typography;
@@ -117,6 +119,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
   const [tasks, setTasks] = useState<ActiveTask[]>([]);
   const [quotaRefreshKey, setQuotaRefreshKey] = useState(0);
   const [i2vTarget, setI2vTarget] = useState<ActiveTask | null>(null);
+  const [baseImage, setBaseImage] = useState<PlaygroundAttachment | null>(null);
   const pollersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
 
   // 1) 모델 카탈로그 fetch + 본인 기존 미디어 갤러리 로드 (새로고침 후 복원).
@@ -230,6 +233,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
               : null,
           aspect_ratio: String(values.aspect_ratio ?? "1:1"),
           enhance_prompt: Boolean(values.enhance_prompt ?? true),
+          reference_attachment_id: baseImage?.id ?? null,
         });
       } else {
         res = await createVideoTask({
@@ -240,6 +244,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
           aspect_ratio: String(values.aspect_ratio ?? "16:9"),
           audio_generation: Boolean(values.audio_generation ?? false),
           enhance_prompt: Boolean(values.enhance_prompt ?? true),
+          reference_attachment_id: baseImage?.id ?? null,
         });
       }
 
@@ -340,6 +345,18 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
                 }
           }
         >
+          <Form.Item label="베이스 이미지 (선택)">
+            <BaseImagePicker
+              value={baseImage}
+              onChange={setBaseImage}
+              pendingNotice={
+                baseImage
+                  ? "베이스 기반 생성은 텐센트 API spec 확인 후 활성화됩니다. 지금 '생성'을 누르면 503 안내가 표시됩니다 — 베이스 없이 생성하려면 위에서 제거"
+                  : undefined
+              }
+            />
+          </Form.Item>
+
           <Form.Item
             name="prompt"
             label="프롬프트"
@@ -349,8 +366,12 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
               rows={4}
               placeholder={
                 kind === "image"
-                  ? "예: A clean product-style capybara mascot, studio lighting"
-                  : "예: A capybara mascot moves gently in a short studio video"
+                  ? baseImage
+                    ? "예: 베이스 이미지를 깔끔한 제품 스타일로 재해석"
+                    : "예: A clean product-style capybara mascot, studio lighting"
+                  : baseImage
+                    ? "예: 베이스 이미지의 캐릭터가 가볍게 움직이는 짧은 영상"
+                    : "예: A capybara mascot moves gently in a short studio video"
               }
             />
           </Form.Item>

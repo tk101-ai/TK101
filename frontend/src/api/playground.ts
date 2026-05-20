@@ -395,6 +395,8 @@ export interface CreateImageBody {
   negative_prompt?: string | null;
   aspect_ratio?: string;
   enhance_prompt?: boolean;
+  /** 2026-05-20: 사용자 업로드 베이스 이미지 (playground_attachments.id). */
+  reference_attachment_id?: string | null;
 }
 
 export interface CreateVideoBody {
@@ -405,6 +407,8 @@ export interface CreateVideoBody {
   aspect_ratio?: string;
   audio_generation?: boolean;
   enhance_prompt?: boolean;
+  /** 2026-05-20: 사용자 업로드 베이스 이미지. */
+  reference_attachment_id?: string | null;
 }
 
 export async function getMediaModels(): Promise<PlaygroundMediaCatalog> {

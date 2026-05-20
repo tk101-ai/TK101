@@ -3,20 +3,10 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type DragEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import {
-  Alert,
-  Button,
-  Input,
-  Space,
-  Spin,
-  Tag,
-  Tooltip,
-  message,
-} from "antd";
+import { Alert, Button, Input, Space, Spin, Tag, Tooltip } from "antd";
 import {
   CloseOutlined,
   FileOutlined,
@@ -29,11 +19,7 @@ import {
   SendOutlined,
 } from "@ant-design/icons";
 import {
-  classifyAttachment,
-  deleteAttachment,
   getVisionModels,
-  uploadAttachment,
-  MAX_ATTACHMENT_BYTES,
   type PlaygroundAttachment,
 } from "../../api/playground";
 
@@ -44,8 +30,12 @@ interface ChatInputBarProps {
   disabled?: boolean;
   /** 현재 세션의 모델 ID. vision 미지원 모델 + 이미지 첨부 시 경고. */
   model: string;
-  /** 현재 세션 ID (없으면 첫 전송 시 새 세션 생성). */
-  sessionId: string | null;
+  /** 첨부 상태 — LlmChatPanel 의 useChatAttachments 가 소유. */
+  attachments: PlaygroundAttachment[];
+  uploading: boolean;
+  onAddFiles: (files: File[]) => Promise<void> | void;
+  onRemoveAttachment: (id: string) => void | Promise<void>;
+  onAfterSend: () => void;
 }
 
 const KIND_ICON: Record<PlaygroundAttachment["kind"], ReactNode> = {
@@ -69,12 +59,11 @@ function formatSize(bytes: number): string {
 }
 
 /**
- * 하단 입력바 (2026-05-20: 파일 첨부 지원).
+ * 하단 입력바 (2026-05-20: 파일 첨부 지원, 상태는 부모가 소유).
  *
  * - "New Chat" 버튼: 세션 초기화
- * - 클립 아이콘: 이미지/PDF/텍스트/DOCX 업로드 (한 번에 여러 개)
- * - 드래그앤드롭 영역
- * - 첨부 칩 미리보기 + 개별 삭제
+ * - 클립 아이콘: 파일 picker (드래그앤드롭은 부모 LlmChatPanel 의 카드 전체에서)
+ * - 첨부 칩 + 개별 삭제
  * - 이미지 첨부 + vision 미지원 모델 = 경고 노출
  * - Enter 전송, Shift+Enter 줄바꿈
  */
@@ -84,15 +73,15 @@ export default function ChatInputBar({
   sending,
   disabled,
   model,
-  sessionId,
+  attachments,
+  uploading,
+  onAddFiles,
+  onRemoveAttachment,
+  onAfterSend,
 }: ChatInputBarProps) {
   const [text, setText] = useState("");
-  const [attachments, setAttachments] = useState<PlaygroundAttachment[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const [visionModels, setVisionModels] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const dragCounter = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,74 +102,10 @@ export default function ChatInputBar({
   const showVisionWarning =
     hasImageAttachment && visionModels.size > 0 && !visionSupported;
 
-  const uploadFiles = async (files: File[]) => {
-    if (files.length === 0) return;
-    setUploading(true);
-    try {
-      for (const f of files) {
-        if (f.size > MAX_ATTACHMENT_BYTES) {
-          message.warning(
-            `${f.name}: 파일이 너무 큽니다 (최대 ${
-              MAX_ATTACHMENT_BYTES / (1024 * 1024)
-            }MB)`,
-          );
-          continue;
-        }
-        if (classifyAttachment(f) === null) {
-          message.warning(`${f.name}: 지원하지 않는 형식`);
-          continue;
-        }
-        try {
-          const att = await uploadAttachment(f, sessionId ?? undefined);
-          setAttachments((prev) => [...prev, att]);
-        } catch (err: unknown) {
-          const msg =
-            err instanceof Error ? err.message : "업로드 실패";
-          message.error(`${f.name}: ${msg}`);
-        }
-      }
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const onFilePicked = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = ""; // 같은 파일 재선택 허용.
-    await uploadFiles(files);
-  };
-
-  const onDragEnter = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    dragCounter.current += 1;
-    setIsDragging(true);
-  };
-  const onDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    dragCounter.current -= 1;
-    if (dragCounter.current <= 0) {
-      dragCounter.current = 0;
-      setIsDragging(false);
-    }
-  };
-  const onDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-  };
-  const onDrop = async (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    dragCounter.current = 0;
-    setIsDragging(false);
-    const files = Array.from(e.dataTransfer.files ?? []);
-    await uploadFiles(files);
-  };
-
-  const removeAttachment = async (id: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id));
-    try {
-      await deleteAttachment(id);
-    } catch {
-      // 서버 삭제 실패해도 UI 에선 제거. 다음 청소 cron 으로 정리.
-    }
+    await onAddFiles(files);
   };
 
   const flush = () => {
@@ -189,7 +114,7 @@ export default function ChatInputBar({
     const ids = attachments.map((a) => a.id);
     onSend(trimmed, ids);
     setText("");
-    setAttachments([]); // 전송 후 첨부 비움 (재사용 안 함).
+    onAfterSend(); // 전송 후 첨부 비움 (부모에서 처리).
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -201,15 +126,10 @@ export default function ChatInputBar({
 
   return (
     <div
-      onDragEnter={onDragEnter}
-      onDragLeave={onDragLeave}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
       style={{
         borderTop: "1px solid rgba(0,0,0,0.08)",
         padding: "12px 24px",
-        background: isDragging ? "rgba(24, 144, 255, 0.08)" : "#fff",
-        position: "relative",
+        background: "#fff",
       }}
     >
       <input
@@ -241,7 +161,7 @@ export default function ChatInputBar({
               closeIcon={<CloseOutlined />}
               onClose={(e) => {
                 e.preventDefault();
-                void removeAttachment(a.id);
+                void onRemoveAttachment(a.id);
               }}
               style={{ padding: "4px 8px", fontSize: 12 }}
             >
@@ -274,11 +194,7 @@ export default function ChatInputBar({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={
-            isDragging
-              ? "파일을 여기에 놓으세요"
-              : "메시지를 입력하세요 — Enter 전송, Shift+Enter 줄바꿈. 파일은 클립 아이콘 또는 드래그앤드롭"
-          }
+          placeholder="메시지를 입력하세요 — Enter 전송, Shift+Enter 줄바꿈. 파일은 클립 또는 채팅 영역에 드래그앤드롭"
           autoSize={{ minRows: 1, maxRows: 6 }}
           disabled={disabled || sending}
           style={{ flex: 1, fontSize: 13 }}

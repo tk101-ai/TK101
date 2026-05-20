@@ -634,6 +634,17 @@ async def create_image_task_endpoint(
     user: User = Depends(get_current_user),
 ) -> PlaygroundTaskCreated:
     await check_quota_or_raise(db, user)
+    # 베이스 이미지 — 텐센트 reference-image spec 확인 전이라 가드.
+    if body.reference_attachment_id is not None:
+        await _ensure_attachment_is_user_image(db, body.reference_attachment_id, user)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "베이스 이미지 기반 생성은 텐센트 reference-image API spec 확인 후 활성화됩니다. "
+                "현재는 베이스 없이 프롬프트만으로 생성하세요"
+            ),
+        )
+
     try:
         name, version = parse_model_key(body.model_key)
     except ValueError as exc:
@@ -677,6 +688,16 @@ async def create_video_task_endpoint(
     user: User = Depends(get_current_user),
 ) -> PlaygroundTaskCreated:
     await check_quota_or_raise(db, user)
+    # 베이스 이미지 — 텐센트 reference-image spec 확인 전이라 가드 (i2v 와 동일).
+    if body.reference_attachment_id is not None:
+        await _ensure_attachment_is_user_image(db, body.reference_attachment_id, user)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "베이스 이미지 기반 영상 생성은 텐센트 reference-image API spec 확인 후 활성화됩니다. "
+                "현재는 베이스 없이 프롬프트만으로 생성하세요"
+            ),
+        )
     try:
         name, version = parse_model_key(body.model_key)
     except ValueError as exc:
@@ -1303,4 +1324,24 @@ async def _fetch_session_or_404(
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
     if str(row.user_id) != str(user.id):
         raise HTTPException(status_code=403, detail="다른 사용자의 세션에 접근할 수 없습니다")
+    return row
+
+
+async def _ensure_attachment_is_user_image(
+    db: AsyncSession,
+    attachment_id: uuid.UUID,
+    user: User,
+) -> PlaygroundAttachment:
+    """베이스 이미지 첨부 검증: 본인 소유 + kind=='image'."""
+    row = (
+        await db.execute(
+            select(PlaygroundAttachment).where(PlaygroundAttachment.id == attachment_id)
+        )
+    ).scalar_one_or_none()
+    if row is None or row.user_id != user.id:
+        raise HTTPException(status_code=404, detail="베이스 이미지를 찾을 수 없습니다")
+    if row.kind != "image":
+        raise HTTPException(
+            status_code=400, detail="베이스로는 이미지 파일만 사용할 수 있습니다"
+        )
     return row
