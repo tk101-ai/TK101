@@ -58,6 +58,29 @@ class PlaygroundChatRequest(BaseModel):
     system_prompt: str | None = Field(default=None, max_length=20_000)
     # Anthropic Messages API 허용 범위 (0.0 ~ 1.0). UI 에서 더 넓힐 일 없음.
     temperature: float = Field(default=0.7, ge=0.0, le=1.0)
+    # 2026-05-20: 채팅 입력에 첨부할 파일 ID 목록. 업로드는 별도 endpoint.
+    attachment_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# 첨부 파일 (2026-05-20 추가)
+# ---------------------------------------------------------------------------
+
+
+class PlaygroundAttachmentOut(BaseModel):
+    """업로드된 첨부 파일 1건."""
+
+    id: uuid.UUID
+    user_id: uuid.UUID
+    session_id: uuid.UUID | None
+    kind: str  # "image" | "pdf" | "text" | "docx"
+    filename: str
+    mime: str
+    size_bytes: int
+    has_extracted_text: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class PlaygroundSessionCreate(BaseModel):

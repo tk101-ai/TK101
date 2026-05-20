@@ -106,7 +106,7 @@ export function usePlaygroundChat(args: UsePlaygroundChatArgs) {
   );
 
   const sendMessage = useCallback(
-    async (text: string): Promise<void> => {
+    async (text: string, attachmentIds: string[] = []): Promise<void> => {
       const trimmed = text.trim();
       if (!trimmed || sending) return;
 
@@ -157,6 +157,7 @@ export function usePlaygroundChat(args: UsePlaygroundChatArgs) {
           model: args.model,
           system_prompt: args.systemPrompt || null,
           temperature: args.temperature,
+          attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
         },
         {
           signal: controller.signal,

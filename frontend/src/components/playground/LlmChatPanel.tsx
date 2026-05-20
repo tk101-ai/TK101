@@ -264,6 +264,8 @@ export default function LlmChatPanel() {
           onSend={chat.sendMessage}
           onNewChat={chat.resetSession}
           sending={chat.sending}
+          model={modelId}
+          sessionId={chat.sessionId}
         />
       </Card>
     </div>

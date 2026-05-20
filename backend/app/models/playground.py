@@ -10,6 +10,7 @@ SQLAlchemy 2.0 typed style (Mapped) 은 review_translation.py 와 base.py 가 �
 일관성 유지를 위해 column 기반으로 통일.
 """
 from sqlalchemy import (
+    BigInteger,
     Column,
     DateTime,
     ForeignKey,
@@ -79,6 +80,41 @@ class PlaygroundMessage(UUIDMixin, Base):
     # raw_request: 마스킹된 요청 payload. raw_response: final usage chunk.
     raw_request = Column(JSONB, nullable=True)
     raw_response = Column(JSONB, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class PlaygroundAttachment(UUIDMixin, Base):
+    """LLM 채팅 입력에 첨부할 파일 (이미지/PDF/텍스트).
+
+    /chat 호출 시 ``attachment_ids`` 로 참조됨. PDF/텍스트는 업로드 시점에
+    텍스트 추출해 ``extracted_text`` 에 저장 → /chat 이 사용자 메시지 본문
+    앞에 inline 으로 prepend. 이미지는 vision-capable 모델일 때만 data URL
+    로 동봉.
+    """
+
+    __tablename__ = "playground_attachments"
+
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # 업로드 시점에 세션이 있으면 그 세션 id, 새 세션이면 null → /chat 시 세션과 연결.
+    session_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("playground_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # kind: "image" | "pdf" | "text".
+    kind = Column(String(20), nullable=False)
+    filename = Column(String(300), nullable=False)
+    mime = Column(String(150), nullable=False)
+    size_bytes = Column(BigInteger, nullable=False)
+    file_path = Column(String(700), nullable=False)
+    # PDF/텍스트의 추출 본문. 너무 길면 라우터에서 truncate.
+    extracted_text = Column(Text, nullable=True)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

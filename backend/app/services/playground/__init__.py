@@ -42,6 +42,8 @@ PROVIDER_CHIPS: list[dict] = [
         "provider_label": "OpenAI",
         "models": [
             {"key": "gpt-5-chat", "label": "GPT-5 Chat", "badge": None},
+            # 2026-05-20 신규 활성 확인.
+            {"key": "gpt-4.1", "label": "GPT-4.1", "badge": None},
         ],
     },
     {
@@ -88,6 +90,8 @@ PROVIDER_CHIPS: list[dict] = [
         "provider_label": "MiniMax",
         "models": [
             {"key": "minimax-m2.7", "label": "MiniMax M2.7", "badge": "최신"},
+            # 2026-05-20 신규 활성 확인.
+            {"key": "minimax-m2.5", "label": "MiniMax M2.5", "badge": None},
         ],
     },
     {

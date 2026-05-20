@@ -20,6 +20,9 @@ from decimal import Decimal
 # ---------------------------------------------------------------------------
 TEXT_PRICING: dict[str, tuple[float, float, float]] = {
     "gpt-5-chat": (1.25, 0.125, 10.0),
+    # 2026-05-20 신규: 텐센트 단가 스냅샷 미수신 — OpenAI 공식가 ($2/$0.5/$8) 잠정 적용.
+    # 청구액은 텐센트 콘솔이 진실. dump_pricing.py 갱신 시 교체.
+    "gpt-4.1": (2.0, 0.5, 8.0),
     "gemini-2.5-flash": (0.3, 0.03, 2.5),
     "gemini-2.5-pro": (1.25, 0.125, 10.0),
     "gemini-3-flash-preview": (0.5, 0.05, 3.0),
@@ -30,6 +33,8 @@ TEXT_PRICING: dict[str, tuple[float, float, float]] = {
     "glm-5-turbo": (0.77, 0.185, 3.388),
     "kimi-k2.5": (0.616, 0.108, 3.234),
     "minimax-m2.7": (0.3, 0.06, 1.2),
+    # 2026-05-20 신규: m2.7 와 동일 단가 잠정 적용. 텐센트 콘솔 청구액으로 보정.
+    "minimax-m2.5": (0.3, 0.06, 1.2),
     "deepseek-v3.2": (0.28, 0.028, 0.42),
 }
 

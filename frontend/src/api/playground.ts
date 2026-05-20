@@ -239,6 +239,8 @@ export interface StreamChatBody {
   model: string;
   system_prompt?: string | null;
   temperature?: number;
+  /** 2026-05-20: 이번 호출에 결합할 첨부 파일 ID 목록. */
+  attachment_ids?: string[];
 }
 
 export interface StreamChatHandlers {
@@ -657,3 +659,87 @@ export function isQuotaExceededError(err: unknown): boolean {
 
 export const QUOTA_EXCEEDED_MESSAGE =
   "이번 달 사용량 한도를 초과했습니다. 관리자에게 문의해주세요";
+
+// ---------------------------------------------------------------------------
+// 첨부 파일 (2026-05-20 추가)
+// ---------------------------------------------------------------------------
+
+export type PlaygroundAttachmentKind = "image" | "pdf" | "text" | "docx";
+
+export interface PlaygroundAttachment {
+  id: string;
+  user_id: string;
+  session_id: string | null;
+  kind: PlaygroundAttachmentKind;
+  filename: string;
+  mime: string;
+  size_bytes: number;
+  has_extracted_text: boolean;
+  created_at: string;
+}
+
+/** 단일 파일 업로드. session_id 가 있으면 그 세션에 귀속, 없으면 첫 /chat 호출 시 결합. */
+export async function uploadAttachment(
+  file: File,
+  sessionId?: string,
+): Promise<PlaygroundAttachment> {
+  const form = new FormData();
+  form.append("file", file);
+  const params: Record<string, string> = {};
+  if (sessionId) params.session_id = sessionId;
+  const res = await api.post<PlaygroundAttachment>(
+    `${BASE}/attachments`,
+    form,
+    {
+      params,
+      headers: { "Content-Type": "multipart/form-data" },
+    },
+  );
+  return res.data;
+}
+
+export async function deleteAttachment(id: string): Promise<void> {
+  await api.delete(`${BASE}/attachments/${encodeURIComponent(id)}`);
+}
+
+/** 안정 다운로드/미리보기 URL. */
+export function attachmentFileUrl(id: string): string {
+  return `${BASE}/attachments/${encodeURIComponent(id)}/file`;
+}
+
+/** vision (이미지 첨부) 지원 모델 ID 목록. 프론트는 이걸로 경고 노출. */
+export async function getVisionModels(): Promise<string[]> {
+  const res = await api.get<string[]>(`${BASE}/vision-models`);
+  return res.data;
+}
+
+/** 파일이 첨부 허용 형식인지 + 어떤 종류로 분류될지. */
+export function classifyAttachment(file: File): PlaygroundAttachmentKind | null {
+  const name = file.name.toLowerCase();
+  const ext = name.includes(".") ? name.split(".").pop()! : "";
+  if (
+    file.type.startsWith("image/") ||
+    ["png", "jpg", "jpeg", "webp", "gif"].includes(ext)
+  ) {
+    return "image";
+  }
+  if (file.type === "application/pdf" || ext === "pdf") return "pdf";
+  if (
+    file.type ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    ext === "docx"
+  ) {
+    return "docx";
+  }
+  if (
+    file.type.startsWith("text/") ||
+    ["txt", "md", "csv", "json", "log", "py", "ts", "tsx", "js", "html", "xml", "yaml", "yml"].includes(
+      ext,
+    )
+  ) {
+    return "text";
+  }
+  return null;
+}
+
+export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
