@@ -268,6 +268,7 @@ def _generate_one_sync(
     sender_ctx: PersonaContext,
     receiver_ctx: PersonaContext,
     bl_ctx: BlContext,
+    timing_profile: str = "normal",
 ) -> GenerationResult:
     """blocking Claude 호출을 동기 함수에 격리.
 
@@ -278,6 +279,7 @@ def _generate_one_sync(
         sender=sender_ctx,
         receiver=receiver_ctx,
         bl=bl_ctx,
+        timing_profile=timing_profile,  # type: ignore[arg-type]
     )
 
 
@@ -362,6 +364,7 @@ async def _create_one_pair_combined_session(
     kr_persona: DistributionPersona,
     vn_persona: DistributionPersona,
     bl_ctx: BlContext,
+    timing_profile: str = "normal",
 ) -> str:
     """N개 시나리오를 합성하여 1 세션 생성 (페르소나당 1 LLM 호출, Phase F-B).
 
@@ -413,6 +416,7 @@ async def _create_one_pair_combined_session(
         sender_ctx=sender_ctx,
         receiver_ctx=receiver_ctx,
         bl_ctx=bl_ctx,
+        timing_profile=timing_profile,
     )
 
     label_to_id: dict[str, Any] = {

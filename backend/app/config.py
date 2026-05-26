@@ -98,8 +98,9 @@ class Settings(BaseSettings):
     # 메시지 첨부 파일 저장 디렉토리 (NAS RW). 운영: ``/mnt/nas-rw/distribution/attachments``.
     # 로컬/개발에선 컨테이너 내부 또는 nas-stub 경로로 override.
     distribution_attachment_dir: str = "/mnt/nas-rw/distribution/attachments"
-    # 첨부 1건 최대 크기 (바이트). 기본 20MB. Telethon 자체는 2GB까지 OK 이지만 사내 회선 보호.
-    distribution_attachment_max_bytes: int = 20 * 1024 * 1024
+    # 첨부 1건 최대 크기 (바이트). 200MB. Telethon 자체는 2GB까지 OK.
+    # 너무 크면 사내 회선/NAS RW 부담 — 정말 큰 파일은 NAS 공유 링크로 대체 권장.
+    distribution_attachment_max_bytes: int = 200 * 1024 * 1024
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

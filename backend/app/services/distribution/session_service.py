@@ -65,6 +65,7 @@ def _build_session_list_item(
     sender_label: str,
     receiver_label: str,
     message_count: int,
+    scenario_attachment_required: bool = False,
 ) -> SessionListItem:
     """세션 ORM + join 결과를 목록 응답 1행으로 변환."""
     return SessionListItem(
@@ -79,6 +80,7 @@ def _build_session_list_item(
         scheduled_start=session.scheduled_start,
         message_count=message_count,
         llm_cost_usd=session.llm_cost_usd,
+        scenario_attachment_required=scenario_attachment_required,
     )
 
 
@@ -159,6 +161,7 @@ async def list_sessions(
         select(
             DistributionSession,
             DistributionScenario.name,
+            DistributionScenario.attachment_required,
             sender.c.account_label,
             receiver.c.account_label,
             func.coalesce(msg_count_subq.c.msg_count, 0),
@@ -191,8 +194,9 @@ async def list_sessions(
             sender_label=sender_label,
             receiver_label=receiver_label,
             message_count=int(msg_count or 0),
+            scenario_attachment_required=bool(attachment_required),
         )
-        for session, scenario_name, sender_label, receiver_label, msg_count in rows
+        for session, scenario_name, attachment_required, sender_label, receiver_label, msg_count in rows
     ]
 
 
@@ -216,6 +220,7 @@ async def get_session_detail(
         select(
             DistributionSession,
             DistributionScenario.name,
+            DistributionScenario.attachment_required,
             sender.c.account_label,
             receiver.c.account_label,
             msg_count_subq,
@@ -232,7 +237,14 @@ async def get_session_detail(
     if header_row is None:
         return None
 
-    session_obj, scenario_name, sender_label, receiver_label, message_count = header_row
+    (
+        session_obj,
+        scenario_name,
+        attachment_required,
+        sender_label,
+        receiver_label,
+        message_count,
+    ) = header_row
 
     # 메시지 + sender label join.
     msg_stmt = (
@@ -256,6 +268,7 @@ async def get_session_detail(
         sender_label=sender_label,
         receiver_label=receiver_label,
         message_count=int(message_count or 0),
+        scenario_attachment_required=bool(attachment_required),
     )
     return SessionDetail(session=header, messages=messages)
 
@@ -269,12 +282,21 @@ async def update_message(
     db: AsyncSession,
     message_id: UUID,
     *,
-    edited_content: str,
+    edited_content: str | None = None,
+    send_after_sec: int | None = None,
 ) -> MessageItem | None:
-    """메시지 편집 — edited_content 갱신 + user_edited=True.
+    """메시지 편집 — 본문 또는 송신 텀 갱신.
 
-    송신 상태(status='sent') 메시지는 편집 거부 (None 반환 X — 라우터에서 422).
+    - ``edited_content`` 제공 → user_edited=True.
+    - ``send_after_sec`` 제공 → 텀만 변경 (user_edited 갱신 X).
+    - 둘 다 None 이면 ValueError → 라우터 422.
+    - status='sent' 면 ValueError → 라우터 422.
     """
+    if edited_content is None and send_after_sec is None:
+        raise ValueError(
+            "edited_content / send_after_sec 중 하나는 반드시 제공해야 합니다."
+        )
+
     result = await db.execute(
         select(DistributionMessage, DistributionPersona.account_label)
         .join(
@@ -292,17 +314,22 @@ async def update_message(
         # 라우터가 422 로 변환. 비즈니스 룰 위반.
         raise ValueError("이미 송신된 메시지는 편집할 수 없습니다.")
 
-    message.edited_content = edited_content
-    message.user_edited = True
+    if edited_content is not None:
+        message.edited_content = edited_content
+        message.user_edited = True
+    if send_after_sec is not None:
+        message.send_after_sec = send_after_sec
+
     db.add(message)
     await db.commit()
     await db.refresh(message)
 
     logger.info(
-        "message edited — id=%s session=%s len=%d",
+        "message updated — id=%s session=%s content=%s timing=%s",
         message.id,
         message.session_id,
-        len(edited_content),
+        "yes" if edited_content is not None else "no",
+        send_after_sec if send_after_sec is not None else "no",
     )
     return _build_message_item(message=message, sender_label=sender_label)
 

@@ -58,6 +58,8 @@ class SessionListItem(BaseModel):
     scheduled_start: datetime | None = None
     message_count: int = Field(ge=0, description="해당 세션의 메시지 총 개수")
     llm_cost_usd: Decimal | None = None
+    # 시나리오가 첨부 권장이면 True (T9 — 2026-05-26).
+    scenario_attachment_required: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -101,9 +103,15 @@ class SessionDetail(BaseModel):
 
 
 class MessageEditRequest(BaseModel):
-    """메시지 편집 요청. 본문이 비어있는 편집은 거부."""
+    """메시지 편집 요청.
 
-    edited_content: str = Field(min_length=1, max_length=4096)
+    - edited_content: 본문 변경 (1~4096자, 비어있는 본문은 거부).
+    - send_after_sec: 이전 메시지 송신 후 대기 초 (0 ~ 86400, 0~24시간).
+    둘 중 하나는 반드시 제공되어야 함 (라우터에서 검증).
+    """
+
+    edited_content: str | None = Field(default=None, min_length=1, max_length=4096)
+    send_after_sec: int | None = Field(default=None, ge=0, le=86400)
 
 
 class ApproveRequest(BaseModel):

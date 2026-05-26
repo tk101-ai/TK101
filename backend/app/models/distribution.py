@@ -139,6 +139,12 @@ class DistributionScenario(Base):
     raw_text = Column(Text, nullable=True)
     example_msgs = Column(JSONB, nullable=True)
     active = Column(Boolean, nullable=False, server_default=text("true"))
+    # 첨부 파일 권장 시나리오 (T9 — 2026-05-26).
+    # True 면 검수 UI 에 "이 시나리오는 엑셀/이미지 등 첨부 권장" 배너 표시.
+    # (예: VIP 프로모션 — 숫자는 엑셀로만 전달)
+    attachment_required = Column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

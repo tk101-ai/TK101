@@ -349,6 +349,8 @@ export interface SessionListItem {
   scheduled_start: string | null;
   message_count: number;
   llm_cost_usd: string | null;
+  /** 시나리오가 첨부 권장이면 true (T9 — 2026-05-26). */
+  scenario_attachment_required: boolean;
 }
 
 export type AttachmentKind = "image" | "document";
@@ -458,6 +460,17 @@ export async function updateMessage(
 ): Promise<MessageItem> {
   const res = await api.patch<MessageItem>(`${BASE}/messages/${id}`, {
     edited_content: editedContent,
+  });
+  return res.data;
+}
+
+/** 메시지 송신 텀(send_after_sec) 만 갱신. 본문은 그대로 둠. */
+export async function updateMessageTiming(
+  id: string,
+  sendAfterSec: number,
+): Promise<MessageItem> {
+  const res = await api.patch<MessageItem>(`${BASE}/messages/${id}`, {
+    send_after_sec: sendAfterSec,
   });
   return res.data;
 }

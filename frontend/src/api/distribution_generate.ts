@@ -38,11 +38,15 @@ export async function listScenarios(): Promise<ScenarioBrief[]> {
 // 커스텀 생성 트리거
 // ---------------------------------------------------------------------------
 
+export type TimingProfile = "short" | "normal" | "varied";
+
 export interface GenerateCustomPayload {
   sender_persona_ids: string[];
   scenario_names: string[];
   period_label?: string | null;
   company_label?: string;
+  /** 메시지 간격 분포 (T9 — 2026-05-26). default 'normal'. */
+  timing_profile?: TimingProfile;
 }
 
 export interface GenerateCustomResult {
@@ -69,6 +73,7 @@ export async function generateCustom(
       scenario_names: payload.scenario_names,
       period_label: payload.period_label ?? null,
       company_label: payload.company_label ?? "래더엑스",
+      timing_profile: payload.timing_profile ?? "normal",
     },
   );
   return res.data;

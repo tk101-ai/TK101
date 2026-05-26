@@ -11,8 +11,39 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
+
+
+# 메시지 간격 분포 프로파일 (T9 — 2026-05-26).
+TimingProfile = Literal["short", "normal", "varied"]
+
+_TIMING_GUIDES: dict[str, str] = {
+    "short": (
+        "[메시지 간격 가이드 — short / 빠른 핑퐁]\n"
+        "- 메시지 사이 간격(send_after_sec)은 30초 ~ 30분 사이로 짧게 두세요.\n"
+        "- 거의 즉시 응답하는 채팅 페이스. 첫 메시지는 0초, 이후는 30~1800초 범위에서 분포.\n"
+        "- 한 명이 연속으로 짧게 분할 송신할 때는 30초~3분 정도로 묶어서 보냅니다."
+    ),
+    "normal": (
+        "[메시지 간격 가이드 — normal / 일상 비즈니스]\n"
+        "- 메시지 사이 간격은 5분 ~ 3시간(=180~10800초) 사이에서 자연스럽게 혼합하세요.\n"
+        "- 첫 메시지는 0초, 이후는 평균 20~40분 간격이지만 짧은 즉답과 1~3시간 텀이 섞이도록.\n"
+        "- 너무 일정한 간격(예: 모두 5분, 모두 10분)은 부자연스럽습니다 — 반드시 폭넓게 분산."
+    ),
+    "varied": (
+        "[메시지 간격 가이드 — varied / 하루를 거쳐가는 흐름]\n"
+        "- 의도적으로 폭넓은 간격: 1분 즉답과 3~12시간(180~43200초) 후 답장이 섞여야 합니다.\n"
+        "- 시나리오가 짧아도 좋으니 '오전에 말 걸고 오후/저녁에 답장' 같은 패턴을 만드세요.\n"
+        "- 발신자가 정보 분할로 연속 송신할 땐 짧게, 상대방의 응답엔 의도적으로 큰 텀을 두세요.\n"
+        "- 한 메시지라도 send_after_sec 가 14400(4시간) 이상인 경우가 최소 1건은 포함되어야 합니다."
+    ),
+}
+
+
+def timing_guide(profile: TimingProfile) -> str:
+    """profile 에 해당하는 시간 분포 가이드 텍스트 반환."""
+    return _TIMING_GUIDES.get(profile, _TIMING_GUIDES["normal"])
 
 
 # Claude 응답 JSON 스키마. conversation_generator 가 검증에 사용.
@@ -45,6 +76,12 @@ ANTI_AI_RULES = """\
 - 너무 정확한 시간 표기 ("정확히 3시 47분에" 등)
 - 영어 비즈니스 표현 직역 ("아래와 같이", "상기 내용", "본 건")
 - 과도하게 정중한 문어체 ("~하셨음을 알려드립니다")
+
+[스몰토크·안부 인사 금지]
+- "안녕하세요", "수고하세요", "잘 지내시죠" 같은 안부 인사로 대화를 시작하지 마세요.
+- 날씨·주말·식사·건강 같은 잡담은 절대 넣지 마세요. 본론만 다룹니다.
+- 첫 메시지는 곧바로 본론(시나리오 첫 비트의 핵심)으로 시작합니다.
+- 마무리 인사("감사합니다 수고하세요~" 등 한두 마디)는 비트가 명시한 경우에만 짧게.
 
 [필수 표현]
 - 한 메시지는 1~2문장만. 길면 분할.
@@ -241,13 +278,15 @@ def build_prompt(
     receiver: PersonaContext,
     bl: BlContext | None,
     now: datetime | None = None,
+    timing_profile: TimingProfile = "normal",
 ) -> ConversationPrompt:
     """시나리오/페르소나/BL 을 Claude 프롬프트 페이로드로 변환.
 
-    system 프롬프트: 페르소나 역할 + 톤 + AI 티 제거 규칙 + 출력 스키마.
+    system 프롬프트: 페르소나 역할 + 톤 + AI 티 제거 규칙 + 시간 분포 가이드 + 출력 스키마.
     user 메시지: BL + 시나리오 비트 + few-shot 예시 + 작성 지시.
 
     now: 시각대(KST) 인식용. None 이면 호출 시점 KST.
+    timing_profile: short/normal/varied — 메시지 간격 분포 가이드 선택 (T9 — 2026-05-26).
     """
     if now is None:
         now = datetime.now(ZoneInfo("Asia/Seoul"))
@@ -275,6 +314,8 @@ def build_prompt(
 여러 주제가 한 대화에 포함될 수 있습니다 — 자연스럽게 화제 전환하되 모든 비트를 다루세요.
 
 {ANTI_AI_RULES}
+
+{timing_guide(timing_profile)}
 
 {OUTPUT_SCHEMA_DOC}
 """

@@ -5,6 +5,7 @@ import {
   Empty,
   Form,
   Modal,
+  Radio,
   Select,
   Spin,
   Typography,
@@ -22,6 +23,7 @@ import {
 import type {
   GenerateCustomResult,
   ScenarioBrief,
+  TimingProfile,
 } from "../../api/distribution_generate";
 import { extractErrorDetail } from "../../utils/errorUtils";
 
@@ -48,6 +50,7 @@ interface FormValues {
   sender_persona_ids: string[];
   scenario_names: string[];
   period_label: string | "__latest__";
+  timing_profile: TimingProfile;
 }
 
 const LATEST_VALUE = "__latest__";
@@ -96,6 +99,7 @@ export default function GenerateTriggerModal({
           sender_persona_ids: [],
           scenario_names: [],
           period_label: LATEST_VALUE,
+          timing_profile: "normal",
         });
         setSenderIds([]);
         setScenarioNames([]);
@@ -165,6 +169,7 @@ export default function GenerateTriggerModal({
         scenario_names: values.scenario_names,
         period_label:
           values.period_label === LATEST_VALUE ? null : values.period_label,
+        timing_profile: values.timing_profile ?? "normal",
       });
       onGenerated(result);
       form.resetFields();
@@ -272,6 +277,19 @@ export default function GenerateTriggerModal({
             rules={[{ required: true, message: "주차를 선택하세요" }]}
           >
             <Select options={weekOptions} placeholder="주차 선택" />
+          </Form.Item>
+
+          <Form.Item
+            name="timing_profile"
+            label="메시지 간격 분포"
+            help="AI 가 메시지 사이의 시간차(send_after_sec)를 어떻게 분배할지 결정합니다. 생성 후 검수 화면에서 메시지마다 수동 조정도 가능합니다."
+            rules={[{ required: true, message: "간격 분포를 선택하세요" }]}
+          >
+            <Radio.Group>
+              <Radio.Button value="short">짧음 (0~30분 · 빠른 핑퐁)</Radio.Button>
+              <Radio.Button value="normal">보통 (5분~3시간 · 일상)</Radio.Button>
+              <Radio.Button value="varied">다양함 (1분~12시간 · 하루 흐름)</Radio.Button>
+            </Radio.Group>
           </Form.Item>
 
           <Alert

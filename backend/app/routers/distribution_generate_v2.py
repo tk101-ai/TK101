@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -74,6 +75,9 @@ class GenerateCustomRequest(BaseModel):
         description="weekly_summary.period_label (예: 2026_0512). None 이면 최신 주차.",
     )
     company_label: str = Field(default="래더엑스", min_length=1, max_length=100)
+    # 메시지 간격 분포 (T9 — 2026-05-26).
+    # short: 0~30분 빠른 핑퐁 / normal: 5분~3시간 / varied: 1분~12시간 폭넓게.
+    timing_profile: Literal["short", "normal", "varied"] = "normal"
 
 
 class GenerateCustomResult(BaseModel):
@@ -265,6 +269,7 @@ async def generate_custom(
                 kr_persona=kr,
                 vn_persona=vn_persona,
                 bl_ctx=bl_ctx,
+                timing_profile=payload.timing_profile,
             )
             result.sessions_created.append(UUID(session_id))
             logger.info(

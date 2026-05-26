@@ -9,8 +9,10 @@ import {
   Empty,
   Form,
   Input,
+  InputNumber,
   Modal,
   Popconfirm,
+  Select,
   Space,
   Spin,
   Tag,
@@ -43,6 +45,7 @@ import {
   rejectSession,
   sendSessionNow,
   updateMessage,
+  updateMessageTiming,
   uploadMessageAttachment,
   type MessageItem,
   type SessionDetail,
@@ -81,6 +84,111 @@ function formatCumulativeOffset(sec: number): string {
   const s = sec % 60;
   if (s === 0) return `+${m}m`;
   return `+${m}m ${s}s`;
+}
+
+/** send_after_sec 빠른 설정 프리셋. 라벨 = 사용자가 보는 텍스트, value = 초. */
+const TIMING_PRESETS: { label: string; value: number }[] = [
+  { label: "즉시", value: 0 },
+  { label: "1분", value: 60 },
+  { label: "5분", value: 300 },
+  { label: "30분", value: 1800 },
+  { label: "1시간", value: 3600 },
+  { label: "3시간", value: 10800 },
+  { label: "6시간", value: 21600 },
+  { label: "12시간", value: 43200 },
+];
+
+interface TimingEditorProps {
+  msg: MessageItem;
+  disabled: boolean;
+  onUpdated: (next: MessageItem) => void;
+}
+
+function TimingEditor({ msg, disabled, onUpdated }: TimingEditorProps) {
+  const [editing, setEditing] = useState<boolean>(false);
+  const [value, setValue] = useState<number>(msg.send_after_sec);
+  const [saving, setSaving] = useState<boolean>(false);
+
+  const submit = async (next: number) => {
+    if (next < 0 || next > 86400) {
+      message.warning("0초 ~ 24시간(86400초) 범위만 가능합니다.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await updateMessageTiming(msg.id, next);
+      message.success(`메시지 #${msg.order_index + 1} 텀 변경: +${next}s`);
+      onUpdated(updated);
+      setEditing(false);
+    } catch (err: unknown) {
+      message.error(extractErrorDetail(err, "텀 변경 실패"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (disabled || msg.status === "sent") {
+    return null;
+  }
+
+  if (!editing) {
+    return (
+      <Button
+        size="small"
+        type="link"
+        style={{ padding: 0, fontSize: 12 }}
+        onClick={() => {
+          setValue(msg.send_after_sec);
+          setEditing(true);
+        }}
+      >
+        텀 변경
+      </Button>
+    );
+  }
+
+  return (
+    <Space size={4} wrap style={{ fontSize: 12 }}>
+      <InputNumber
+        size="small"
+        min={0}
+        max={86400}
+        value={value}
+        onChange={(v) => setValue(typeof v === "number" ? v : 0)}
+        disabled={saving}
+        style={{ width: 80 }}
+        addonAfter="초"
+      />
+      <Select
+        size="small"
+        value={undefined}
+        placeholder="프리셋"
+        options={TIMING_PRESETS.map((p) => ({ label: p.label, value: p.value }))}
+        onChange={(v) => {
+          if (typeof v === "number") setValue(v);
+        }}
+        style={{ width: 90 }}
+        disabled={saving}
+      />
+      <Button
+        size="small"
+        type="primary"
+        loading={saving}
+        onClick={() => {
+          void submit(value);
+        }}
+      >
+        적용
+      </Button>
+      <Button
+        size="small"
+        onClick={() => setEditing(false)}
+        disabled={saving}
+      >
+        취소
+      </Button>
+    </Space>
+  );
 }
 
 interface MessageRowProps {
@@ -208,9 +316,9 @@ function AttachmentBlock({ msg, disabled, onChanged }: AttachmentBlockProps) {
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) {
-            if (f.size > 20 * 1024 * 1024) {
+            if (f.size > 200 * 1024 * 1024) {
               message.warning(
-                `파일이 너무 큽니다 (${formatBytes(f.size)}). 최대 20MB.`,
+                `파일이 너무 큽니다 (${formatBytes(f.size)}). 최대 200MB.`,
               );
             } else {
               void handleFile(f);
@@ -228,7 +336,7 @@ function AttachmentBlock({ msg, disabled, onChanged }: AttachmentBlockProps) {
         파일 첨부
       </Button>
       <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-        이미지·PDF·엑셀·한글 등 (최대 20MB)
+        이미지·PDF·엑셀·한글 등 (최대 200MB)
       </Text>
     </div>
   );
@@ -282,6 +390,10 @@ function MessageRow({
         <Text type="secondary" style={{ fontSize: 12 }}>
           {formatCumulativeOffset(cumulativeOffset)}
         </Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          이전 메시지로부터 +{msg.send_after_sec}s
+        </Text>
+        <TimingEditor msg={msg} disabled={editingDisabled} onUpdated={onSaved} />
         <Tag color={MESSAGE_STATUS_TAG_COLOR[msg.status]}>
           {MESSAGE_STATUS_LABEL[msg.status]}
         </Tag>
@@ -694,6 +806,25 @@ export default function SessionDetailPage() {
           </Descriptions.Item>
         </Descriptions>
 
+        {session.scenario_attachment_required && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginTop: 16 }}
+            message="이 시나리오는 파일 첨부가 권장됩니다 (예: VIP 프로모션 — 엑셀)"
+            description={(() => {
+              const total = messages.length;
+              const withAttachment = messages.filter(
+                (m) => m.attachment_url != null,
+              ).length;
+              if (total === 0) return "메시지가 없습니다.";
+              if (withAttachment === 0) {
+                return `숫자·상세 정보는 엑셀로만 전달하는 것이 시나리오 취지입니다. 현재 첨부된 메시지가 없습니다 (${total}건 중 0건). 송신 전 1건 이상에 엑셀 파일을 첨부하세요.`;
+              }
+              return `현재 ${total}건 중 ${withAttachment}건에 첨부가 포함되어 있습니다.`;
+            })()}
+          />
+        )}
         {status === "sent" && (
           <Alert
             type="success"

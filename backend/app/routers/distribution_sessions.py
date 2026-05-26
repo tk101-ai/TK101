@@ -109,15 +109,17 @@ async def edit_message(
     payload: MessageEditRequest,
     db: AsyncSession = Depends(get_db),
 ) -> MessageItem:
-    """메시지 편집 — edited_content 저장 + user_edited=True.
+    """메시지 편집 — 본문(edited_content) 또는 송신 텀(send_after_sec) 갱신.
 
-    이미 송신된 메시지는 422 반환.
+    - 둘 중 하나는 반드시 제공 (둘 다 None 이면 422).
+    - 이미 송신된 메시지는 422.
     """
     try:
         updated = await session_service.update_message(
             db,
             message_id,
             edited_content=payload.edited_content,
+            send_after_sec=payload.send_after_sec,
         )
     except ValueError as exc:
         raise HTTPException(

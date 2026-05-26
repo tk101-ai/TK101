@@ -24,6 +24,7 @@ from app.services.distribution.scenario_engine import (
     ConversationPrompt,
     PersonaContext,
     ScenarioContext,
+    TimingProfile,
     build_prompt,
     extract_messages_from_response,
 )
@@ -88,12 +89,14 @@ def generate_conversation(
     bl: BlContext | None = None,
     max_attempts: int | None = None,
     base_temperature: float = 0.8,
+    timing_profile: TimingProfile = "normal",
 ) -> GenerationResult:
     """Claude 호출하여 대화 1세트 생성.
 
     - 첫 시도는 ``base_temperature`` (보통 0.8 — 약간 창의적).
     - 재시도 시 temperature 살짝 변형 (0.7 / 0.9 등) — 같은 응답 반복 회피.
     - 모든 재시도 실패 시 ``GenerationError``.
+    - ``timing_profile`` 로 메시지 간격 분포 결정 (short/normal/varied).
     """
     if max_attempts is None:
         max_attempts = max(1, settings.distribution_send_retry_max)
@@ -103,6 +106,7 @@ def generate_conversation(
         sender=sender,
         receiver=receiver,
         bl=bl,
+        timing_profile=timing_profile,
     )
     valid_senders = {sender.account_label, receiver.account_label}
 
