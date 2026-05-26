@@ -351,6 +351,8 @@ export interface SessionListItem {
   llm_cost_usd: string | null;
 }
 
+export type AttachmentKind = "image" | "document";
+
 export interface MessageItem {
   id: string;
   order_index: number;
@@ -363,6 +365,12 @@ export interface MessageItem {
   status: MessageStatus;
   sent_at: string | null;
   telegram_message_id: string | null;
+  /** 첨부 파일 (T9 — 2026-05-26). attachment_url 이 있으면 첨부 있음. */
+  attachment_filename: string | null;
+  attachment_mime: string | null;
+  attachment_kind: AttachmentKind | null;
+  attachment_caption: string | null;
+  attachment_url: string | null;
 }
 
 export interface SessionDetail {
@@ -451,6 +459,38 @@ export async function updateMessage(
   const res = await api.patch<MessageItem>(`${BASE}/messages/${id}`, {
     edited_content: editedContent,
   });
+  return res.data;
+}
+
+/**
+ * 메시지에 파일 첨부 (T9 — 2026-05-26).
+ *
+ * - 이미지 (JPG/PNG/WebP/GIF) 또는 문서 (PDF/엑셀/한글 등) 1건.
+ * - 최대 20MB. 허용되지 않는 확장자/크기는 백엔드에서 415/413.
+ * - 이미 송신된 메시지는 422.
+ * - 동일 메시지에 재업로드 시 기존 파일 덮어쓰기.
+ */
+export async function uploadMessageAttachment(
+  id: string,
+  file: File,
+  caption?: string | null,
+): Promise<MessageItem> {
+  const form = new FormData();
+  form.append("file", file);
+  const url = caption
+    ? `${BASE}/messages/${id}/attachment?caption=${encodeURIComponent(caption)}`
+    : `${BASE}/messages/${id}/attachment`;
+  const res = await api.post<MessageItem>(url, form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
+}
+
+/** 첨부 제거. 이미 송신된 메시지는 422. */
+export async function deleteMessageAttachment(
+  id: string,
+): Promise<MessageItem> {
+  const res = await api.delete<MessageItem>(`${BASE}/messages/${id}/attachment`);
   return res.data;
 }
 

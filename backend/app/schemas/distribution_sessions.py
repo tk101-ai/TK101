@@ -77,6 +77,14 @@ class MessageItem(BaseModel):
     sent_at: datetime | None = None
     telegram_message_id: str | None = None
 
+    # 파일 첨부 (T9 — 2026-05-26).
+    attachment_filename: str | None = None
+    attachment_mime: str | None = None
+    attachment_kind: str | None = None  # 'image' | 'document'
+    attachment_caption: str | None = None
+    # 다운로드/미리보기 URL — 라우터에서 채움. attachment_path 자체는 노출하지 않음.
+    attachment_url: str | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 

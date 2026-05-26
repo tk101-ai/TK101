@@ -234,6 +234,15 @@ class DistributionMessage(Base):
     sent_at = Column(DateTime(timezone=True), nullable=True)
     telegram_message_id = Column(String(50), nullable=True)
 
+    # 파일 첨부 (T9 — 2026-05-26 추가).
+    # attachment_path 가 NULL 이 아니면 송신 시 send_file 사용.
+    # kind: 'image' 면 미리보기 가능 형태, 'document' 면 force_document=True 로 송신.
+    attachment_path = Column(String(700), nullable=True)
+    attachment_filename = Column(String(300), nullable=True)
+    attachment_mime = Column(String(150), nullable=True)
+    attachment_kind = Column(String(20), nullable=True)
+    attachment_caption = Column(Text, nullable=True)
+
 
 class DistributionWeeklySummary(Base):
     """주차별 종합 데이터 (래더엑스 종합관리시트 1주차 = 1행).

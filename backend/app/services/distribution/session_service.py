@@ -85,6 +85,12 @@ def _build_session_list_item(
 def _build_message_item(
     message: DistributionMessage, *, sender_label: str
 ) -> MessageItem:
+    # 첨부가 있으면 라우터 다운로드 endpoint 로 URL 노출 (실제 파일경로는 응답에 X).
+    attachment_url = (
+        f"/api/distribution/messages/{message.id}/attachment"
+        if message.attachment_path
+        else None
+    )
     return MessageItem(
         id=message.id,
         order_index=message.order_index,
@@ -97,7 +103,26 @@ def _build_message_item(
         status=message.status,  # type: ignore[arg-type]
         sent_at=message.sent_at,
         telegram_message_id=message.telegram_message_id,
+        attachment_filename=message.attachment_filename,
+        attachment_mime=message.attachment_mime,
+        attachment_kind=message.attachment_kind,
+        attachment_caption=message.attachment_caption,
+        attachment_url=attachment_url,
     )
+
+
+async def serialize_message(
+    db: AsyncSession, message: DistributionMessage
+) -> MessageItem:
+    """라우터 공용 — 단일 메시지 → MessageItem (sender label 채움)."""
+    sender = (
+        await db.execute(
+            select(DistributionPersona.account_label).where(
+                DistributionPersona.id == message.sender_persona_id
+            )
+        )
+    ).scalar_one()
+    return _build_message_item(message=message, sender_label=sender)
 
 
 # ---------------------------------------------------------------------------
@@ -450,14 +475,38 @@ async def send_session_now(
 
             client = clients[from_persona.id]
             try:
-                # 타이핑 인디케이터 — 짧게.
-                async with client.action(target_entity, "typing"):
+                # 타이핑 인디케이터 — 짧게. 첨부가 있으면 'upload_photo'/'upload_document'.
+                typing_action = "typing"
+                if message.attachment_path:
+                    typing_action = (
+                        "upload_photo"
+                        if message.attachment_kind == "image"
+                        else "upload_document"
+                    )
+                async with client.action(target_entity, typing_action):
                     await asyncio.sleep(min(message.typing_sec or 0, _TYPING_CAP_SEC))
 
-                sent = await client.send_message(
-                    target_entity,
-                    message.edited_content or message.content,
-                )
+                if message.attachment_path:
+                    # 파일 첨부 송신. 문서류는 force_document=True 로 미리보기 없이 첨부.
+                    # 캡션 우선순위: attachment_caption > edited_content > content.
+                    caption = (
+                        message.attachment_caption
+                        or message.edited_content
+                        or message.content
+                        or ""
+                    )
+                    sent = await client.send_file(
+                        target_entity,
+                        message.attachment_path,
+                        caption=caption,
+                        force_document=(message.attachment_kind != "image"),
+                        file_name=message.attachment_filename or None,
+                    )
+                else:
+                    sent = await client.send_message(
+                        target_entity,
+                        message.edited_content or message.content,
+                    )
                 message.status = "sent"
                 message.sent_at = datetime.now(timezone.utc)
                 message.telegram_message_id = str(sent.id)

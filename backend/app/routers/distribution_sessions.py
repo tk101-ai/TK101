@@ -22,13 +22,17 @@ Phase C 엔드포인트:
 from __future__ import annotations
 
 import logging
+import os
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin, require_module
+from app.models.distribution import DistributionMessage
 from app.models.user import User
 from app.modules.constants import Module
 from app.schemas.distribution_sessions import (
@@ -41,7 +45,7 @@ from app.schemas.distribution_sessions import (
     SessionListItem,
     SessionStatus,
 )
-from app.services.distribution import session_service
+from app.services.distribution import attachment_service, session_service
 
 logger = logging.getLogger(__name__)
 
@@ -232,4 +236,130 @@ async def send_session_now(
         sent_count=sent_count,
         failed_count=failed_count,
         error=None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 메시지 첨부 파일 (T9 — 2026-05-26 추가)
+# ---------------------------------------------------------------------------
+
+
+async def _load_message_or_404(
+    db: AsyncSession, message_id: UUID
+) -> DistributionMessage:
+    """편집·첨부 공용 — 메시지 단건 로드. 없으면 404."""
+    msg = (
+        await db.execute(
+            select(DistributionMessage).where(DistributionMessage.id == message_id)
+        )
+    ).scalar_one_or_none()
+    if msg is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="메시지 없음"
+        )
+    return msg
+
+
+@router.post("/messages/{message_id}/attachment")
+async def upload_message_attachment(
+    message_id: UUID,
+    file: UploadFile = File(...),
+    caption: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> MessageItem:
+    """메시지에 파일 첨부 (이미지/문서).
+
+    - 이미 송신된 메시지는 422.
+    - 동일 메시지에 재업로드 시 기존 파일 덮어쓰기 + DB 메타 갱신.
+    - 화이트리스트 외 확장자: 415. 크기 초과: 413.
+    """
+    msg = await _load_message_or_404(db, message_id)
+    if msg.status == "sent":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="이미 송신된 메시지에는 첨부할 수 없습니다.",
+        )
+
+    file_bytes = await file.read(
+        attachment_service.settings.distribution_attachment_max_bytes + 1
+    )
+    try:
+        saved = attachment_service.save_attachment(
+            session_id=msg.session_id,
+            message_id=msg.id,
+            file_bytes=file_bytes,
+            original_filename=file.filename or "attachment",
+            content_type=file.content_type,
+        )
+    except attachment_service.AttachmentError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    # 이전 첨부 파일이 다른 확장자였으면 잔여 파일 정리.
+    if msg.attachment_path and msg.attachment_path != saved.path:
+        attachment_service.delete_attachment(msg.attachment_path)
+
+    msg.attachment_path = saved.path
+    msg.attachment_filename = saved.filename
+    msg.attachment_mime = saved.mime
+    msg.attachment_kind = saved.kind
+    if caption is not None:
+        msg.attachment_caption = caption.strip() or None
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+
+    return await session_service.serialize_message(db, msg)
+
+
+@router.delete("/messages/{message_id}/attachment")
+async def delete_message_attachment(
+    message_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> MessageItem:
+    """첨부 파일 제거. 이미 송신된 메시지는 422."""
+    msg = await _load_message_or_404(db, message_id)
+    if msg.status == "sent":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="이미 송신된 메시지의 첨부는 제거할 수 없습니다.",
+        )
+
+    attachment_service.delete_attachment(msg.attachment_path)
+    msg.attachment_path = None
+    msg.attachment_filename = None
+    msg.attachment_mime = None
+    msg.attachment_kind = None
+    msg.attachment_caption = None
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+
+    return await session_service.serialize_message(db, msg)
+
+
+@router.get("/messages/{message_id}/attachment")
+async def download_message_attachment(
+    message_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """첨부 파일 다운로드/미리보기. 검수 UI 의 ``<img src>`` · 다운로드 링크에서 사용."""
+    msg = await _load_message_or_404(db, message_id)
+    if not msg.attachment_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="첨부 없음"
+        )
+    if not attachment_service.is_safe_path(msg.attachment_path):
+        # DB 가 손상되어 외부 경로가 들어간 비정상 케이스.
+        logger.warning("불안전 경로 차단 — message=%s path=%s", msg.id, msg.attachment_path)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="잘못된 첨부 경로"
+        )
+    if not os.path.isfile(msg.attachment_path):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE, detail="첨부 파일이 사라졌습니다."
+        )
+    return FileResponse(
+        msg.attachment_path,
+        media_type=msg.attachment_mime or "application/octet-stream",
+        filename=msg.attachment_filename or "attachment",
     )
