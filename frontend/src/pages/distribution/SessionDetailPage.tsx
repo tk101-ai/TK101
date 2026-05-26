@@ -643,14 +643,21 @@ export default function SessionDetailPage() {
     setSendNowLoading(true);
     try {
       const res = await sendSessionNow(session.id);
-      if (res.status === "sent") {
-        message.success(
-          `송신 완료 — 성공 ${res.sent_count}건 / 실패 ${res.failed_count}건`,
-        );
-      } else if (res.status === "failed") {
-        message.error(
-          `송신 실패 — ${res.error ?? "알 수 없는 오류"} (성공 ${res.sent_count}건 / 실패 ${res.failed_count}건)`,
-        );
+      // 부분 실패라도 res.error 가 있으면 사용자에게 첫 실패 원인 같이 노출.
+      if (res.status === "failed") {
+        Modal.error({
+          title: `송신 실패 (${res.failed_count}건 실패 / ${res.sent_count}건 성공)`,
+          content: res.error ?? "알 수 없는 오류 — 서버 로그를 확인하세요.",
+          width: 600,
+        });
+      } else if (res.failed_count > 0) {
+        Modal.warning({
+          title: `부분 성공 (${res.sent_count}건 송신 / ${res.failed_count}건 실패)`,
+          content: res.error ?? "일부 메시지 실패 — 검수 화면에서 확인하세요.",
+          width: 600,
+        });
+      } else if (res.status === "sent") {
+        message.success(`송신 완료 — ${res.sent_count}건`);
       } else {
         message.info(`상태: ${SESSION_STATUS_LABEL[res.status]}`);
       }

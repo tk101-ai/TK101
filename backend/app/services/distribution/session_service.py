@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -51,6 +52,9 @@ logger = logging.getLogger(__name__)
 _SEND_NOW_DELAY_CAP_SEC = 30
 # 타이핑 인디케이터도 동일하게 짧게 cap (UX 차원에서 5초 이상이면 부자연).
 _TYPING_CAP_SEC = 5
+# 텔레그램 미디어 캡션 최대 길이 (텍스트는 4096, 캡션은 1024).
+# 초과 시 잘라서 첨부 보내고, 남은 본문은 별도 텍스트 메시지로 follow-up.
+_CAPTION_MAX_LEN = 1024
 
 
 # ---------------------------------------------------------------------------
@@ -456,6 +460,8 @@ async def send_session_now(
     sender_by_id = {sender.id: sender, receiver.id: receiver}
     sent_count = 0
     failed_count = 0
+    # 첫 실패의 사람이 읽을 수 있는 요약 (UI 에 노출 — 디버깅).
+    first_error: str | None = None
     clients: dict[UUID, TelegramClient] = {}
     # (from_persona_id, to_persona_id) → 텔레그램 User entity.
     peer_cache: dict[tuple[UUID, UUID], TelegramUser] = {}
@@ -502,33 +508,45 @@ async def send_session_now(
 
             client = clients[from_persona.id]
             try:
-                # 타이핑 인디케이터 — 짧게. 첨부가 있으면 'upload_photo'/'upload_document'.
-                typing_action = "typing"
+                # 타이핑 인디케이터 — 짧게.
+                # Telethon ChatAction 표기는 'typing' / 'photo' / 'document' 등 짧은 이름.
+                # 'upload_photo' 같은 값은 ValueError 발생 → 첨부 송신만 실패하는 버그.
                 if message.attachment_path:
                     typing_action = (
-                        "upload_photo"
-                        if message.attachment_kind == "image"
-                        else "upload_document"
+                        "photo" if message.attachment_kind == "image" else "document"
                     )
+                else:
+                    typing_action = "typing"
                 async with client.action(target_entity, typing_action):
                     await asyncio.sleep(min(message.typing_sec or 0, _TYPING_CAP_SEC))
 
                 if message.attachment_path:
-                    # 파일 첨부 송신. 문서류는 force_document=True 로 미리보기 없이 첨부.
+                    # 첨부 파일 존재 검증 (NAS RW 마운트 끊김 등 사전 차단).
+                    if not os.path.isfile(message.attachment_path):
+                        raise FileNotFoundError(
+                            f"첨부 파일이 존재하지 않습니다 ({message.attachment_path})"
+                        )
+
                     # 캡션 우선순위: attachment_caption > edited_content > content.
-                    caption = (
+                    raw_caption = (
                         message.attachment_caption
                         or message.edited_content
                         or message.content
                         or ""
                     )
+                    # 텔레그램 1024자 제한 — 초과 시 잘라서 첨부 보내고 나머지는 별도 메시지.
+                    caption = raw_caption[:_CAPTION_MAX_LEN]
+                    overflow = raw_caption[_CAPTION_MAX_LEN:]
+
                     sent = await client.send_file(
                         target_entity,
                         message.attachment_path,
                         caption=caption,
                         force_document=(message.attachment_kind != "image"),
-                        file_name=message.attachment_filename or None,
                     )
+                    # 초과분 follow-up. 단순 텍스트 메시지로 즉시 송신.
+                    if overflow:
+                        await client.send_message(target_entity, overflow)
                 else:
                     sent = await client.send_message(
                         target_entity,
@@ -548,32 +566,42 @@ async def send_session_now(
                 )
                 sent_count += 1
                 logger.info(
-                    "message sent — id=%s from=%s to=%s tg_id=%s",
+                    "message sent — id=%s from=%s to=%s tg_id=%s attach=%s",
                     message.id,
                     from_persona.account_label,
                     to_persona.account_label,
                     sent.id,
+                    bool(message.attachment_path),
                 )
-            except RPCError as exc:
+            except (RPCError, FileNotFoundError, OSError, ValueError) as exc:
+                # RPCError = 텔레그램 거부 (caption_too_long, peer 등).
+                # FileNotFoundError/OSError = 첨부 파일 접근 실패 (NAS RW 마운트 등).
+                # ValueError = Telethon 내부 검증 실패 (잘못된 action 이름 등).
                 message.status = "failed"
                 db.add(message)
+                error_code = type(exc).__name__
+                error_detail = str(exc)[:500]  # DB 컬럼 길이 보호.
                 db.add(
                     DistributionSendLog(
                         message_id=message.id,
                         persona_id=from_persona.id,
                         attempt=1,
                         success=False,
-                        error_code=type(exc).__name__,
-                        error_detail=str(exc),
+                        error_code=error_code,
+                        error_detail=error_detail,
                     )
                 )
                 failed_count += 1
-                # 자격증명/api_hash 는 절대 로깅 X — RPCError 타입+메시지만.
+                if first_error is None:
+                    first_error = f"[메시지 #{message.order_index + 1}] {error_code}: {error_detail}"
+                # 자격증명/api_hash 는 절대 로깅 X — 예외 타입+메시지만.
                 logger.warning(
-                    "message send failed — id=%s from=%s err=%s",
+                    "message send failed — id=%s from=%s attach=%s err=%s detail=%s",
                     message.id,
                     from_persona.account_label,
-                    type(exc).__name__,
+                    bool(message.attachment_path),
+                    error_code,
+                    error_detail,
                 )
             await db.commit()
 
@@ -606,7 +634,7 @@ async def send_session_now(
                 logger.warning("telethon client disconnect 실패 (무시)")
 
     await db.refresh(session)
-    return session, sent_count, failed_count
+    return session, sent_count, failed_count, first_error
 
 
 # ---------------------------------------------------------------------------

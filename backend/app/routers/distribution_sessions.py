@@ -213,9 +213,12 @@ async def send_session_now(
     UI 가 호출하므로 대기 시간(``send_after_sec``)은 30초 cap 적용.
     """
     try:
-        session_obj, sent_count, failed_count = await session_service.send_session_now(
-            db, session_id
-        )
+        (
+            session_obj,
+            sent_count,
+            failed_count,
+            first_error,
+        ) = await session_service.send_session_now(db, session_id)
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
@@ -237,7 +240,7 @@ async def send_session_now(
         status=session_obj.status,  # type: ignore[arg-type]
         sent_count=sent_count,
         failed_count=failed_count,
-        error=None,
+        error=first_error,
     )
 
 
