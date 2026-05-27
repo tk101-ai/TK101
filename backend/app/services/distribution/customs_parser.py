@@ -91,8 +91,10 @@ class CustomsParseResult:
 def _normalize_header(raw: object) -> str | None:
     if raw is None:
         return None
-    s = re.sub(r"\s+", " ", str(raw)).strip()
-    s = re.sub(r"\n.*", "", s).strip()
+    # 병합셀/주석 줄바꿈은 첫 줄만 사용 (예: "신고번호\n(Customs No.)" → "신고번호").
+    # 주의: 공백 정규화를 먼저 하면 \n 이 사라져 첫줄 추출이 무력화되므로 split 을 먼저.
+    first_line = str(raw).split("\n", 1)[0]
+    s = re.sub(r"\s+", " ", first_line).strip()
     return s or None
 
 

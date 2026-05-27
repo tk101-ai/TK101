@@ -92,6 +92,7 @@ def _build_session_list_item(
         message_count=message_count,
         llm_cost_usd=session.llm_cost_usd,
         scenario_attachment_required=scenario_attachment_required,
+        language=session.language,  # type: ignore[arg-type]
     )
 
 

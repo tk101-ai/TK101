@@ -215,7 +215,11 @@ def _proper_token_grounded(token: str, excerpt_lower: str, excerpt_numeric: str)
     if token.lower() in excerpt_lower:
         return True
     digits = "".join(ch for ch in token if ch.isdigit())
-    if len(digits) >= 2 and digits in excerpt_numeric:
+    # 숫자 코어는 '경계 일치'만 인정 — 더 큰 숫자의 부분문자열(예: 835000 안의 3500)로
+    # 위조 숫자가 grounding 을 통과하지 않도록 앞뒤가 숫자가 아닐 때만 매치.
+    if len(digits) >= 2 and re.search(
+        rf"(?<!\d){re.escape(digits)}(?!\d)", excerpt_numeric
+    ):
         return True
     return False
 

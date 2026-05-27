@@ -1,6 +1,6 @@
 import io
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import Integer, and_, delete, func, select
@@ -680,12 +680,17 @@ async def _upsert_metric_snapshot(
 
     (post_id, period, captured_at::date) UNIQUE 와 정합 — 오늘자 행을 찾으면 갱신.
     """
-    today = date.today()
+    # 인덱스 (captured_at AT TIME ZONE 'UTC')::date 와 동일하게 UTC 일 경계로 조회.
+    # date.today()/func.date() 는 세션 TZ 의존이라 인덱스와 어긋나 IntegrityError 위험.
+    now_utc = datetime.now(tz=timezone.utc)
+    day_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
     result = await db.execute(
         select(SocialPostMetricSnapshot).where(
             SocialPostMetricSnapshot.post_id == post_id,
             SocialPostMetricSnapshot.period == period,
-            func.date(SocialPostMetricSnapshot.captured_at) == today,
+            SocialPostMetricSnapshot.captured_at >= day_start,
+            SocialPostMetricSnapshot.captured_at < day_end,
         )
     )
     existing = result.scalar_one_or_none()

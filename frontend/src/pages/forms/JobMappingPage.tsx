@@ -38,13 +38,10 @@ async function confirmMappingsBeforeRender(
   jobId: string,
   detail: FormJobDetail,
 ): Promise<void> {
-  const requiredKeys = new Set(
-    detail.template.variables.filter((v) => v.required).map((v) => v.key),
-  );
+  // 값이 있는 매핑만 확정한다. 필수인데 값이 없는 변수는 일부러 확정하지 않아
+  // 백엔드 누락 검증(렌더 409 / missing_required)이 공란 문서 생성을 막도록 한다.
   const toConfirm = detail.mappings.filter(
-    (m) =>
-      !m.confirmed &&
-      (requiredKeys.has(m.variable_key) || (m.value !== null && m.value !== "")),
+    (m) => !m.confirmed && m.value !== null && m.value !== "",
   );
   for (const m of toConfirm) {
     await patchJobMapping(jobId, m.variable_key, { confirmed: true });
