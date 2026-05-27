@@ -56,10 +56,18 @@ async def list_scenarios_endpoint(
     """활성 시나리오 간단 목록 (생성 트리거 모달용).
 
     name 알파벳 정렬. 비활성(active=False) 시나리오는 제외.
+
+    언어 필터 (T9 — 2026-05-27): 한국어(language='ko') 업무 시나리오만 노출한다.
+    중국어(language='zh') 시드는 모달 선택지에서 숨기고, 생성 시 ko 시나리오 +
+    中文 선택 조합에서 trigger_event 로 매칭하여 few-shot 으로만 내부 재사용한다.
+    (zh 시드를 picker 에서 제거하면 중복 15행 → ko 8행으로 정리됨.)
     """
     stmt = (
         select(DistributionScenario)
-        .where(DistributionScenario.active.is_(True))
+        .where(
+            DistributionScenario.active.is_(True),
+            DistributionScenario.language == "ko",
+        )
         .order_by(DistributionScenario.name)
     )
     rows = await db.execute(stmt)

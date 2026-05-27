@@ -267,6 +267,62 @@ def _scenario_language(scenario: DistributionScenario) -> str:
     return "zh" if lang == "zh" else "ko"
 
 
+async def _zh_counterparts_by_trigger(
+    db: AsyncSession,
+) -> dict[str, DistributionScenario]:
+    """중국어(language='zh') 시드를 trigger_event 키로 조회 (few-shot 재사용용).
+
+    T9 — 2026-05-27: 모달 picker 에는 ko 업무 시나리오만 노출하되, 사용자가
+    ko 시나리오 + 中文 을 선택하면 동일 trigger_event 의 zh 시드를 찾아
+    그 beats / example_msgs 를 중국어 few-shot 으로 재사용한다.
+    동일 trigger_event 가 여러 zh 시드에 있으면 name 정렬 첫 번째를 채택한다.
+    """
+    stmt = (
+        select(DistributionScenario)
+        .where(
+            DistributionScenario.active.is_(True),
+            DistributionScenario.language == "zh",
+        )
+        .order_by(DistributionScenario.name)
+    )
+    res = await db.execute(stmt)
+    mapping: dict[str, DistributionScenario] = {}
+    for sc in res.scalars().all():
+        # 먼저 들어온 것을 유지 (name 정렬 기준 첫 번째).
+        mapping.setdefault(sc.trigger_event, sc)
+    return mapping
+
+
+def _scenario_context_for_language(
+    scenario: DistributionScenario,
+    *,
+    language: str,
+    zh_twins: dict[str, DistributionScenario] | None,
+) -> ScenarioContext:
+    """언어에 맞춰 few-shot 소스를 고른 ScenarioContext 반환.
+
+    - language='zh' 이고 동일 trigger_event 의 zh 트윈이 있으면 그 beats /
+      example_msgs 를 사용 (큐레이션된 중국어 예시 재사용). 단, name / trigger_event 는
+      ko 원본을 그대로 유지해 추적성을 지킨다.
+    - zh 트윈이 없으면(예: weekly_settlement) ko 시나리오 beats 로 폴백하고
+      프롬프트만 중국어로 생성한다.
+    - language='ko' 이면 원본 ko 시나리오를 그대로 사용.
+    """
+    if language == "zh" and zh_twins:
+        twin = zh_twins.get(scenario.trigger_event)
+        if twin is not None:
+            return ScenarioContext(
+                name=scenario.name,
+                trigger_event=scenario.trigger_event,
+                beats=twin.beats or scenario.beats or [],
+                example_msgs=twin.example_msgs
+                if twin.example_msgs
+                else scenario.example_msgs,
+                raw_text=twin.raw_text or scenario.raw_text,
+            )
+    return _scenario_context(scenario)
+
+
 # ---------------------------------------------------------------------------
 # 자격증명 가드
 # ---------------------------------------------------------------------------
@@ -341,8 +397,14 @@ async def _create_one_pair_session(
 
     sender_ctx = _persona_context(sender)
     receiver_ctx = _persona_context(receiver)
-    scenario_ctx = _scenario_context(scenario)
     language = _scenario_language(scenario)
+    # zh 시나리오면 동일 trigger_event 의 zh 트윈 few-shot 재사용 (조합 경로와 동일 규칙).
+    zh_twins = (
+        await _zh_counterparts_by_trigger(db) if language == "zh" else None
+    )
+    scenario_ctx = _scenario_context_for_language(
+        scenario, language=language, zh_twins=zh_twins
+    )
 
     # Claude 호출은 동기 SDK 라 이벤트 루프 분리.
     result: GenerationResult = await asyncio.to_thread(
@@ -437,17 +499,29 @@ async def _create_one_pair_combined_session(
         )
         sender, receiver = kr_persona, vn_persona
 
-    merged_name = " + ".join(s.name for s in scenarios)
-    merged_ctx = merge_scenario_contexts(
-        [_scenario_context(s) for s in scenarios],
-        name=f"통합({merged_name})",
-    )
-
     # 언어 결정: 명시값 우선, 아니면 대표 시나리오 language 컬럼.
     resolved_language = (
         ("zh" if language.lower() == "zh" else "ko")
         if language is not None
         else _scenario_language(primary)
+    )
+
+    # zh 생성이면 trigger_event 로 zh 트윈을 찾아 중국어 few-shot 재사용.
+    zh_twins = (
+        await _zh_counterparts_by_trigger(db)
+        if resolved_language == "zh"
+        else None
+    )
+
+    merged_name = " + ".join(s.name for s in scenarios)
+    merged_ctx = merge_scenario_contexts(
+        [
+            _scenario_context_for_language(
+                s, language=resolved_language, zh_twins=zh_twins
+            )
+            for s in scenarios
+        ],
+        name=f"통합({merged_name})",
     )
 
     sender_ctx = _persona_context(sender)
