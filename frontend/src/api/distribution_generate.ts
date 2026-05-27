@@ -17,12 +17,17 @@ const BASE = "/api/distribution";
 // 시나리오 — 모달 선택용 슬림 응답
 // ---------------------------------------------------------------------------
 
+/** 대화 언어 (T9 — 2026-05-27). ko=한국어 | zh=간체 중국어. */
+export type DistributionLanguage = "ko" | "zh";
+
 export interface ScenarioBrief {
   id: string;
   name: string;
   trigger_event: string;
   sender_role: "domestic_admin" | "vietnam_admin";
   receiver_role: "domestic_admin" | "vietnam_admin";
+  /** 시나리오 기본 언어. 모달 기본 언어 힌트로 사용. default 'ko'. */
+  language?: DistributionLanguage;
 }
 
 interface ListScenariosResponse {
@@ -47,6 +52,8 @@ export interface GenerateCustomPayload {
   company_label?: string;
   /** 메시지 간격 분포 (T9 — 2026-05-26). default 'normal'. */
   timing_profile?: TimingProfile;
+  /** 대화 언어 (T9 — 2026-05-27). default 'ko'. */
+  language?: DistributionLanguage;
 }
 
 export interface GenerateCustomResult {
@@ -74,6 +81,7 @@ export async function generateCustom(
       period_label: payload.period_label ?? null,
       company_label: payload.company_label ?? "래더엑스",
       timing_profile: payload.timing_profile ?? "normal",
+      language: payload.language ?? "ko",
     },
   );
   return res.data;

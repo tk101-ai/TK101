@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 SessionStatus = Literal[
     "pending",
     "approved",
+    "scheduled",
     "rejected",
     "sending",
     "sent",
@@ -37,6 +38,9 @@ SessionStatus = Literal[
 ]
 
 MessageStatus = Literal["queued", "sent", "failed", "skipped"]
+
+# 예약 송신 워커 상태 머신 (T9 — 2026-05-27). status 와 별개로 워커 진행을 표시.
+MessageSendState = Literal["pending", "sending", "sent", "failed", "skipped"]
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +64,8 @@ class SessionListItem(BaseModel):
     llm_cost_usd: Decimal | None = None
     # 시나리오가 첨부 권장이면 True (T9 — 2026-05-26).
     scenario_attachment_required: bool = False
+    # 세션 생성 언어 (T9 — 2026-05-27). 'ko'(한국어) | 'zh'(간체 중국어). 기본 'ko'.
+    language: Literal["ko", "zh"] = "ko"
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -76,6 +82,9 @@ class MessageItem(BaseModel):
     send_after_sec: int
     typing_sec: int
     status: MessageStatus
+    # 예약 송신 워커 진행 상태 (T9 — 2026-05-27). 검수 UI 읽기 전용 표시.
+    send_state: MessageSendState = "pending"
+    scheduled_send_at: datetime | None = None
     sent_at: datetime | None = None
     telegram_message_id: str | None = None
 

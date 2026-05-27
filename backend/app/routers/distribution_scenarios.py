@@ -43,6 +43,8 @@ class ScenarioBrief(BaseModel):
     trigger_event: str
     sender_role: str
     receiver_role: str
+    # 시나리오 기본 언어 (T9 — 2026-05-27). 'ko' | 'zh'. 모달에서 기본 언어 힌트로 사용.
+    language: str = "ko"
 
     model_config = {"from_attributes": True}
 

@@ -12,6 +12,34 @@ import api from "./client";
 
 export type PersonaRole = "vietnam_admin" | "domestic_admin";
 
+/** 대화 언어 (T9 — 2026-05-27). ko=한국어 | zh=간체 중국어. */
+export type DistributionLanguage = "ko" | "zh";
+
+/** 언어 표시 라벨 (UI 한국어 컨벤션). */
+export const DISTRIBUTION_LANGUAGE_LABEL: Record<DistributionLanguage, string> =
+  {
+    ko: "한국어",
+    zh: "中文(간체)",
+  };
+
+/** 언어 태그 색상. */
+export const DISTRIBUTION_LANGUAGE_TAG_COLOR: Record<
+  DistributionLanguage,
+  string
+> = {
+  ko: "geekblue",
+  zh: "volcano",
+};
+
+/** 생성 모달 등에서 쓰는 언어 선택 옵션. */
+export const DISTRIBUTION_LANGUAGE_OPTIONS: {
+  value: DistributionLanguage;
+  label: string;
+}[] = [
+  { value: "ko", label: "한국어" },
+  { value: "zh", label: "中文 (간체)" },
+];
+
 export interface PersonaOut {
   id: string;
   account_label: string;
@@ -330,12 +358,21 @@ export async function updatePersona(
 export type SessionStatus =
   | "pending"
   | "approved"
+  | "scheduled"
   | "rejected"
   | "sending"
   | "sent"
   | "failed";
 
 export type MessageStatus = "queued" | "sent" | "failed" | "skipped";
+
+/** 예약 송신 워커 상태 머신 (T9 — 2026-05-27). status 와 별개. */
+export type MessageSendState =
+  | "pending"
+  | "sending"
+  | "sent"
+  | "failed"
+  | "skipped";
 
 export interface SessionListItem {
   id: string;
@@ -351,6 +388,8 @@ export interface SessionListItem {
   llm_cost_usd: string | null;
   /** 시나리오가 첨부 권장이면 true (T9 — 2026-05-26). */
   scenario_attachment_required: boolean;
+  /** 세션 생성 언어 (T9 — 2026-05-27). 'ko' | 'zh'. default 'ko'. */
+  language: DistributionLanguage;
 }
 
 export type AttachmentKind = "image" | "document";
@@ -365,6 +404,10 @@ export interface MessageItem {
   send_after_sec: number;
   typing_sec: number;
   status: MessageStatus;
+  /** 예약 송신 워커 진행 상태 (T9 — 2026-05-27). 읽기 전용. */
+  send_state: MessageSendState;
+  /** 워커가 송신 예정인 절대 시각 (예약 세션). */
+  scheduled_send_at: string | null;
   sent_at: string | null;
   telegram_message_id: string | null;
   /** 첨부 파일 (T9 — 2026-05-26). attachment_url 이 있으면 첨부 있음. */
@@ -510,6 +553,7 @@ export async function deleteMessageAttachment(
 export const SESSION_STATUS_LABEL: Record<SessionStatus, string> = {
   pending: "검수 대기",
   approved: "승인됨",
+  scheduled: "예약됨",
   rejected: "거부됨",
   sending: "송신 중",
   sent: "송신 완료",
@@ -519,6 +563,7 @@ export const SESSION_STATUS_LABEL: Record<SessionStatus, string> = {
 export const SESSION_STATUS_TAG_COLOR: Record<SessionStatus, string> = {
   pending: "gold",
   approved: "blue",
+  scheduled: "geekblue",
   rejected: "default",
   sending: "processing",
   sent: "green",
@@ -534,6 +579,23 @@ export const MESSAGE_STATUS_LABEL: Record<MessageStatus, string> = {
 
 export const MESSAGE_STATUS_TAG_COLOR: Record<MessageStatus, string> = {
   queued: "default",
+  sent: "green",
+  failed: "red",
+  skipped: "gold",
+};
+
+/** 예약 송신 워커 상태 라벨 (T9 — 2026-05-27). */
+export const SEND_STATE_LABEL: Record<MessageSendState, string> = {
+  pending: "예약 대기",
+  sending: "송신 중",
+  sent: "송신됨",
+  failed: "실패",
+  skipped: "건너뜀",
+};
+
+export const SEND_STATE_TAG_COLOR: Record<MessageSendState, string> = {
+  pending: "geekblue",
+  sending: "processing",
   sent: "green",
   failed: "red",
   skipped: "gold",
@@ -560,6 +622,118 @@ export async function generateWeekly(
   const res = await api.post<GenerateWeeklyResult>(`${BASE}/generate-weekly`, {
     scenario_names: payload.scenario_names ?? [],
     company_label: payload.company_label ?? "래더엑스",
+  });
+  return res.data;
+}
+
+// ---------------------------------------------------------------------------
+// Priority 4: 면장(통관신고) 데이터 수집
+//
+// 핵심 비즈니스 규칙: 면장 신고가는 관세 절감 목적으로 실가의 75% 로 신고된다.
+// 실가 역산 → actual_price = declared_price / 0.75.
+// 백엔드: `app/routers/distribution_customs.py` (prefix /api/distribution/customs)
+// ---------------------------------------------------------------------------
+
+const CUSTOMS_BASE = "/api/distribution/customs";
+
+export interface CustomsDeclarationOut {
+  id: string;
+  company_label: string | null;
+  bl_number: string | null;
+  declaration_number: string | null;
+  product: string | null;
+  /** 신고가 (실가의 75%). Decimal 문자열. */
+  declared_price: string | null;
+  /** 실가 (declared / 0.75 역산). Decimal 문자열. */
+  actual_price: string | null;
+  currency: string | null;
+  stock_qty: number | null;
+  declared_at: string | null; // ISO date
+  source_file: string | null;
+  imported_at: string;
+}
+
+export interface CustomsPreviewRow {
+  declaration_number: string | null;
+  product: string | null;
+  bl_number: string | null;
+  declared_price: string | null;
+  actual_price: string | null;
+  currency: string | null;
+  stock_qty: number | null;
+  declared_at: string | null;
+}
+
+export interface CustomsUploadResult {
+  file_name: string;
+  company_label: string | null;
+  parsed: number;
+  inserted: number;
+  updated: number;
+  preview: CustomsPreviewRow[];
+  warnings: string[];
+}
+
+export interface CustomsListResponse {
+  items: CustomsDeclarationOut[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CustomsSummaryOut {
+  count: number;
+  total_declared: string; // Decimal 문자열
+  total_actual: string;
+  /** 역산 비율 (기본 0.75). */
+  declare_ratio: number;
+}
+
+export interface CustomsListFilter {
+  limit?: number;
+  offset?: number;
+  company_label?: string;
+  search?: string;
+}
+
+/** 면장 엑셀 업로드 → 파싱·UPSERT + 미리보기. */
+export async function uploadCustoms(
+  file: File,
+  companyLabel?: string,
+): Promise<CustomsUploadResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (companyLabel) formData.append("company_label", companyLabel);
+  const res = await api.post<CustomsUploadResult>(
+    `${CUSTOMS_BASE}/upload`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } },
+  );
+  return res.data;
+}
+
+/** 면장 목록 (회사/검색 필터, 페이지네이션). */
+export async function listCustoms(
+  filter: CustomsListFilter = {},
+): Promise<CustomsListResponse> {
+  const params: Record<string, string | number> = {
+    limit: filter.limit ?? 100,
+    offset: filter.offset ?? 0,
+  };
+  if (filter.company_label) params.company_label = filter.company_label;
+  if (filter.search) params.search = filter.search;
+  const res = await api.get<CustomsListResponse>(`${CUSTOMS_BASE}/`, {
+    params,
+  });
+  return res.data;
+}
+
+/** 면장 집계 — 총 신고가 vs 총 실가(역산). */
+export async function getCustomsSummary(
+  companyLabel?: string,
+): Promise<CustomsSummaryOut> {
+  const res = await api.get<CustomsSummaryOut>(`${CUSTOMS_BASE}/summary`, {
+    params: companyLabel ? { company_label: companyLabel } : {},
   });
   return res.data;
 }

@@ -62,6 +62,12 @@ DEFAULT_WEEKLY_SCENARIOS: tuple[str, ...] = (
 # 명품재고대장에서 멘션용으로 가져올 상위 제품 개수.
 TOP_PRODUCT_LIMIT: int = 12
 
+# 당장은 베트남(VN-A)과 TK(KR-A1) 두 계정만 대화에 참여시킨다 (2026-05-27 사용자 결정).
+# 향후 KR-A2~A4 등 다른 계정을 추가하려면 이 튜플에 account_label 만 더하면 됨.
+# 빈 튜플이거나 매칭되는 라벨이 DB 에 없으면 화이트리스트를 적용하지 않고
+# 기존 동작(role 별 전체 활성 페르소나)을 유지한다 — 하위호환.
+DISTRIBUTION_ACTIVE_ACCOUNT_LABELS: tuple[str, ...] = ("VN-A", "KR-A1")
+
 
 @dataclass
 class GenerationSummary:
@@ -106,7 +112,13 @@ async def _top_products(db: AsyncSession, *, limit: int) -> list[DistributionPro
 async def _active_personas_by_role(
     db: AsyncSession, *, role: str
 ) -> list[DistributionPersona]:
-    """role 별 활성 페르소나 목록 (account_label 정렬)."""
+    """role 별 활성 페르소나 목록 (account_label 정렬).
+
+    당장은 베트남(VN-A)·TK(KR-A1)만 운영하므로
+    ``DISTRIBUTION_ACTIVE_ACCOUNT_LABELS`` 화이트리스트로 한 번 더 걸러낸다.
+    단, 화이트리스트와 매칭되는 라벨이 하나도 없으면(아직 시드 안 됨 등)
+    화이트리스트를 무시하고 role 전체를 반환해 기존 동작을 보존한다(하위호환).
+    """
     stmt = (
         select(DistributionPersona)
         .where(
@@ -116,7 +128,17 @@ async def _active_personas_by_role(
         .order_by(DistributionPersona.account_label)
     )
     res = await db.execute(stmt)
-    return list(res.scalars().all())
+    personas = list(res.scalars().all())
+
+    if not DISTRIBUTION_ACTIVE_ACCOUNT_LABELS:
+        return personas
+    whitelisted = [
+        p
+        for p in personas
+        if p.account_label in DISTRIBUTION_ACTIVE_ACCOUNT_LABELS
+    ]
+    # 화이트리스트 매칭이 0건이면 라벨이 아직 다를 수 있으므로 원본 그대로 반환.
+    return whitelisted if whitelisted else personas
 
 
 async def _scenarios_by_names(
@@ -239,6 +261,12 @@ def _scenario_context(scenario: DistributionScenario) -> ScenarioContext:
     )
 
 
+def _scenario_language(scenario: DistributionScenario) -> str:
+    """시나리오의 language 컬럼 정규화 ('ko'|'zh'). 미지정/이상값은 'ko' 폴백."""
+    lang = (getattr(scenario, "language", None) or "ko").lower()
+    return "zh" if lang == "zh" else "ko"
+
+
 # ---------------------------------------------------------------------------
 # 자격증명 가드
 # ---------------------------------------------------------------------------
@@ -269,10 +297,12 @@ def _generate_one_sync(
     receiver_ctx: PersonaContext,
     bl_ctx: BlContext,
     timing_profile: str = "normal",
+    language: str = "ko",
 ) -> GenerationResult:
     """blocking Claude 호출을 동기 함수에 격리.
 
     상위에서 ``asyncio.to_thread`` 로 호출하여 이벤트 루프 차단을 피한다.
+    language: 'ko'|'zh' — 대화 언어 (시나리오 language 또는 사용자 선택).
     """
     return generate_conversation(
         scenario=scenario_ctx,
@@ -280,6 +310,7 @@ def _generate_one_sync(
         receiver=receiver_ctx,
         bl=bl_ctx,
         timing_profile=timing_profile,  # type: ignore[arg-type]
+        language=language,  # type: ignore[arg-type]
     )
 
 
@@ -311,6 +342,7 @@ async def _create_one_pair_session(
     sender_ctx = _persona_context(sender)
     receiver_ctx = _persona_context(receiver)
     scenario_ctx = _scenario_context(scenario)
+    language = _scenario_language(scenario)
 
     # Claude 호출은 동기 SDK 라 이벤트 루프 분리.
     result: GenerationResult = await asyncio.to_thread(
@@ -319,6 +351,7 @@ async def _create_one_pair_session(
         sender_ctx=sender_ctx,
         receiver_ctx=receiver_ctx,
         bl_ctx=bl_ctx,
+        language=language,
     )
 
     # 발신자 label → persona_id 매핑 (메시지별 sender_persona_id 결정).
@@ -332,6 +365,7 @@ async def _create_one_pair_session(
         sender_persona_id=sender.id,
         receiver_persona_id=receiver.id,
         status="pending",
+        language=language,
         llm_cost_usd=result.cost_usd,
         llm_input_tok=result.input_tokens,
         llm_output_tok=result.output_tokens,
@@ -365,6 +399,7 @@ async def _create_one_pair_combined_session(
     vn_persona: DistributionPersona,
     bl_ctx: BlContext,
     timing_profile: str = "normal",
+    language: str | None = None,
 ) -> str:
     """N개 시나리오를 합성하여 1 세션 생성 (페르소나당 1 LLM 호출, Phase F-B).
 
@@ -374,6 +409,8 @@ async def _create_one_pair_combined_session(
     3. ``_generate_one_sync`` 로 LLM 1회 호출.
     4. DB 저장 시 session.scenario_id = scenarios[0].id (대표 시나리오). 합성 관계는
        프롬프트 본문(beats intent 접두어)으로만 보존 — 별도 raw_row 메타데이터 컬럼 없음.
+
+    language: 명시되면 그 언어로 생성/기록. None 이면 대표 시나리오의 language 컬럼 사용.
 
     Returns 세션 id(str). 실패 시 예외 전파.
     """
@@ -406,6 +443,13 @@ async def _create_one_pair_combined_session(
         name=f"통합({merged_name})",
     )
 
+    # 언어 결정: 명시값 우선, 아니면 대표 시나리오 language 컬럼.
+    resolved_language = (
+        ("zh" if language.lower() == "zh" else "ko")
+        if language is not None
+        else _scenario_language(primary)
+    )
+
     sender_ctx = _persona_context(sender)
     receiver_ctx = _persona_context(receiver)
 
@@ -417,6 +461,7 @@ async def _create_one_pair_combined_session(
         receiver_ctx=receiver_ctx,
         bl_ctx=bl_ctx,
         timing_profile=timing_profile,
+        language=resolved_language,
     )
 
     label_to_id: dict[str, Any] = {
@@ -429,6 +474,7 @@ async def _create_one_pair_combined_session(
         sender_persona_id=sender.id,
         receiver_persona_id=receiver.id,
         status="pending",
+        language=resolved_language,
         llm_cost_usd=result.cost_usd,
         llm_input_tok=result.input_tokens,
         llm_output_tok=result.output_tokens,

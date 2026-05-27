@@ -18,6 +18,9 @@ from zoneinfo import ZoneInfo
 # 메시지 간격 분포 프로파일 (T9 — 2026-05-26).
 TimingProfile = Literal["short", "normal", "varied"]
 
+# 대화 언어 (T9 — 2026-05-27). ko=한국어, zh=간체 중국어.
+Language = Literal["ko", "zh"]
+
 _TIMING_GUIDES: dict[str, str] = {
     "short": (
         "[메시지 간격 가이드 — short / 빠른 핑퐁]\n"
@@ -41,9 +44,37 @@ _TIMING_GUIDES: dict[str, str] = {
 }
 
 
-def timing_guide(profile: TimingProfile) -> str:
-    """profile 에 해당하는 시간 분포 가이드 텍스트 반환."""
-    return _TIMING_GUIDES.get(profile, _TIMING_GUIDES["normal"])
+# 중국어(간체) 메시지 간격 가이드 — 한국어판과 동일한 분포 규칙을 중국어로 표현.
+_TIMING_GUIDES_ZH: dict[str, str] = {
+    "short": (
+        "[消息间隔指南 — short / 快速来回]\n"
+        "- 消息之间的间隔(send_after_sec)请控制在 30秒 ~ 30分钟 之间，节奏快。\n"
+        "- 几乎是即时回复的聊天节奏。第一条 0秒，之后在 30~1800秒 范围内分布。\n"
+        "- 同一个人连续拆分发送时，间隔大约 30秒~3分钟，成组发送。"
+    ),
+    "normal": (
+        "[消息间隔指南 — normal / 日常业务]\n"
+        "- 消息之间的间隔请在 5分钟 ~ 3小时(=180~10800秒) 之间自然混合。\n"
+        "- 第一条 0秒，之后平均 20~40分钟，但要掺杂即时回复和 1~3小时 的延迟。\n"
+        "- 间隔太均匀(比如全是5分钟、全是10分钟)很不自然 — 一定要拉开分布。"
+    ),
+    "varied": (
+        "[消息间隔指南 — varied / 跨越一整天的节奏]\n"
+        "- 刻意拉大间隔：1分钟 的秒回和 3~12小时(180~43200秒) 后才回的消息要混在一起。\n"
+        "- 场景短一点也行，但要做出'上午搭话、下午/晚上才回'这样的节奏。\n"
+        "- 发信方拆分信息连发时要短，对方的回复刻意留大间隔。\n"
+        "- 至少要有一条消息的 send_after_sec 在 14400(4小时) 以上。"
+    ),
+}
+
+
+def timing_guide(profile: TimingProfile, *, language: Language = "ko") -> str:
+    """profile 에 해당하는 시간 분포 가이드 텍스트 반환 (언어별).
+
+    language='zh' 면 중국어 가이드, 그 외/기본은 한국어 가이드.
+    """
+    guides = _TIMING_GUIDES_ZH if language == "zh" else _TIMING_GUIDES
+    return guides.get(profile, guides["normal"])
 
 
 # Claude 응답 JSON 스키마. conversation_generator 가 검증에 사용.
@@ -65,6 +96,26 @@ OUTPUT_SCHEMA_DOC = """\
 }
 
 메시지 개수: 5~14개 사이.
+"""
+
+# 중국어(간체) 출력 스키마 — 한국어판과 구조 동일, 안내문만 중국어.
+OUTPUT_SCHEMA_DOC_ZH = """\
+只返回 JSON 对象。不要添加任何其他文字或说明。
+
+结构：
+{
+  "messages": [
+    {
+      "sender": "<account_label, 例: KR-A1>",
+      "content": "<消息正文, 1~2句>",
+      "send_after_sec": <距上一条消息发送后的秒数, 整数>,
+      "typing_sec": <模拟打字的秒数, 整数, 通常 2~8>
+    },
+    ...
+  ]
+}
+
+消息数量：5~14 条之间。
 """
 
 # AI 티 제거 강제 규칙. 시나리오 무관 공통.
@@ -98,6 +149,50 @@ ANTI_AI_RULES = """\
 - 페르소나 톤 프로필을 절대 어기지 말 것.
 - 두 페르소나의 어조가 미세하게 달라야 함 (한쪽은 약간 더 짧고, 한쪽은 약간 더 정보 주도).
 """
+
+# AI 티 제거 강제 규칙 — 중국어(간체) 버전. 중국 현지인의 자연스러운 채팅 습관 반영.
+# 한국어 어미·존댓말 흔적이 절대 섞이면 안 됨.
+ANTI_AI_RULES_ZH = """\
+请绝对不要违反以下规则：
+
+[禁止表达]
+- 不要用客服腔/AI腔: "希望对您有帮助"、"我一定为您查清楚"、"如有需要随时联系我"。
+- 不要给出过于精确的时间("正好3点47分"之类)。
+- 不要把英文商务措辞直译成生硬中文("如下所示"、"上述内容"、"本事项")。
+- 不要用过度书面、过度客气的措辞("特此告知您已…")。
+- 绝对不要出现任何韩语词尾或韩式敬语(例如 "~요"、"습니다"、"넵")。全程地道简体中文。
+
+[禁止寒暄·闲聊]
+- 不要用"你好""辛苦了""最近怎么样"之类的寒暄开场。
+- 绝对不要聊天气、周末、吃饭、健康之类的闲扯。只谈正事。
+- 第一条消息直接进入正题(场景第一个 beat 的核心)。
+- 收尾客套("好的辛苦了~"之类一两句)只在 beat 明确要求时才简短带上。
+
+[必须表达]
+- 一条消息只写 1~2 句。长了就拆开。
+- 自然使用中文聊天里的语气词/口头禅: 好的、收到、明白、嗯、那个、稍等、行、可以。
+- 偶尔用口语缩略("这样的话"→"那"、"知道了"→"晓得了/好嘞")。
+- 约 3% 概率出现自然的轻微错别字(漏一个字或打错一个同音字)。
+- 时间推进要自然 — 第一条之后 5分钟~数小时 的间隔混合。
+
+[消息拆分模式]
+- 发信方给多条信息时: 拆成几条短消息发，不一次性全发出来。
+- 收信方通常回复更短更干脆。有时秒回，有时隔很久才回。
+
+[语气一致性]
+- 绝对不要违背各自的语气画像(tone profile)。
+- 两个人的语气要有细微差别(一方更简短，一方更主导信息)。
+"""
+
+
+def anti_ai_rules(language: Language) -> str:
+    """언어별 AI 티 제거 규칙 텍스트 반환."""
+    return ANTI_AI_RULES_ZH if language == "zh" else ANTI_AI_RULES
+
+
+def output_schema_doc(language: Language) -> str:
+    """언어별 출력 스키마 안내문 반환."""
+    return OUTPUT_SCHEMA_DOC_ZH if language == "zh" else OUTPUT_SCHEMA_DOC
 
 
 @dataclass(frozen=True)
@@ -202,8 +297,17 @@ class ConversationPrompt:
     user_content: str
 
 
-def _format_tone_profile(profile: dict[str, Any] | None) -> str:
-    """톤 프로필을 사람이 읽기 좋은 텍스트로 직렬화."""
+def _format_tone_profile(
+    profile: dict[str, Any] | None, *, language: Language = "ko"
+) -> str:
+    """톤 프로필을 사람이 읽기 좋은 텍스트로 직렬화 (언어별 라벨).
+
+    language='zh' 면 중국어 라벨 + 중국어 안내로 직렬화한다.
+    common_phrases/preferred_endings 의 값 자체는 페르소나 데이터 그대로 노출하되,
+    zh 일 때는 '中文里换成对应的口头禅/语气' 가이드를 덧붙여 LLM 이 맥락에 맞게 치환하도록 한다.
+    """
+    if language == "zh":
+        return _format_tone_profile_zh(profile)
     if not profile:
         return "(특별한 톤 지시 없음 — 기본 한국 비즈니스 채팅 어조)"
     lines: list[str] = []
@@ -226,28 +330,87 @@ def _format_tone_profile(profile: dict[str, Any] | None) -> str:
     return "\n".join(lines) if lines else "(톤 프로필 비어있음)"
 
 
-def _format_bl(bl: BlContext | None) -> str:
+def _format_tone_profile_zh(profile: dict[str, Any] | None) -> str:
+    """톤 프로필 중국어 직렬화 (간체)."""
+    if not profile:
+        return "(无特别语气要求 — 默认地道的中文商务聊天语气)"
+    lines: list[str] = []
+    if "formality" in profile:
+        v = profile["formality"]
+        lvl = "随和亲切" if v < 0.4 else "适中" if v < 0.7 else "正式客气"
+        lines.append(f"- 正式程度: {lvl} ({v})")
+    if "emoji_freq" in profile:
+        lines.append(f"- 表情符号频率: {profile['emoji_freq']} (0=完全不用, 1=非常频繁)")
+    if "typo_rate" in profile:
+        lines.append(f"- 错别字比例: {profile['typo_rate']} (自然的、有意的轻微笔误)")
+    if "common_phrases" in profile:
+        phrases = profile["common_phrases"]
+        if isinstance(phrases, list) and phrases:
+            lines.append(
+                f"- 常用语气(韩语参考，中文里请换成对应的口头禅/语气): {', '.join(phrases)}"
+            )
+    if "preferred_endings" in profile:
+        endings = profile["preferred_endings"]
+        if isinstance(endings, list) and endings:
+            lines.append(
+                f"- 偏好语尾(韩语参考，中文里用相应的语气词/收尾): {', '.join(endings)}"
+            )
+    return "\n".join(lines) if lines else "(语气画像为空)"
+
+
+# BL 컨텍스트 라벨 — 언어별 (값은 데이터 그대로 노출).
+_BL_LABELS: dict[Language, dict[str, str]] = {
+    "ko": {
+        "none": "(BL 정보 없음 — 시나리오 단독 트리거)",
+        "empty": "(BL 컬럼 모두 비어있음)",
+        "bl_number": "BL 번호",
+        "container_no": "컨테이너 번호",
+        "product": "품목",
+        "quantity": "수량",
+        "qty_unit": "개",
+        "departure": "출발일",
+        "arrival": "도착 예정일",
+        "destination": "도착지",
+    },
+    "zh": {
+        "none": "(无 BL 信息 — 场景单独触发)",
+        "empty": "(BL 各列均为空)",
+        "bl_number": "BL 单号",
+        "container_no": "集装箱号",
+        "product": "品类",
+        "quantity": "数量",
+        "qty_unit": "件",
+        "departure": "出发日",
+        "arrival": "预计到货日",
+        "destination": "目的地",
+    },
+}
+
+
+def _format_bl(bl: BlContext | None, *, language: Language = "ko") -> str:
+    lbl = _BL_LABELS.get(language, _BL_LABELS["ko"])
     if bl is None:
-        return "(BL 정보 없음 — 시나리오 단독 트리거)"
+        return lbl["none"]
     parts: list[str] = []
     if bl.bl_number:
-        parts.append(f"- BL 번호: {bl.bl_number}")
+        parts.append(f"- {lbl['bl_number']}: {bl.bl_number}")
     if bl.container_no:
-        parts.append(f"- 컨테이너 번호: {bl.container_no}")
+        parts.append(f"- {lbl['container_no']}: {bl.container_no}")
     if bl.product:
-        parts.append(f"- 품목: {bl.product}")
+        parts.append(f"- {lbl['product']}: {bl.product}")
     if bl.quantity is not None:
-        parts.append(f"- 수량: {bl.quantity}개")
+        parts.append(f"- {lbl['quantity']}: {bl.quantity}{lbl['qty_unit']}")
     if bl.departure_date:
-        parts.append(f"- 출발일: {bl.departure_date.isoformat()}")
+        parts.append(f"- {lbl['departure']}: {bl.departure_date.isoformat()}")
     if bl.arrival_date:
-        parts.append(f"- 도착 예정일: {bl.arrival_date.isoformat()}")
+        parts.append(f"- {lbl['arrival']}: {bl.arrival_date.isoformat()}")
     if bl.destination:
-        parts.append(f"- 도착지: {bl.destination}")
-    return "\n".join(parts) if parts else "(BL 컬럼 모두 비어있음)"
+        parts.append(f"- {lbl['destination']}: {bl.destination}")
+    return "\n".join(parts) if parts else lbl["empty"]
 
 
-def _format_beats(beats: list[dict[str, Any]]) -> str:
+def _format_beats(beats: list[dict[str, Any]], *, language: Language = "ko") -> str:
+    tone_label = "语气" if language == "zh" else "톤"
     lines: list[str] = []
     for beat in beats:
         step = beat.get("step", "?")
@@ -255,20 +418,144 @@ def _format_beats(beats: list[dict[str, Any]]) -> str:
         tone = beat.get("tone_hint")
         line = f"{step}. {intent}"
         if tone:
-            line += f"  (톤: {tone})"
+            line += f"  ({tone_label}: {tone})"
         lines.append(line)
     return "\n".join(lines)
 
 
-def _format_examples(examples: list[dict[str, Any]] | None) -> str:
+def _format_examples(
+    examples: list[dict[str, Any]] | None, *, language: Language = "ko"
+) -> str:
     if not examples:
-        return "(예시 없음)"
+        return "(无示例)" if language == "zh" else "(예시 없음)"
     lines: list[str] = []
     for ex in examples:
         sender = ex.get("sender", "?")
         content = ex.get("content", "")
         lines.append(f"  {sender}: {content}")
     return "\n".join(lines)
+
+
+def _build_system_prompt(
+    *,
+    scenario: ScenarioContext,
+    sender: PersonaContext,
+    receiver: PersonaContext,
+    today_str: str,
+    now_str: str,
+    timing_profile: TimingProfile,
+    language: Language,
+) -> str:
+    """언어별 system 프롬프트 구성 (역할 + 톤 + 규칙 + 시간 가이드 + 스키마)."""
+    sender_tone = _format_tone_profile(sender.tone_profile, language=language)
+    receiver_tone = _format_tone_profile(receiver.tone_profile, language=language)
+    rules = anti_ai_rules(language)
+    timing = timing_guide(timing_profile, language=language)
+    schema = output_schema_doc(language)
+
+    if language == "zh":
+        return f"""\
+你是协助一家韩国贸易公司"新事业流通"部门撰写 Telegram 聊天的系统。
+
+对话参与者有两人：
+- 发信方: {sender.account_label} ({sender.display_name}, role={sender.role})
+- 收信方: {receiver.account_label} ({receiver.display_name}, role={receiver.role})
+
+[发信方语气画像]
+{sender_tone}
+
+[收信方语气画像]
+{receiver_tone}
+
+今天日期: {today_str}
+当前时间: {now_str}
+
+你的任务是撰写这两人之间自然的中文商务聊天。
+
+一段对话里可能包含多个话题 — 自然地切换话题，但要覆盖所有 beat。
+
+{rules}
+
+{timing}
+
+{schema}
+"""
+
+    return f"""\
+당신은 한국 무역회사 신사업유통 부서의 텔레그램 채팅 작성을 돕는 시스템입니다.
+
+대화 참여자는 두 명입니다:
+- 발신자: {sender.account_label} ({sender.display_name}, role={sender.role})
+- 수신자: {receiver.account_label} ({receiver.display_name}, role={receiver.role})
+
+[발신자 톤 프로필]
+{sender_tone}
+
+[수신자 톤 프로필]
+{receiver_tone}
+
+오늘 날짜: {today_str}
+현재 시각: {now_str}
+
+당신의 임무는 두 사람의 자연스러운 한국어 비즈니스 채팅을 작성하는 것입니다.
+
+여러 주제가 한 대화에 포함될 수 있습니다 — 자연스럽게 화제 전환하되 모든 비트를 다루세요.
+
+{rules}
+
+{timing}
+
+{schema}
+"""
+
+
+def _build_user_content(
+    *,
+    scenario: ScenarioContext,
+    bl: BlContext | None,
+    language: Language,
+) -> str:
+    """언어별 user 메시지 구성 (시나리오 + BL + 비트 + few-shot + 작성 지시)."""
+    bl_text = _format_bl(bl, language=language)
+    beats_text = _format_beats(scenario.beats, language=language)
+    examples_text = _format_examples(scenario.example_msgs, language=language)
+
+    if language == "zh":
+        return f"""\
+[场景]
+名称: {scenario.name}
+触发: {scenario.trigger_event}
+
+[BL 上下文]
+{bl_text}
+
+[对话 beat — 按此流程撰写]
+{beats_text}
+
+[参考示例 — 真实对话语气。不要照抄，只学习语气]
+{examples_text}
+
+请基于以上信息，撰写这两人自然的中文聊天，并以 JSON 输出。
+不得违反规则。只返回 JSON，不要包含任何其他文字。
+"""
+
+    return f"""\
+[시나리오]
+이름: {scenario.name}
+트리거: {scenario.trigger_event}
+
+[BL 컨텍스트]
+{bl_text}
+
+[대화 비트 — 이 흐름을 따라 작성]
+{beats_text}
+
+[참고 예시 — 실제 대화 톤. 동일하게 따라 쓰지 말고, 어조만 학습할 것]
+{examples_text}
+
+위 정보를 바탕으로 두 사람의 자연스러운 한국어 채팅을 JSON 으로 작성하세요.
+규칙을 어기면 안 됩니다. JSON 만 응답하고 다른 텍스트는 포함하지 마세요.
+"""
 
 
 def build_prompt(
@@ -279,6 +566,7 @@ def build_prompt(
     bl: BlContext | None,
     now: datetime | None = None,
     timing_profile: TimingProfile = "normal",
+    language: Language = "ko",
 ) -> ConversationPrompt:
     """시나리오/페르소나/BL 을 Claude 프롬프트 페이로드로 변환.
 
@@ -287,56 +575,27 @@ def build_prompt(
 
     now: 시각대(KST) 인식용. None 이면 호출 시점 KST.
     timing_profile: short/normal/varied — 메시지 간격 분포 가이드 선택 (T9 — 2026-05-26).
+    language: ko(한국어, 기본) | zh(간체 중국어) — 모든 프롬프트 텍스트 분기 (T9 — 2026-05-27).
     """
     if now is None:
         now = datetime.now(ZoneInfo("Asia/Seoul"))
     today_str = now.date().isoformat()
     now_str = now.strftime("%H:%M KST")
 
-    system = f"""\
-당신은 한국 무역회사 신사업유통 부서의 텔레그램 채팅 작성을 돕는 시스템입니다.
-
-대화 참여자는 두 명입니다:
-- 발신자: {sender.account_label} ({sender.display_name}, role={sender.role})
-- 수신자: {receiver.account_label} ({receiver.display_name}, role={receiver.role})
-
-[발신자 톤 프로필]
-{_format_tone_profile(sender.tone_profile)}
-
-[수신자 톤 프로필]
-{_format_tone_profile(receiver.tone_profile)}
-
-오늘 날짜: {today_str}
-현재 시각: {now_str}
-
-당신의 임무는 두 사람의 자연스러운 한국어 비즈니스 채팅을 작성하는 것입니다.
-
-여러 주제가 한 대화에 포함될 수 있습니다 — 자연스럽게 화제 전환하되 모든 비트를 다루세요.
-
-{ANTI_AI_RULES}
-
-{timing_guide(timing_profile)}
-
-{OUTPUT_SCHEMA_DOC}
-"""
-
-    user_content = f"""\
-[시나리오]
-이름: {scenario.name}
-트리거: {scenario.trigger_event}
-
-[BL 컨텍스트]
-{_format_bl(bl)}
-
-[대화 비트 — 이 흐름을 따라 작성]
-{_format_beats(scenario.beats)}
-
-[참고 예시 — 실제 대화 톤. 동일하게 따라 쓰지 말고, 어조만 학습할 것]
-{_format_examples(scenario.example_msgs)}
-
-위 정보를 바탕으로 두 사람의 자연스러운 한국어 채팅을 JSON 으로 작성하세요.
-규칙을 어기면 안 됩니다. JSON 만 응답하고 다른 텍스트는 포함하지 마세요.
-"""
+    system = _build_system_prompt(
+        scenario=scenario,
+        sender=sender,
+        receiver=receiver,
+        today_str=today_str,
+        now_str=now_str,
+        timing_profile=timing_profile,
+        language=language,
+    )
+    user_content = _build_user_content(
+        scenario=scenario,
+        bl=bl,
+        language=language,
+    )
     return ConversationPrompt(system=system, user_content=user_content)
 
 

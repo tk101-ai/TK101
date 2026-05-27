@@ -22,6 +22,7 @@ from app.config import settings
 from app.services.distribution.scenario_engine import (
     BlContext,
     ConversationPrompt,
+    Language,
     PersonaContext,
     ScenarioContext,
     TimingProfile,
@@ -90,6 +91,7 @@ def generate_conversation(
     max_attempts: int | None = None,
     base_temperature: float = 0.8,
     timing_profile: TimingProfile = "normal",
+    language: Language = "ko",
 ) -> GenerationResult:
     """Claude 호출하여 대화 1세트 생성.
 
@@ -97,6 +99,7 @@ def generate_conversation(
     - 재시도 시 temperature 살짝 변형 (0.7 / 0.9 등) — 같은 응답 반복 회피.
     - 모든 재시도 실패 시 ``GenerationError``.
     - ``timing_profile`` 로 메시지 간격 분포 결정 (short/normal/varied).
+    - ``language`` 로 대화 언어 결정 (ko/zh) — build_prompt 에 전달.
     """
     if max_attempts is None:
         max_attempts = max(1, settings.distribution_send_retry_max)
@@ -107,6 +110,7 @@ def generate_conversation(
         receiver=receiver,
         bl=bl,
         timing_profile=timing_profile,
+        language=language,
     )
     valid_senders = {sender.account_label, receiver.account_label}
 
@@ -138,6 +142,7 @@ def generate_conversation(
                     "receiver": receiver.account_label,
                     "temperature": temperature,
                     "attempt": attempt,
+                    "language": language,
                 },
             )
         except RuntimeError as exc:

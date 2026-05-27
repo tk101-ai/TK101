@@ -78,6 +78,9 @@ class GenerateCustomRequest(BaseModel):
     # 메시지 간격 분포 (T9 — 2026-05-26).
     # short: 0~30분 빠른 핑퐁 / normal: 5분~3시간 / varied: 1분~12시간 폭넓게.
     timing_profile: Literal["short", "normal", "varied"] = "normal"
+    # 대화 언어 (T9 — 2026-05-27). ko=한국어(기본) | zh=간체 중국어.
+    # 시나리오 language 컬럼보다 사용자 선택값을 우선 적용한다.
+    language: Literal["ko", "zh"] = "ko"
 
 
 class GenerateCustomResult(BaseModel):
@@ -270,6 +273,7 @@ async def generate_custom(
                 vn_persona=vn_persona,
                 bl_ctx=bl_ctx,
                 timing_profile=payload.timing_profile,
+                language=payload.language,
             )
             result.sessions_created.append(UUID(session_id))
             logger.info(

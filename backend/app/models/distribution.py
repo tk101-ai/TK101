@@ -138,6 +138,9 @@ class DistributionScenario(Base):
     beats = Column(JSONB, nullable=False)
     raw_text = Column(Text, nullable=True)
     example_msgs = Column(JSONB, nullable=True)
+    # language: 'ko' (한국어) | 'zh' (간체 중국어). 시나리오가 생성하는 대화 언어 (T9 — 2026-05-27).
+    # 주간/자동 생성 경로는 이 컬럼 값을 그대로 사용한다. 기본은 'ko' (하위호환).
+    language = Column(String(5), nullable=False, server_default=text("'ko'"))
     active = Column(Boolean, nullable=False, server_default=text("true"))
     # 첨부 파일 권장 시나리오 (T9 — 2026-05-26).
     # True 면 검수 UI 에 "이 시나리오는 엑셀/이미지 등 첨부 권장" 배너 표시.
@@ -187,6 +190,9 @@ class DistributionSession(Base):
     )
     # status: pending / approved / rejected / sending / sent / failed.
     status = Column(String(20), nullable=False, server_default=text("'pending'"))
+    # language: 세션이 생성된 언어 'ko' | 'zh' (T9 — 2026-05-27).
+    # 생성 시점의 시나리오 language 또는 사용자 선택값을 기록 (검수 UI 표시용).
+    language = Column(String(5), nullable=False, server_default=text("'ko'"))
     approved_by = Column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -239,6 +245,21 @@ class DistributionMessage(Base):
     scheduled_at = Column(DateTime(timezone=True), nullable=True)
     sent_at = Column(DateTime(timezone=True), nullable=True)
     telegram_message_id = Column(String(50), nullable=True)
+
+    # 예약 송신 워커 전용 컬럼 (T9 — 2026-05-27, migration 020).
+    # scheduled_send_at: 이 메시지의 절대 송신 예정 시각.
+    #   = 세션 scheduled_start + 직전까지 메시지 send_after_sec 누적합.
+    #   워커가 ``scheduled_send_at <= now()`` 인 메시지만 due 로 픽업.
+    scheduled_send_at = Column(DateTime(timezone=True), nullable=True)
+    # send_worker_sent_at: 워커가 실제 송신을 완료한 시각 (sent_at 과 별개 추적 안 함 —
+    #   sent_at 재사용. 이 주석은 의도 명시용).
+    # send_state: 워커 송신 상태 머신 — pending|sending|sent|failed|skipped.
+    #   재시작·동시성 안전을 위해 워커가 'pending' → 'sending' 으로 원자적 claim 후 송신.
+    #   기존 ``status`` 컬럼(queued/sent/...)은 즉시 송신 경로와 공유되어 의미가 겹치므로,
+    #   워커 경로는 별도 send_state 로 멱등성·중복 송신 차단을 보장한다.
+    send_state = Column(
+        String(16), nullable=False, server_default=text("'pending'")
+    )
 
     # 파일 첨부 (T9 — 2026-05-26 추가).
     # attachment_path 가 NULL 이 아니면 송신 시 send_file 사용.
@@ -370,5 +391,52 @@ class DistributionSendLog(Base):
     error_code = Column(String(50), nullable=True)
     error_detail = Column(Text, nullable=True)
     attempted_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class DistributionCustomsDeclaration(Base):
+    """면장(통관신고) 1행. 신고번호·신고가·재고 적재 + 실가 역산 (Priority 4).
+
+    핵심 비즈니스 규칙:
+    - 면장의 신고가(declared_price)는 관세 절감 목적으로 실제 가치의 75% 로 신고된다.
+    - 실가 역산: actual_price = declared_price / ratio (ratio 기본 0.75, config 조정).
+    - actual_price 는 적재 시 파서가 미리 계산해 컬럼에 저장 (조회 시 재계산 불필요).
+
+    declaration_number(신고번호)는 채워진 경우 UNIQUE — 동일 면장 중복 적재 차단.
+    NULL 은 다수 허용 (partial unique index, social_posts 패턴과 동일).
+    raw_row 에 원본 엑셀 행 보존 → 컬럼 매핑 변경에도 재처리 가능.
+    """
+
+    __tablename__ = "distribution_customs_declarations"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    # company_label: 4 회사 분리 (TK101/래더엑스/뉴테인핏/SYBT). 다른 모듈과 동일 규약.
+    company_label = Column(String(100), nullable=True)
+    # bl_number: 연결된 BL 번호 (있으면). distribution_bl_records 와 느슨한 연계.
+    bl_number = Column(String(100), nullable=True)
+    # declaration_number(신고번호/면장번호): 채워진 값은 UNIQUE (partial index).
+    declaration_number = Column(String(100), nullable=True)
+    product = Column(String(200), nullable=True)
+    # declared_price(신고가): 면장에 기재된 가격 — 실가의 75%.
+    declared_price = Column(Numeric(15, 2), nullable=True)
+    # actual_price(실가): declared_price / ratio 역산값. 파서가 적재 시 계산.
+    actual_price = Column(Numeric(15, 2), nullable=True)
+    currency = Column(String(10), nullable=True)
+    # stock_qty(재고/재고수량): 면장 기준 재고.
+    stock_qty = Column(Integer, nullable=True)
+    declared_at = Column(Date, nullable=True)
+    raw_row = Column(JSONB, nullable=False)
+    source_file = Column(String(255), nullable=True)
+    imported_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    imported_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

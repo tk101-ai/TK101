@@ -35,8 +35,12 @@ import {
 } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import {
+  DISTRIBUTION_LANGUAGE_LABEL,
+  DISTRIBUTION_LANGUAGE_TAG_COLOR,
   MESSAGE_STATUS_LABEL,
   MESSAGE_STATUS_TAG_COLOR,
+  SEND_STATE_LABEL,
+  SEND_STATE_TAG_COLOR,
   SESSION_STATUS_LABEL,
   SESSION_STATUS_TAG_COLOR,
   approveSession,
@@ -196,6 +200,8 @@ interface MessageRowProps {
   cumulativeOffset: number;
   onSaved: (next: MessageItem) => void;
   editingDisabled: boolean;
+  /** 예약 세션 여부 — true 면 워커 송신 상태(send_state)를 읽기 전용 노출. */
+  showSendState: boolean;
 }
 
 const ATTACHMENT_ACCEPT =
@@ -347,6 +353,7 @@ function MessageRow({
   cumulativeOffset,
   onSaved,
   editingDisabled,
+  showSendState,
 }: MessageRowProps) {
   const [editing, setEditing] = useState<boolean>(false);
   const [draft, setDraft] = useState<string>("");
@@ -397,6 +404,16 @@ function MessageRow({
         <Tag color={MESSAGE_STATUS_TAG_COLOR[msg.status]}>
           {MESSAGE_STATUS_LABEL[msg.status]}
         </Tag>
+        {showSendState && (
+          <Tag color={SEND_STATE_TAG_COLOR[msg.send_state]}>
+            {SEND_STATE_LABEL[msg.send_state]}
+          </Tag>
+        )}
+        {showSendState && msg.scheduled_send_at && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            예정: {formatDateTime(msg.scheduled_send_at)}
+          </Text>
+        )}
         {msg.user_edited && (
           <Tag color="purple" icon={<EditOutlined />}>
             수정됨
@@ -695,7 +712,12 @@ export default function SessionDetailPage() {
   }
 
   const status = session.status;
-  const editingDisabled = status === "sent" || status === "sending";
+  // 예약/송신중/완료 세션은 편집 불가 (워커가 송신 중이거나 이미 송신됨).
+  const editingDisabled =
+    status === "sent" || status === "sending" || status === "scheduled";
+  // 예약 세션 계열에서만 메시지별 워커 송신 상태(send_state)를 노출.
+  const showSendState =
+    status === "scheduled" || status === "sending" || status === "sent";
 
   return (
     <div style={{ maxWidth: 1080 }}>
@@ -793,6 +815,15 @@ export default function SessionDetailPage() {
           <Descriptions.Item label="수신">
             {session.receiver_account_label}
           </Descriptions.Item>
+          <Descriptions.Item label="대화 언어">
+            <Tag
+              color={
+                DISTRIBUTION_LANGUAGE_TAG_COLOR[session.language] ?? "default"
+              }
+            >
+              {DISTRIBUTION_LANGUAGE_LABEL[session.language] ?? session.language}
+            </Tag>
+          </Descriptions.Item>
           <Descriptions.Item label="메시지 수">
             {session.message_count}
           </Descriptions.Item>
@@ -858,6 +889,15 @@ export default function SessionDetailPage() {
             message="거부된 세션입니다."
           />
         )}
+        {status === "scheduled" && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 16 }}
+            message={`예약 송신 대기 중입니다 (예약 시각: ${formatDateTime(session.scheduled_start)}).`}
+            description="백그라운드 워커가 각 메시지의 예정 시각에 자동 송신합니다. 메시지별 진행 상태는 타임라인에서 확인하세요."
+          />
+        )}
         {status === "sending" && (
           <Alert
             type="warning"
@@ -883,6 +923,7 @@ export default function SessionDetailPage() {
                   cumulativeOffset={cumulativeOffsets[idx] ?? 0}
                   onSaved={handleMessageSaved}
                   editingDisabled={editingDisabled}
+                  showSendState={showSendState}
                 />
               ),
             }))}

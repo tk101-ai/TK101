@@ -3,8 +3,9 @@
 용도:
 - 페르소나 2종 (VN-A, KR-A1) 초기 등록.
   자격증명(api_id/hash)은 비워서 등록 — 어드민 UI 에서 직접 입력해야 활성화됨.
-- 시나리오 5종 (베트남↔한국 1:1 유통 패턴) 초기 등록.
+- 시나리오 한국어 8종 + 중국어(간체) 7종 (베트남↔한국 1:1 유통 패턴) 초기 등록.
   ``업무개선요구사항/신사업팀/시나리오 샘플.txt`` 7개월치 대화에서 추출.
+  중국어 시나리오는 동일 업무 흐름을 중국 현지 채팅체로 미러링 (T9 — 2026-05-27).
 
 실행:
     docker compose exec backend python -m app.services.distribution.seeds
@@ -124,6 +125,34 @@ VN_A_TONE: dict = {
 }
 
 
+# ---------------------------------------------------------------------------
+# 중국어(간체) 톤 프로필 — zh 시나리오용. 중국 현지인의 자연스러운 채팅 습관 반영.
+# 위 한국어 톤과 1:1 대응하되, 어조 표현만 중국어 채팅 습관으로 치환.
+# ---------------------------------------------------------------------------
+
+# KR-A1(중문): 한국 측 관리자. 정보 주도형, 간결하지만 친절.
+KR_A1_TONE_ZH: dict = {
+    "formality": 0.4,
+    "emoji_freq": 0.08,
+    "typo_rate": 0.02,
+    "preferred_endings": ["哈", "哦", "了", "的"],
+    "common_phrases": ["好的", "收到", "麻烦确认一下", "嗯", "对的"],
+    "msg_split": "high",
+    "time_active": [9, 11, 14, 17],
+}
+
+# VN-A(중문): 베트남 창고(중국) 측. 단정·짧은 응답.
+VN_A_TONE_ZH: dict = {
+    "formality": 0.5,
+    "emoji_freq": 0.05,
+    "typo_rate": 0.01,
+    "preferred_endings": ["了", "的", "哈"],
+    "common_phrases": ["好", "明白", "收到了", "谢谢", "确认过了"],
+    "msg_split": "medium",
+    "time_active": [10, 12, 15, 18],
+}
+
+
 PERSONA_SEEDS: list[dict] = [
     {
         "account_label": "KR-A1",
@@ -204,18 +233,18 @@ SCENARIO_SEEDS: list[dict] = [
         "receiver_role": "vietnam_admin",
         "beats": [
             {"step": 1, "intent": "한국 측이 금일 물건 보낸다고 알림 (안부 없이 본론)", "tone_hint": None},
-            {"step": 2, "intent": "수량과 품목 분리 송신", "tone_hint": "분할"},
-            {"step": 3, "intent": "베트남이 받겠다고 응답", "tone_hint": "단정"},
-            {"step": 4, "intent": "한국이 현재 재고 수량 추가 알림", "tone_hint": None},
+            {"step": 2, "intent": "수량과 품목 분리 송신 (가방 BAG N개, 물류사 경유)", "tone_hint": "분할"},
+            {"step": 3, "intent": "베트남이 받겠다고 + 도착하면 연락드리겠다고 응답", "tone_hint": "단정"},
+            {"step": 4, "intent": "한국이 누적 재고 산식 알림 (기존 재고 + 금일 출고 = 합계)", "tone_hint": "분할"},
             {"step": 5, "intent": "베트남이 확인 응답하며 마무리", "tone_hint": None},
         ],
         "example_msgs": [
-            {"sender": "KR-A1", "content": "금일 물건 가방 BAG 28개 준비해서 물류사 통해서 물건 보내겠습니다."},
+            {"sender": "KR-A1", "content": "금일 물건 가방 BAG 28개 준비해서 물류사 통해서 보내겠습니다."},
             {"sender": "VN-A", "content": "넵 알겠습니다. 물건 받고 연락드리겠습니다."},
-            {"sender": "KR-A1", "content": "그러면 현재 재고는 249개 입니다."},
+            {"sender": "KR-A1", "content": "현재 재고 상황은 기존 창고 249개 + 금일 48개 = 297개 입니다."},
             {"sender": "VN-A", "content": "넵 알겠습니다."},
         ],
-        "raw_text": "[샘플 2026-05-04 발췌 · 2026-05-26 안부 인사 제거]",
+        "raw_text": "[샘플 2026-05-04·05-11 발췌 · 2026-05-26 안부 인사 제거]",
     },
     {
         "name": "도착 확인 + 재고 업데이트",
@@ -354,6 +383,172 @@ SCENARIO_SEEDS: list[dict] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# 중국어(간체) 시나리오 — 한국어 5종 업무 흐름을 그대로 미러링 (T9 — 2026-05-27)
+# 출고확인 / 출고알림+수량 / 도착+재고 / 주문처리 / 지연안내 / VIP프로모션.
+# example_msgs 는 중국 현지인 채팅체 few-shot. 명품 브랜드·수량은 한국어판과 동일 맥락.
+# name 은 한국어판과 충돌하지 않도록 "(中文)" 접미어로 구분.
+# ---------------------------------------------------------------------------
+
+SCENARIO_SEEDS_ZH: list[dict] = [
+    {
+        "name": "定期出货确认 (中文)",
+        "trigger_event": "inventory_check",
+        "sender_role": "vietnam_admin",
+        "receiver_role": "domestic_admin",
+        "language": "zh",
+        "beats": [
+            {"step": 1, "intent": "越南仓直接问这个月发不发货(不寒暄)", "tone_hint": "简短"},
+            {"step": 2, "intent": "韩国方回复能发/暂时发不了", "tone_hint": "干脆"},
+            {"step": 3, "intent": "越南仓回个'好的'", "tone_hint": None},
+            {"step": 4, "intent": "越南仓追问现在备的是哪些品类", "tone_hint": None},
+            {"step": 5, "intent": "韩国方回答主要是哪类货(如包BAG)", "tone_hint": None},
+            {"step": 6, "intent": "越南仓说备好了通知一声收尾", "tone_hint": "随和"},
+        ],
+        "example_msgs": [
+            {"sender": "VN-A", "content": "上次说要发的货，这个月发吗？"},
+            {"sender": "KR-A1", "content": "还没备齐，这次可能发不了"},
+            {"sender": "VN-A", "content": "好的"},
+            {"sender": "VN-A", "content": "现在在备的都是哪些品类呀？"},
+            {"sender": "KR-A1", "content": "大部分是包 BAG 比较多"},
+            {"sender": "VN-A", "content": "行，备好了通知我一声哈"},
+        ],
+        "raw_text": "[샘플 2026-01-06 기반 zh 미러 · 2026-05-27]",
+    },
+    {
+        "name": "出货通知+数量 (中文)",
+        "trigger_event": "shipment_notice",
+        "sender_role": "domestic_admin",
+        "receiver_role": "vietnam_admin",
+        "language": "zh",
+        "beats": [
+            {"step": 1, "intent": "韩国方说今天发货(不寒暄直接进正题)", "tone_hint": None},
+            {"step": 2, "intent": "拆开发数量和品类(包 BAG N件, 走物流公司)", "tone_hint": "拆分"},
+            {"step": 3, "intent": "越南仓说收到、到货了通知", "tone_hint": "干脆"},
+            {"step": 4, "intent": "韩国方报累计库存算式(原库存+今日出货=合计)", "tone_hint": "拆分"},
+            {"step": 5, "intent": "越南仓确认收尾", "tone_hint": None},
+        ],
+        "example_msgs": [
+            {"sender": "KR-A1", "content": "今天备了包 BAG 28件，走物流公司发过去"},
+            {"sender": "VN-A", "content": "好的，到货了我通知你"},
+            {"sender": "KR-A1", "content": "现在库存是 原仓249件 + 今天48件 = 297件"},
+            {"sender": "VN-A", "content": "明白了"},
+        ],
+        "raw_text": "[샘플 2026-05-04·05-11 기반 zh 미러 · 2026-05-27]",
+    },
+    {
+        "name": "到货确认+库存更新 (中文)",
+        "trigger_event": "arrival_confirm",
+        "sender_role": "vietnam_admin",
+        "receiver_role": "domestic_admin",
+        "language": "zh",
+        "beats": [
+            {"step": 1, "intent": "越南仓报收到的数量(不寒暄)", "tone_hint": None},
+            {"step": 2, "intent": "道个谢", "tone_hint": None},
+            {"step": 3, "intent": "韩国方回谢+报当前库存合计", "tone_hint": None},
+            {"step": 4, "intent": "越南仓确认", "tone_hint": "干脆"},
+        ],
+        "example_msgs": [
+            {"sender": "VN-A", "content": "发来的 28件 BAG 收到了，谢谢"},
+            {"sender": "KR-A1", "content": "好的，那现在库存是 277件"},
+            {"sender": "VN-A", "content": "确认过了"},
+        ],
+        "raw_text": "[샘플 2026-05-07 기반 zh 미러 · 2026-05-27]",
+    },
+    {
+        "name": "订单处理 (库存扣减) (中文)",
+        "trigger_event": "order_processing",
+        "sender_role": "domestic_admin",
+        "receiver_role": "vietnam_admin",
+        "language": "zh",
+        "beats": [
+            {"step": 1, "intent": "韩国方说当地买家下单数量(不寒暄)", "tone_hint": None},
+            {"step": 2, "intent": "越南仓说收到、今天去提货已通知到", "tone_hint": None},
+            {"step": 3, "intent": "韩国方核对剩余库存数", "tone_hint": None},
+            {"step": 4, "intent": "越南仓确认库存数", "tone_hint": None},
+            {"step": 5, "intent": "韩国方道谢收尾", "tone_hint": None},
+        ],
+        "example_msgs": [
+            {"sender": "KR-A1", "content": "当地买家下单了，一共 256件"},
+            {"sender": "VN-A", "content": "好的，接到通知了，今天去提货那边也说了"},
+            {"sender": "KR-A1", "content": "那现在剩的库存是 221件 对吧？"},
+            {"sender": "VN-A", "content": "对的"},
+            {"sender": "KR-A1", "content": "谢谢哈"},
+        ],
+        "raw_text": "[샘플 2026-04-03 기반 zh 미러 · 2026-05-27]",
+    },
+    {
+        "name": "延迟通知 (假期/物流) (中文)",
+        "trigger_event": "delay",
+        "sender_role": "domestic_admin",
+        "receiver_role": "vietnam_admin",
+        "language": "zh",
+        "beats": [
+            {"step": 1, "intent": "韩国方说因假期/物流档期, 可能要下个月才发(不寒暄)", "tone_hint": "客气"},
+            {"step": 2, "intent": "越南仓表示理解+说自己这边假期安排+别家也都这样", "tone_hint": "共情"},
+            {"step": 3, "intent": "韩国方同意+说会备好就发", "tone_hint": None},
+            {"step": 4, "intent": "越南仓追问韩国现在大概多少库存", "tone_hint": None},
+            {"step": 5, "intent": "韩国方报库存数", "tone_hint": None},
+        ],
+        "example_msgs": [
+            {"sender": "KR-A1", "content": "这个月赶上韩国节假日，加上物流公司档期，可能得下个月才能发"},
+            {"sender": "VN-A", "content": "嗯，我也听说了。我们这边 2月14到22号 也放假，别家公司也都说物流有点卡"},
+            {"sender": "KR-A1", "content": "对的，我备好物流就发"},
+            {"sender": "VN-A", "content": "现在韩国那边大概还有多少库存呀？"},
+            {"sender": "KR-A1", "content": "477件"},
+        ],
+        "raw_text": "[샘플 2026-02-13 기반 zh 미러 · 2026-05-27]",
+    },
+    {
+        "name": "名品追加采购请求 (中文)",
+        "trigger_event": "product_request",
+        "sender_role": "vietnam_admin",
+        "receiver_role": "domestic_admin",
+        "language": "zh",
+        "beats": [
+            {"step": 1, "intent": "越南仓说这周名品库存看过了(不寒暄)", "tone_hint": None},
+            {"step": 2, "intent": "点名最好卖的品牌/款(LV/Goyard/梵克雅宝/Cartier 等)", "tone_hint": "给信息"},
+            {"step": 3, "intent": "说这些款可以无限量下单", "tone_hint": "干脆"},
+            {"step": 4, "intent": "问某个品类(包/珠宝)能不能多备点", "tone_hint": None},
+            {"step": 5, "intent": "韩国方说下周到货确认后再给", "tone_hint": "客气"},
+        ],
+        "example_msgs": [
+            {"sender": "VN-A", "content": "这周名品库存我看过了"},
+            {"sender": "VN-A", "content": "LV、梵克雅宝、Goyard 这几个爆款可以无限量下单"},
+            {"sender": "VN-A", "content": "尤其是包类能不能多备点？"},
+            {"sender": "KR-A1", "content": "好的，下周到货那批确认一下再发你"},
+            {"sender": "KR-A1", "content": "各品牌数量我整理好再发一遍哈"},
+        ],
+        "raw_text": "[0518 요구사항 기반 zh 미러 · 2026-05-27]",
+    },
+    {
+        "name": "季度VIP促销 (清库存) (中文)",
+        "trigger_event": "vip_promotion_quarterly",
+        "sender_role": "domestic_admin",
+        "receiver_role": "vietnam_admin",
+        "language": "zh",
+        "attachment_required": True,
+        "beats": [
+            {"step": 1, "intent": "通知季度VIP促销安排(不寒暄, 不直接报数字)", "tone_hint": "客气"},
+            {"step": 2, "intent": "只用文字提对象品类(具体数量/价格看附件Excel)", "tone_hint": None},
+            {"step": 3, "intent": "引导看附件: 品类/数量/促销价都整理在Excel里", "tone_hint": "干脆"},
+            {"step": 4, "intent": "说明VIP接单截止日和流程", "tone_hint": None},
+            {"step": 5, "intent": "越南仓确认+提出回复当地VIP意向的时间", "tone_hint": None},
+            {"step": 6, "intent": "韩国方同意时间+有问题另外回信收尾", "tone_hint": "收尾"},
+        ],
+        "example_msgs": [
+            {"sender": "KR-A1", "content": "这个季度的 VIP 促销开始了，一部分余货限 VIP 放出来"},
+            {"sender": "KR-A1", "content": "对象主要是包、小皮具、珠宝这几类。品牌清单我整理在一起发的 Excel 里了"},
+            {"sender": "KR-A1", "content": "品类、数量、促销价都看附件哈，数字我不在消息里单独发"},
+            {"sender": "KR-A1", "content": "VIP 回复截止定在下周五"},
+            {"sender": "VN-A", "content": "收到，我看完 Excel 通知当地 VIP，这周内回你"},
+            {"sender": "KR-A1", "content": "好的，有别的问题再单独回信哈"},
+        ],
+        "raw_text": "[2026-05-26 VIP 프로모션 zh 미러 · 2026-05-27]",
+    },
+]
+
+
 async def seed_personas(session: AsyncSession) -> int:
     """페르소나 시드 등록. 이미 존재하는 account_label 은 건너뜀."""
     inserted = 0
@@ -376,9 +571,12 @@ async def seed_personas(session: AsyncSession) -> int:
 
 
 async def seed_scenarios(session: AsyncSession) -> int:
-    """시나리오 시드 등록. 이미 존재하는 name 은 건너뜀."""
+    """시나리오 시드 등록 (한국어 + 중국어). 이미 존재하는 name 은 건너뜀.
+
+    language 미지정 dict 는 'ko' 로 보정 (한국어 시드).
+    """
     inserted = 0
-    for data in SCENARIO_SEEDS:
+    for data in (*SCENARIO_SEEDS, *SCENARIO_SEEDS_ZH):
         existing = await session.execute(
             select(DistributionScenario).where(
                 DistributionScenario.name == data["name"]
@@ -387,7 +585,9 @@ async def seed_scenarios(session: AsyncSession) -> int:
         if existing.scalar_one_or_none() is not None:
             logger.info("시나리오 %s 이미 존재 — 건너뜀", data["name"])
             continue
-        scenario = DistributionScenario(**data)
+        # language 기본값 보정 (한국어 시드는 컬럼 미지정).
+        row = {**data, "language": data.get("language", "ko")}
+        scenario = DistributionScenario(**row)
         session.add(scenario)
         inserted += 1
     if inserted:

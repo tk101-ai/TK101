@@ -13,6 +13,7 @@ import {
 } from "antd";
 import { listPersonas, listWeeklySummary } from "../../api/distribution";
 import type {
+  DistributionLanguage,
   PersonaOut,
   WeeklySummaryOut,
 } from "../../api/distribution";
@@ -51,6 +52,7 @@ interface FormValues {
   scenario_names: string[];
   period_label: string | "__latest__";
   timing_profile: TimingProfile;
+  language: DistributionLanguage;
 }
 
 const LATEST_VALUE = "__latest__";
@@ -100,6 +102,7 @@ export default function GenerateTriggerModal({
           scenario_names: [],
           period_label: LATEST_VALUE,
           timing_profile: "normal",
+          language: "ko",
         });
         setSenderIds([]);
         setScenarioNames([]);
@@ -170,6 +173,7 @@ export default function GenerateTriggerModal({
         period_label:
           values.period_label === LATEST_VALUE ? null : values.period_label,
         timing_profile: values.timing_profile ?? "normal",
+        language: values.language ?? "ko",
       });
       onGenerated(result);
       form.resetFields();
@@ -277,6 +281,18 @@ export default function GenerateTriggerModal({
             rules={[{ required: true, message: "주차를 선택하세요" }]}
           >
             <Select options={weekOptions} placeholder="주차 선택" />
+          </Form.Item>
+
+          <Form.Item
+            name="language"
+            label="대화 언어"
+            help="생성될 대화의 언어입니다. 中文 선택 시 두 페르소나가 자연스러운 간체 중국어로 대화합니다."
+            rules={[{ required: true, message: "언어를 선택하세요" }]}
+          >
+            <Radio.Group>
+              <Radio.Button value="ko">한국어</Radio.Button>
+              <Radio.Button value="zh">中文 (간체)</Radio.Button>
+            </Radio.Group>
           </Form.Item>
 
           <Form.Item

@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin, require_module
-from app.models.distribution import DistributionMessage
+from app.models.distribution import DistributionMessage, DistributionSession
 from app.models.user import User
 from app.modules.constants import Module
 from app.schemas.distribution_sessions import (
@@ -89,12 +89,27 @@ async def get_session(
     session_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> SessionDetail:
-    """세션 상세 + 메시지 리스트."""
+    """세션 상세 + 메시지 리스트.
+
+    session_service.get_session_detail 은 헤더에 language 를 채우지 않으므로
+    (해당 서비스는 다른 워크스트림 소유라 미수정) 여기서 session.language 를
+    한 번 더 조회하여 응답 헤더에 주입한다 (T9 — 2026-05-27).
+    """
     detail = await session_service.get_session_detail(db, session_id)
     if detail is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="세션 없음"
         )
+    language = (
+        await db.execute(
+            select(DistributionSession.language).where(
+                DistributionSession.id == session_id
+            )
+        )
+    ).scalar_one_or_none()
+    if language:
+        enriched_header = detail.session.model_copy(update={"language": language})
+        return SessionDetail(session=enriched_header, messages=detail.messages)
     return detail
 
 
