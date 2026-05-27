@@ -1,9 +1,9 @@
 """면장(통관신고) 데이터 수집 라우터 (Priority 4).
 
 엔드포인트 (prefix=/api/distribution/customs):
-| 메서드 | 경로       | 설명                                        |
-|--------|------------|---------------------------------------------|
-| POST   | /upload    | 면장 엑셀 업로드 → 파싱·UPSERT + 미리보기   |
+| 메서드 | 경로       | 설명                                          |
+|--------|------------|-----------------------------------------------|
+| POST   | /upload    | 면장 엑셀/PDF 업로드 → 파싱·UPSERT + 미리보기 |
 | GET    | /          | 면장 목록 (회사/검색 필터, 페이지네이션)    |
 | GET    | /summary   | 집계 (건수 + 신고가 합 vs 실가 역산 합)     |
 
@@ -47,8 +47,12 @@ from app.services.distribution.constants import DISTRIBUTION_COMPANIES
 
 logger = logging.getLogger(__name__)
 
-# 업로드 크기 상한 (메모리 고갈/zip-bomb 방지). 면장 엑셀은 통상 수 MB.
+# 업로드 크기 상한 (메모리 고갈/zip-bomb 방지). 면장 엑셀/PDF 는 통상 수 MB.
+# PDF 의 페이지 수 폭증(huge-page DoS)은 파서(_PDF_MAX_PAGES)에서 추가 방어.
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB
+
+# 허용 확장자. 엑셀(.xlsx/.xlsm) + 면장 PDF(.pdf).
+_ALLOWED_EXTENSIONS = (".xlsx", ".xlsm", ".pdf")
 
 router = APIRouter(
     prefix="/api/distribution/customs",
@@ -64,10 +68,10 @@ async def upload_customs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> CustomsUploadResult:
-    """면장 엑셀(.xlsx/.xlsm) 업로드 → 파싱 + 신고번호 기준 UPSERT.
+    """면장 엑셀(.xlsx/.xlsm)/PDF(.pdf) 업로드 → 파싱 + 신고번호 기준 UPSERT.
 
     Form 필드:
-    - file: .xlsx / .xlsm
+    - file: .xlsx / .xlsm / .pdf
     - company_label (optional): 4 회사 코드 중 하나. 비어있으면 NULL 적재.
 
     멱등: 동일 신고번호 재업로드 시 기존 행 갱신 (중복 INSERT 없음).
@@ -75,10 +79,10 @@ async def upload_customs(
     Errors:
     - 400: 파일 확장자 미지원 / 허용되지 않은 company_label / 빈 파일.
     """
-    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
+    if not file.filename or not file.filename.lower().endswith(_ALLOWED_EXTENSIONS):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="엑셀 파일(.xlsx)만 업로드 가능합니다.",
+            detail="엑셀(.xlsx/.xlsm) 또는 PDF(.pdf) 파일만 업로드 가능합니다.",
         )
 
     normalized_company = (company_label or "").strip() or None
@@ -115,7 +119,7 @@ async def upload_customs(
         logger.exception("면장 업로드 처리 실패 — file=%s", file.filename)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="면장 엑셀 처리 중 오류가 발생했습니다. 파일 형식을 확인하세요.",
+            detail="면장 파일 처리 중 오류가 발생했습니다. 파일 형식을 확인하세요.",
         ) from exc
 
     return CustomsUploadResult(

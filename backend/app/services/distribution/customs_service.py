@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.distribution import DistributionCustomsDeclaration
 from app.services.distribution.customs_parser import (
     CustomsRow,
-    parse_customs_sheet,
+    parse_customs_file,
 )
 
 logger = logging.getLogger(__name__)
@@ -112,13 +112,14 @@ async def ingest_customs(
     company_label: str | None = None,
     preview_limit: int = 10,
 ) -> CustomsIngestResult:
-    """면장 엑셀 bytes → 파싱 + 신고번호 기준 UPSERT.
+    """면장 파일(엑셀/PDF) bytes → 파싱 + 신고번호 기준 UPSERT.
 
+    확장자(source_file_name)로 엑셀/PDF 파서를 분기 (parse_customs_file).
     멱등: 동일 신고번호 재업로드 시 기존 행 갱신 (중복 INSERT 없음).
     """
     result = CustomsIngestResult()
 
-    parse_result = parse_customs_sheet(file_bytes)
+    parse_result = parse_customs_file(file_bytes, source_file_name)
     result.warnings.extend(parse_result.warnings)
     result.parsed = len(parse_result.rows)
     result.preview = parse_result.rows[:preview_limit]

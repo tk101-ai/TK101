@@ -136,7 +136,7 @@ export default function CustomsPage() {
   }, [summary]);
 
   const uploadProps: UploadProps = {
-    accept: ".xlsx,.xlsm",
+    accept: ".xlsx,.xlsm,.pdf",
     multiple: false,
     showUploadList: false,
     beforeUpload: (file) => {
@@ -148,7 +148,7 @@ export default function CustomsPage() {
 
   const handleUpload = async () => {
     if (!pendingFile) {
-      message.warning("업로드할 면장 엑셀 파일을 먼저 선택하세요");
+      message.warning("업로드할 면장 엑셀/PDF 파일을 먼저 선택하세요");
       return;
     }
     setUploading(true);
@@ -255,8 +255,8 @@ export default function CustomsPage() {
           면장 (통관신고) 데이터
         </Title>
         <Paragraph type="secondary" style={{ margin: "4px 0 0" }}>
-          면장 엑셀을 업로드해 신고번호 · 신고가 · 재고를 수집합니다. 동일
-          신고번호는 자동 갱신됩니다.
+          면장 엑셀 또는 PDF를 업로드해 신고번호 · 신고가 · 재고를 수집합니다.
+          동일 신고번호는 자동 갱신됩니다.
         </Paragraph>
       </div>
 
@@ -292,7 +292,7 @@ export default function CustomsPage() {
       {/* 업로드 카드 */}
       <Card
         size="small"
-        title="면장 엑셀 업로드"
+        title="면장 엑셀/PDF 업로드"
         style={{ marginBottom: 20 }}
         extra={
           <Space>
@@ -315,11 +315,12 @@ export default function CustomsPage() {
             <InboxOutlined />
           </p>
           <p className="ant-upload-text" style={{ fontSize: 14, margin: 4 }}>
-            면장 엑셀(.xlsx/.xlsm)을 끌어다 놓거나 클릭해서 선택
+            면장 엑셀(.xlsx/.xlsm) 또는 PDF(.pdf)를 끌어다 놓거나 클릭해서 선택
           </p>
           <p className="ant-upload-hint" style={{ fontSize: 12 }}>
             컬럼 매핑은 실제 면장 양식 확정 후 조정됩니다 (헤더 텍스트 기반 자동
-            인식).
+            인식). PDF는 표 추출을 우선 시도하고, 실패 시 본문 텍스트를
+            분석합니다.
           </p>
         </Dragger>
 
