@@ -10,6 +10,16 @@ class Settings(BaseSettings):
     google_youtube_api_key: str | None = None
     internal_api_token: str | None = None
 
+    # T1 트랙: 서울시 글로벌 SNS — Meta(Facebook/Instagram) Graph API ----------
+    # 시크릿은 .env 에만 주입(commit 절대 금지). 비어 있으면 자동 수집/메트릭 비활성화,
+    # 수동 콘텐츠 등록은 토큰 없이도 동작한다 (FALLBACK 모드).
+    # 발급: Meta for Developers → 앱 생성 → Graph API 장기 토큰(Page/IG 권한 포함).
+    meta_access_token: str = ""  # Page/IG 장기 액세스 토큰
+    meta_app_id: str = ""  # Meta 앱 ID (토큰 디버그/재발급용)
+    meta_app_secret: str = ""  # Meta 앱 시크릿 (appsecret_proof 서명용)
+    # Graph API 버전. 운영 중 신버전 전환 시 .env 로만 조정.
+    meta_graph_version: str = "v21.0"
+
     # NAS 자료 검색 (v0.6.0 PoC) -------------------------------------------------
     # 운영 환경에서 NAS 마운트 경로. 컨테이너에서 호스트 NAS를 bind mount.
     nas_mount_path: str = "/mnt/nas"
@@ -93,14 +103,25 @@ class Settings(BaseSettings):
     distribution_warmup_days: int = 7
     # 송신 실패 재시도 횟수 (지수 백오프).
     distribution_send_retry_max: int = 3
-    # 송신 워커 큐 폴링 간격 (초).
-    distribution_worker_poll_interval: int = 30
+    # 예약 송신 백그라운드 워커 활성화 여부.
+    # 기본 False — dev/local 에서는 절대 자동 실행되지 않음 (실 텔레그램 송신 방지).
+    # 운영에서만 .env 로 True 설정 + Fernet 키 존재 시에만 lifespan 에서 기동.
+    distribution_worker_enabled: bool = False
+    # 예약 송신 워커 폴링 주기 (초). due 세션/메시지 탐색 간격.
+    distribution_worker_poll_sec: int = 15
     # 메시지 첨부 파일 저장 디렉토리 (NAS RW). 운영: ``/mnt/nas-rw/distribution/attachments``.
     # 로컬/개발에선 컨테이너 내부 또는 nas-stub 경로로 override.
     distribution_attachment_dir: str = "/mnt/nas-rw/distribution/attachments"
     # 첨부 1건 최대 크기 (바이트). 200MB. Telethon 자체는 2GB까지 OK.
     # 너무 크면 사내 회선/NAS RW 부담 — 정말 큰 파일은 NAS 공유 링크로 대체 권장.
     distribution_attachment_max_bytes: int = 200 * 1024 * 1024
+
+    # T9 면장(통관신고) 역산 비율 (Priority 4) ----------------------------------
+    # 면장(customs declaration)에 기재되는 신고가는 관세 절감 목적으로 실제 가치의
+    # 75% 로 신고된다. 실가 역산 공식: actual_price = declared_price / ratio.
+    # 0.75 가 표준이지만 거래/품목에 따라 달라질 수 있어 .env 로 조정 가능하게 분리.
+    # (예: 다른 비율 적용 시 .env 에 DISTRIBUTION_CUSTOMS_DECLARE_RATIO=0.70)
+    distribution_customs_declare_ratio: float = 0.75
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

@@ -46,6 +46,7 @@ const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "전체" },
   { value: "pending", label: "검수 대기" },
   { value: "approved", label: "승인됨" },
+  { value: "scheduled", label: "예약됨" },
   { value: "sent", label: "송신 완료" },
   { value: "rejected", label: "거부됨" },
   { value: "failed", label: "실패" },

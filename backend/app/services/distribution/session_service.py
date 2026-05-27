@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -55,6 +55,13 @@ _TYPING_CAP_SEC = 5
 # 텔레그램 미디어 캡션 최대 길이 (텍스트는 4096, 캡션은 1024).
 # 초과 시 잘라서 첨부 보내고, 남은 본문은 별도 텍스트 메시지로 follow-up.
 _CAPTION_MAX_LEN = 1024
+
+# 워커 경로에서 실제 시간차 대기에 cap 없음 — None 전달.
+# 단 단일 대기가 비현실적으로 길면 폴링 주기로 분할되므로, 여기서는 cap 미적용만 표현.
+
+# 단일 메시지 송신 결과 (sent/failed). 호출자가 카운트·로그 집계.
+_DELIVER_OK = "sent"
+_DELIVER_FAIL = "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +114,8 @@ def _build_message_item(
         send_after_sec=message.send_after_sec,
         typing_sec=message.typing_sec,
         status=message.status,  # type: ignore[arg-type]
+        send_state=message.send_state or "pending",  # type: ignore[arg-type]
+        scheduled_send_at=message.scheduled_send_at,
         sent_at=message.sent_at,
         telegram_message_id=message.telegram_message_id,
         attachment_filename=message.attachment_filename,
@@ -354,19 +363,28 @@ async def approve_session(
             f"승인 불가 — 현재 상태={session.status}. 'pending' 만 승인 가능."
         )
 
-    session.status = "approved"
     session.approved_by = user_id
     session.approved_at = datetime.now(timezone.utc)
     if scheduled_start is not None:
+        # 예약 송신: status='scheduled' + 메시지별 절대 송신 시각 영속화.
+        # 워커가 scheduled_start <= now() 인 세션을 픽업 → due 메시지 송신.
+        session.status = "scheduled"
         session.scheduled_start = scheduled_start
+        await schedule_session_messages(
+            db, session, scheduled_start=scheduled_start
+        )
+    else:
+        # 즉시 송신 대기 — 기존 'approved' 흐름 유지 (지금 송신 버튼 대상).
+        session.status = "approved"
 
     db.add(session)
     await db.commit()
     await db.refresh(session)
     logger.info(
-        "session approved — id=%s by=%s scheduled=%s",
+        "session approved — id=%s by=%s status=%s scheduled=%s",
         session.id,
         user_id,
+        session.status,
         scheduled_start,
     )
     return session
@@ -400,17 +418,194 @@ async def reject_session(
 
 
 # ---------------------------------------------------------------------------
+# 예약 송신 스케줄링 (approve + scheduled_start)
+# ---------------------------------------------------------------------------
+
+
+async def schedule_session_messages(
+    db: AsyncSession,
+    session: DistributionSession,
+    *,
+    scheduled_start: datetime,
+) -> None:
+    """세션 메시지마다 절대 송신 예정 시각(scheduled_send_at)을 계산·영속화.
+
+    scheduled_send_at[i] = scheduled_start + sum(send_after_sec[0..i]).
+    각 메시지의 send_after_sec 는 "직전 메시지 송신 후 대기 초" 이므로 누적합.
+    워커가 ``send_state='pending' AND scheduled_send_at <= now()`` 로 due 판정.
+    호출자가 commit 책임 (approve_session 트랜잭션 내에서 함께 commit).
+    """
+    msg_stmt = (
+        select(DistributionMessage)
+        .where(DistributionMessage.session_id == session.id)
+        .order_by(DistributionMessage.order_index.asc())
+    )
+    messages = list((await db.execute(msg_stmt)).scalars())
+    cumulative = 0
+    for message in messages:
+        cumulative += int(message.send_after_sec or 0)
+        message.scheduled_send_at = scheduled_start + timedelta(seconds=cumulative)
+        message.send_state = "pending"
+        db.add(message)
+    logger.info(
+        "session scheduled — id=%s start=%s messages=%d",
+        session.id,
+        scheduled_start,
+        len(messages),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 재사용 송신 헬퍼 (즉시 송신 + 워커 공용)
+# ---------------------------------------------------------------------------
+
+
+async def resolve_session_peers(
+    sender: DistributionPersona,
+    receiver: DistributionPersona,
+    clients: dict[UUID, TelegramClient],
+) -> dict[tuple[UUID, UUID], TelegramUser]:
+    """양방향 peer entity 사전 해석 (contact import 포함). 즉시/워커 공용."""
+    peer_cache: dict[tuple[UUID, UUID], TelegramUser] = {}
+    for from_p, to_p in ((sender, receiver), (receiver, sender)):
+        entity = await _resolve_peer(clients[from_p.id], to_p)
+        peer_cache[(from_p.id, to_p.id)] = entity
+    return peer_cache
+
+
+def _typing_action_for(message: DistributionMessage) -> str:
+    """첨부 종류에 맞는 Telethon ChatAction 짧은 이름 반환."""
+    if not message.attachment_path:
+        return "typing"
+    return "photo" if message.attachment_kind == "image" else "document"
+
+
+async def _send_payload(
+    client: TelegramClient,
+    target_entity: TelegramUser,
+    message: DistributionMessage,
+):
+    """첨부 유무에 따라 파일 또는 텍스트 송신. 송신된 메시지 객체 반환.
+
+    캡션 1024자 초과분은 별도 텍스트로 follow-up.
+    """
+    if message.attachment_path:
+        if not os.path.isfile(message.attachment_path):
+            raise FileNotFoundError(
+                f"첨부 파일이 존재하지 않습니다 ({message.attachment_path})"
+            )
+        raw_caption = (
+            message.attachment_caption
+            or message.edited_content
+            or message.content
+            or ""
+        )
+        caption = raw_caption[:_CAPTION_MAX_LEN]
+        overflow = raw_caption[_CAPTION_MAX_LEN:]
+        sent = await client.send_file(
+            target_entity,
+            message.attachment_path,
+            caption=caption,
+            force_document=(message.attachment_kind != "image"),
+        )
+        if overflow:
+            await client.send_message(target_entity, overflow)
+        return sent
+    return await client.send_message(
+        target_entity, message.edited_content or message.content
+    )
+
+
+async def _deliver_message(
+    db: AsyncSession,
+    *,
+    client: TelegramClient,
+    target_entity: TelegramUser,
+    message: DistributionMessage,
+    from_persona: DistributionPersona,
+    cap_seconds: int | None,
+) -> tuple[str, str | None]:
+    """단일 메시지 1건 송신 (즉시/워커 공용 코어).
+
+    cap_seconds:
+        - 30 → 즉시 송신(UI 동기) 경로. send_after_sec/typing_sec 를 cap.
+        - None → 워커 경로. 시간차는 이미 scheduled_send_at 으로 흡수되었으므로
+          여기서 추가 대기는 하지 않고 typing 만 짧게.
+    반환: (결과='sent'|'failed', error_summary | None). error_summary 는 실패 시
+    사람이 읽을 요약 (자격증명 무관, 예외 타입+메시지만).
+    message.status·send_log 를 기록. commit 은 호출자 책임 (배치 단위 제어).
+    """
+    if cap_seconds is not None:
+        wait_sec = min(message.send_after_sec or 0, cap_seconds)
+        if wait_sec > 0:
+            await asyncio.sleep(wait_sec)
+    typing_sec = min(message.typing_sec or 0, _TYPING_CAP_SEC)
+    try:
+        async with client.action(target_entity, _typing_action_for(message)):
+            if typing_sec > 0:
+                await asyncio.sleep(typing_sec)
+        sent = await _send_payload(client, target_entity, message)
+        message.status = "sent"
+        message.send_state = "sent"  # status 와 동기화 (즉시·워커 경로 공통).
+        message.sent_at = datetime.now(timezone.utc)
+        message.telegram_message_id = str(sent.id)
+        db.add(message)
+        db.add(
+            DistributionSendLog(
+                message_id=message.id,
+                persona_id=from_persona.id,
+                attempt=1,
+                success=True,
+            )
+        )
+        logger.info(
+            "message sent — id=%s from=%s tg_id=%s attach=%s",
+            message.id,
+            from_persona.account_label,
+            sent.id,
+            bool(message.attachment_path),
+        )
+        return _DELIVER_OK, None
+    except (RPCError, FileNotFoundError, OSError, ValueError) as exc:
+        # RPCError=텔레그램 거부 / FileNotFound·OSError=첨부 접근 실패 / ValueError=Telethon 검증.
+        message.status = "failed"
+        message.send_state = "failed"  # status 와 동기화 (즉시·워커 경로 공통).
+        db.add(message)
+        error_code = type(exc).__name__
+        error_detail = str(exc)[:500]  # DB 컬럼 길이 보호 + 자격증명 미노출.
+        db.add(
+            DistributionSendLog(
+                message_id=message.id,
+                persona_id=from_persona.id,
+                attempt=1,
+                success=False,
+                error_code=error_code,
+                error_detail=error_detail,
+            )
+        )
+        logger.warning(
+            "message send failed — id=%s from=%s attach=%s err=%s detail=%s",
+            message.id,
+            from_persona.account_label,
+            bool(message.attachment_path),
+            error_code,
+            error_detail,
+        )
+        return _DELIVER_FAIL, f"{error_code}: {error_detail}"
+
+
+# ---------------------------------------------------------------------------
 # 즉시 송신
 # ---------------------------------------------------------------------------
 
 
 async def send_session_now(
     db: AsyncSession, session_id: UUID
-) -> tuple[DistributionSession, int, int]:
+) -> tuple[DistributionSession, int, int, str | None]:
     """세션을 동기로 즉시 송신.
 
     Returns:
-        (session, sent_count, failed_count)
+        (session, sent_count, failed_count, first_error)
 
     Raises:
         ValueError: status 가 송신 가능 상태('approved' 또는 'pending'+자동승인은 X) 아님.
@@ -475,11 +670,9 @@ async def send_session_now(
             )
 
         # 2) 양방향 peer entity 해석 (contact import 포함).
-        for from_p, to_p in ((sender, receiver), (receiver, sender)):
-            entity = await _resolve_peer(clients[from_p.id], to_p)
-            peer_cache[(from_p.id, to_p.id)] = entity
+        peer_cache = await resolve_session_peers(sender, receiver, clients)
 
-        # 3) 메시지 순회 송신.
+        # 3) 메시지 순회 송신 (UI 동기 트리거이므로 cap=30 적용).
         for message in messages:
             if message.status == "sent":
                 # 재시도 시 이미 송신된 건은 건너뜀.
@@ -496,113 +689,25 @@ async def send_session_now(
                 db.add(message)
                 continue
 
-            to_persona = (
-                receiver if from_persona.id == sender.id else sender
-            )
+            to_persona = receiver if from_persona.id == sender.id else sender
             target_entity = peer_cache[(from_persona.id, to_persona.id)]
 
-            # 시간차 대기 (UI 동기 트리거이므로 cap 적용).
-            wait_sec = min(message.send_after_sec or 0, _SEND_NOW_DELAY_CAP_SEC)
-            if wait_sec > 0:
-                await asyncio.sleep(wait_sec)
-
-            client = clients[from_persona.id]
-            try:
-                # 타이핑 인디케이터 — 짧게.
-                # Telethon ChatAction 표기는 'typing' / 'photo' / 'document' 등 짧은 이름.
-                # 'upload_photo' 같은 값은 ValueError 발생 → 첨부 송신만 실패하는 버그.
-                if message.attachment_path:
-                    typing_action = (
-                        "photo" if message.attachment_kind == "image" else "document"
-                    )
-                else:
-                    typing_action = "typing"
-                async with client.action(target_entity, typing_action):
-                    await asyncio.sleep(min(message.typing_sec or 0, _TYPING_CAP_SEC))
-
-                if message.attachment_path:
-                    # 첨부 파일 존재 검증 (NAS RW 마운트 끊김 등 사전 차단).
-                    if not os.path.isfile(message.attachment_path):
-                        raise FileNotFoundError(
-                            f"첨부 파일이 존재하지 않습니다 ({message.attachment_path})"
-                        )
-
-                    # 캡션 우선순위: attachment_caption > edited_content > content.
-                    raw_caption = (
-                        message.attachment_caption
-                        or message.edited_content
-                        or message.content
-                        or ""
-                    )
-                    # 텔레그램 1024자 제한 — 초과 시 잘라서 첨부 보내고 나머지는 별도 메시지.
-                    caption = raw_caption[:_CAPTION_MAX_LEN]
-                    overflow = raw_caption[_CAPTION_MAX_LEN:]
-
-                    sent = await client.send_file(
-                        target_entity,
-                        message.attachment_path,
-                        caption=caption,
-                        force_document=(message.attachment_kind != "image"),
-                    )
-                    # 초과분 follow-up. 단순 텍스트 메시지로 즉시 송신.
-                    if overflow:
-                        await client.send_message(target_entity, overflow)
-                else:
-                    sent = await client.send_message(
-                        target_entity,
-                        message.edited_content or message.content,
-                    )
-                message.status = "sent"
-                message.sent_at = datetime.now(timezone.utc)
-                message.telegram_message_id = str(sent.id)
-                db.add(message)
-                db.add(
-                    DistributionSendLog(
-                        message_id=message.id,
-                        persona_id=from_persona.id,
-                        attempt=1,
-                        success=True,
-                    )
-                )
+            result, error_summary = await _deliver_message(
+                db,
+                client=clients[from_persona.id],
+                target_entity=target_entity,
+                message=message,
+                from_persona=from_persona,
+                cap_seconds=_SEND_NOW_DELAY_CAP_SEC,
+            )
+            if result == _DELIVER_OK:
                 sent_count += 1
-                logger.info(
-                    "message sent — id=%s from=%s to=%s tg_id=%s attach=%s",
-                    message.id,
-                    from_persona.account_label,
-                    to_persona.account_label,
-                    sent.id,
-                    bool(message.attachment_path),
-                )
-            except (RPCError, FileNotFoundError, OSError, ValueError) as exc:
-                # RPCError = 텔레그램 거부 (caption_too_long, peer 등).
-                # FileNotFoundError/OSError = 첨부 파일 접근 실패 (NAS RW 마운트 등).
-                # ValueError = Telethon 내부 검증 실패 (잘못된 action 이름 등).
-                message.status = "failed"
-                db.add(message)
-                error_code = type(exc).__name__
-                error_detail = str(exc)[:500]  # DB 컬럼 길이 보호.
-                db.add(
-                    DistributionSendLog(
-                        message_id=message.id,
-                        persona_id=from_persona.id,
-                        attempt=1,
-                        success=False,
-                        error_code=error_code,
-                        error_detail=error_detail,
-                    )
-                )
+            else:
                 failed_count += 1
                 if first_error is None:
-                    first_error = f"[메시지 #{message.order_index + 1}] {error_code}: {error_detail}"
-                # 자격증명/api_hash 는 절대 로깅 X — 예외 타입+메시지만.
-                logger.warning(
-                    "message send failed — id=%s from=%s attach=%s err=%s detail=%s",
-                    message.id,
-                    from_persona.account_label,
-                    bool(message.attachment_path),
-                    error_code,
-                    error_detail,
-                )
+                    first_error = (
+                        f"[메시지 #{message.order_index + 1}] {error_summary}"
+                    )
             await db.commit()
 
         # 4) 세션 종료 상태 결정.
