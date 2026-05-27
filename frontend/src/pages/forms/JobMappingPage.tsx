@@ -29,6 +29,29 @@ import MappingTable from "../../components/forms/MappingTable";
 const { Text } = Typography;
 
 /**
+ * 렌더 직전 검수 확정 (NFR-04 #4).
+ * 백엔드 render 는 모든 required 변수의 매핑이 confirmed=true 여야 통과한다.
+ * 누락 변수가 없는 상태에서 호출되므로, 값이 있는 매핑을 confirmed 로 PATCH 한다.
+ * 이미 confirmed 인 매핑은 중복 호출하지 않는다.
+ */
+async function confirmMappingsBeforeRender(
+  jobId: string,
+  detail: FormJobDetail,
+): Promise<void> {
+  const requiredKeys = new Set(
+    detail.template.variables.filter((v) => v.required).map((v) => v.key),
+  );
+  const toConfirm = detail.mappings.filter(
+    (m) =>
+      !m.confirmed &&
+      (requiredKeys.has(m.variable_key) || (m.value !== null && m.value !== "")),
+  );
+  for (const m of toConfirm) {
+    await patchJobMapping(jobId, m.variable_key, { confirmed: true });
+  }
+}
+
+/**
  * [4-5] 매핑 검수 + 누락 보강 — FR-04 / FR-05 / FR-06.
  * 좌측: 양식 미리보기 (변수 위치)
  * 우측: 매핑 테이블 + 출처 1클릭 펼쳐보기 + 누락 폼
@@ -91,6 +114,7 @@ export default function JobMappingPage() {
   };
 
   const handleConfirmAll = async () => {
+    if (!detail) return;
     if (missingMappings.length > 0) {
       message.warning(`누락 변수 ${missingMappings.length}개를 먼저 입력하세요`);
       setMissingFormOpen(true);
@@ -98,19 +122,22 @@ export default function JobMappingPage() {
     }
     setBusy(true);
     try {
-      const res = await renderJobDocx(id);
+      // 검수 강제 (NFR-04 #4): 백엔드 render 는 모든 필수 변수가 confirmed 여야 통과.
+      // "확정 후 다운로드" 가 사용자의 명시적 검수 확정 행위이므로, 값이 있는 매핑을
+      // 모두 confirmed 처리한 뒤 render 한다.
+      await confirmMappingsBeforeRender(id, detail);
+      await renderJobDocx(id);
       message.success("문서 생성 완료 — 다운로드를 시작합니다");
       const filename =
-        `${detail?.template.name ?? "form"}_${new Date().toISOString().slice(0, 10)}.${
-          detail?.template.file_format ?? "docx"
+        `${detail.template.name ?? "form"}_${new Date().toISOString().slice(0, 10)}.${
+          detail.template.file_format ?? "docx"
         }`;
       await downloadJobOutput(id, filename);
-      // mock 환경 안내
-      if (import.meta.env.VITE_FORMS_MOCK === "1") {
-        message.info(`(mock) 다운로드 URL: ${res.download_url}`);
-      }
-    } catch {
-      message.error("문서 생성 실패");
+    } catch (err) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } }).response?.data?.detail ??
+        "문서 생성 실패";
+      message.error(msg);
     } finally {
       setBusy(false);
     }

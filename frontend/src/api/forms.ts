@@ -264,10 +264,12 @@ export async function analyzeFormTemplate(
   }
   const fd = new FormData();
   fd.append("file", file);
+  // Content-Type을 수동 지정하지 않는다. FormData 본문은 axios/브라우저가
+  // 자동으로 `multipart/form-data; boundary=...` 를 설정한다. 수동 지정 시
+  // boundary 가 빠져 서버 멀티파트 파서가 본문을 못 읽고 415/422 가 발생한다.
   const res = await api.post<FormTemplateAnalyzeResponse>(
     "/api/forms/templates/analyze",
     fd,
-    { headers: { "Content-Type": "multipart/form-data" } },
   );
   return res.data;
 }
@@ -401,10 +403,11 @@ export async function uploadJobSource(
   }
   const fd = new FormData();
   fd.append("file", file);
+  // Content-Type 수동 지정 금지 — boundary 누락으로 인한 415/422 방지.
+  // axios 가 FormData 본문을 감지해 boundary 포함 헤더를 자동 설정한다.
   const res = await api.post<FormDataSource>(
     `/api/forms/jobs/${jobId}/sources/upload`,
     fd,
-    { headers: { "Content-Type": "multipart/form-data" } },
   );
   return res.data;
 }
@@ -437,7 +440,8 @@ export async function addNasSourcesToJob(
   return res.data;
 }
 
-export async function runJobMapping(jobId: string): Promise<FormMapping[]> {
+// 백엔드 `POST /run_mapping` 은 JobDetail(매핑 포함)을 반환한다. mock 도 동일 형태.
+export async function runJobMapping(jobId: string): Promise<FormJobDetail> {
   if (MOCK_ENABLED) {
     await new Promise((r) => setTimeout(r, 800));
     const job = mockStore.jobs.get(jobId);
@@ -447,10 +451,11 @@ export async function runJobMapping(jobId: string): Promise<FormMapping[]> {
     const sources = mockStore.sources.get(jobId) ?? [];
     const mappings = buildMockMappings(tpl, jobId, sources);
     mockStore.mappings.set(jobId, mappings);
-    mockStore.jobs.set(jobId, { ...job, status: "reviewing" });
-    return mappings;
+    const reviewing: FormJob = { ...job, status: "reviewing" };
+    mockStore.jobs.set(jobId, reviewing);
+    return { ...reviewing, template: tpl, sources, mappings, job: reviewing };
   }
-  const res = await api.post<FormMapping[]>(`/api/forms/jobs/${jobId}/run_mapping`);
+  const res = await api.post<FormJobDetail>(`/api/forms/jobs/${jobId}/run_mapping`);
   return res.data;
 }
 
@@ -501,19 +506,23 @@ export async function regenerateJobMapping(
     mockStore.mappings.set(jobId, arr);
     return next;
   }
+  // 백엔드 RegenerateRequest 는 `user_feedback` 키를 기대한다 (`feedback` 아님).
   const res = await api.post<FormMapping>(
     `/api/forms/jobs/${jobId}/regenerate`,
-    { variable_key: variableKey, feedback },
+    { variable_key: variableKey, user_feedback: feedback },
   );
   return res.data;
 }
 
-export async function renderJobDocx(jobId: string): Promise<{ download_url: string }> {
+// 백엔드 `POST /render` 는 완료된 JobDetail 을 반환한다 (download_url 필드 없음).
+// 다운로드는 별도 `GET /download` 로 수행한다.
+export async function renderJobDocx(jobId: string): Promise<FormJobDetail> {
   if (MOCK_ENABLED) {
     await new Promise((r) => setTimeout(r, 500));
-    return { download_url: `/api/forms/jobs/${jobId}/download` };
+    const detail = await getFormJob(jobId);
+    return { ...detail, status: "completed", output_path: `/mock/outputs/${jobId}.docx` };
   }
-  const res = await api.post<{ download_url: string }>(`/api/forms/jobs/${jobId}/render`);
+  const res = await api.post<FormJobDetail>(`/api/forms/jobs/${jobId}/render`);
   return res.data;
 }
 

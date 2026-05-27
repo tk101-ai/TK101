@@ -179,21 +179,45 @@ def verify_token_grounding(value: str | None, source_excerpt: str | None) -> tup
         return True, "검증 대상 토큰 없음(자유 텍스트)"
 
     excerpt_lower = source_excerpt.lower()
+    # 정량 서류 대응: 숫자 비교는 양쪽에서 콤마/공백을 제거해 표기차(천단위 콤마,
+    # "1 234")를 흡수한다. value 에 단위가 남아도(예: "1234500원"·"35%") 핵심 숫자가
+    # 자료에 있으면 grounding 통과로 본다.
+    excerpt_numeric = excerpt_lower.replace(",", "").replace(" ", "")
+
     # 숫자 토큰부터 검사 (변형 위험이 가장 큼).
     number_tokens = [t for t in tokens if _NUMBER_PATTERN.fullmatch(t)]
     for num in number_tokens:
-        # 숫자는 콤마 유무 무관 비교 — "1,234"와 "1234" 모두 허용.
-        normalized = num.replace(",", "")
-        if normalized not in excerpt_lower.replace(",", ""):
+        normalized = num.replace(",", "").replace(" ", "")
+        if normalized not in excerpt_numeric:
             return False, f"숫자 토큰 '{num}' 가 source_excerpt에 없음"
 
-    # 고유명사 토큰: 50% 일치 미달 시 거부.
+    # 고유명사/단위 포함 토큰: 50% 일치 미달 시 거부.
+    # 단위가 붙은 숫자(예: "1,234,500원")는 숫자 코어를 자료에서 확인해 통과 처리.
     proper_tokens = [t for t in tokens if not _NUMBER_PATTERN.fullmatch(t)]
     if proper_tokens:
-        hit = sum(1 for t in proper_tokens if t.lower() in excerpt_lower)
+        hit = sum(
+            1
+            for t in proper_tokens
+            if _proper_token_grounded(t, excerpt_lower, excerpt_numeric)
+        )
         if hit / len(proper_tokens) < 0.5:
             return False, f"고유명사 토큰 일치율 {hit}/{len(proper_tokens)} < 50%"
     return True, f"토큰 grounding OK (검사 {len(tokens)}개)"
+
+
+def _proper_token_grounded(token: str, excerpt_lower: str, excerpt_numeric: str) -> bool:
+    """고유명사/단위 포함 토큰의 grounding 판정.
+
+    1) 토큰 전체가 자료에 그대로 있으면 통과 (인명/회사명 등).
+    2) 토큰 안에 숫자 코어가 있으면(예: "1,234,500원"·"35%"), 콤마/공백 정규화 후
+       숫자 코어가 자료에 있으면 통과 — 정량 서류에서 단위/표기차 흡수.
+    """
+    if token.lower() in excerpt_lower:
+        return True
+    digits = "".join(ch for ch in token if ch.isdigit())
+    if len(digits) >= 2 and digits in excerpt_numeric:
+        return True
+    return False
 
 
 def validate_mapping(
