@@ -53,6 +53,9 @@ class DistributionPersona(Base):
     telegram_phone = Column(String(30), nullable=False, unique=True)
     # telegram_user_id: Telethon 첫 로그인 후 자동 채움.
     telegram_user_id = Column(BigInteger, nullable=True, unique=True)
+    # telegram_username: 연동된 텔레그램 계정의 @username (로그인/수동 동기화 시 자동 채움).
+    # NULL 가능 — username 미설정 계정도 존재. display_name 과 함께 "발신자 정보 최신화"의 핵심.
+    telegram_username = Column(String(64), nullable=True)
     # api_id/hash: Fernet 암호화 저장. 평문 DB 노출 금지.
     api_id_enc = Column(Text, nullable=True)
     api_hash_enc = Column(Text, nullable=True)

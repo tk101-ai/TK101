@@ -117,10 +117,16 @@ export default function GenerateTriggerModal({
 
   const personaOptions = useMemo(
     () =>
-      personas.map((p) => ({
-        label: `${p.account_label} — ${p.business_name ?? p.display_name}`,
-        value: p.id,
-      })),
+      personas.map((p) => {
+        // 발신자 식별: 사업자명(수동) 우선, 없으면 연동 계정의 라이브 표시명.
+        // 동기화된 @username 이 있으면 함께 노출해 실제 연동 계정을 확인 가능하게.
+        const identity = p.business_name ?? p.display_name;
+        const handle = p.telegram_username ? ` (@${p.telegram_username})` : "";
+        return {
+          label: `${p.account_label} — ${identity}${handle}`,
+          value: p.id,
+        };
+      }),
     [personas],
   );
 

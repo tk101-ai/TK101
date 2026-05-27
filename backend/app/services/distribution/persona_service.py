@@ -33,6 +33,7 @@ def to_out(persona: DistributionPersona) -> PersonaOut:
         business_name=persona.business_name,
         telegram_phone=persona.telegram_phone,
         telegram_user_id=persona.telegram_user_id,
+        telegram_username=persona.telegram_username,
         has_credentials=has_creds,
         is_logged_in=is_logged_in,
         tone_profile=persona.tone_profile,

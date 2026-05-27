@@ -462,3 +462,47 @@ async def verify_code(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="SMS 검증 중 오류가 발생했습니다. 잠시 후 다시 시도하세요.",
         ) from exc
+
+
+@router.post("/personas/{persona_id}/sync")
+async def sync_persona(
+    persona_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> PersonaOut:
+    """연동된 텔레그램 계정 정보 재동기화. **admin only** (요구사항 2).
+
+    재로그인(SMS) 없이 기존 세션으로 get_me() 호출 →
+    display_name / telegram_username / last_login_at 갱신.
+    account_label(코드명)·business_name(사업자명)은 보존.
+
+    Errors:
+    - 400: 자격증명 미설정.
+    - 409: 로그인 세션 없음/만료 → 재로그인 필요.
+    """
+    persona = await persona_service.get_persona(db, persona_id)
+    if persona is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="페르소나 없음"
+        )
+    try:
+        await login_manager.sync_persona_from_telegram(persona, db)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    except login_manager.SyncNotLoggedInError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except EncryptionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except Exception as exc:
+        logger.exception("persona sync 예외 — persona=%s", persona_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="정보 동기화 중 오류가 발생했습니다. 잠시 후 다시 시도하세요.",
+        ) from exc
+    return persona_service.to_out(persona)

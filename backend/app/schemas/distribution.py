@@ -116,6 +116,8 @@ class PersonaOut(BaseModel):
     business_name: str | None = None
     telegram_phone: str
     telegram_user_id: int | None
+    # telegram_username: 연동된 텔레그램 계정 @username (로그인/수동 동기화 시 자동).
+    telegram_username: str | None = None
     # 자격증명 등록 여부만 노출 (실 값 X).
     has_credentials: bool
     # session 파일 존재 여부 (Telethon 로그인 완료 여부).

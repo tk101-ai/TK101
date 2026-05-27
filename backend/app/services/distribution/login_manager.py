@@ -93,6 +93,38 @@ def _mask_phone(phone: str) -> str:
     return f"{phone[:4]}***{phone[-4:]}"
 
 
+def _live_display_name(me: object, fallback: str) -> str:
+    """get_me() 결과에서 사람이 보는 이름을 계산.
+
+    우선순위: "first last" → @username → 기존 display_name(fallback).
+    어느 것도 없으면 fallback 유지 (NOT NULL 보존).
+    """
+    first = (getattr(me, "first_name", None) or "").strip()
+    last = (getattr(me, "last_name", None) or "").strip()
+    full = f"{first} {last}".strip()
+    if full:
+        return full[:100]
+    username = (getattr(me, "username", None) or "").strip()
+    if username:
+        return username[:100]
+    return fallback
+
+
+def _apply_me_to_persona(persona: DistributionPersona, me: object) -> None:
+    """연동된 텔레그램 계정 정보를 페르소나에 반영 (요구사항 2 핵심).
+
+    동기화 대상: telegram_user_id, display_name(라이브 이름), telegram_username,
+                last_login_at.
+    보존: account_label(코드명·불변), business_name(수동 사업자명).
+    """
+    persona.telegram_user_id = me.id  # type: ignore[attr-defined]
+    persona.display_name = _live_display_name(me, persona.display_name)
+    raw_username = (getattr(me, "username", None) or "").strip()
+    # VARCHAR(64) 보존. username 미설정이면 NULL.
+    persona.telegram_username = raw_username[:64] if raw_username else None
+    persona.last_login_at = datetime.now(timezone.utc)
+
+
 async def request_code(persona: DistributionPersona) -> dict[str, str]:
     """SMS 인증 코드 발송 트리거.
 
@@ -225,16 +257,16 @@ async def verify_code(
             session_path.chmod(0o600)
         except OSError:
             logger.warning("session file chmod 0o600 실패 (Windows 가능)")
-        persona.telegram_user_id = me.id
+        # 연동 계정 정보(이름/username/user_id/last_login) 동기화 — 요구사항 2.
+        _apply_me_to_persona(persona, me)
         persona.session_path = str(session_path)
-        persona.last_login_at = datetime.now(timezone.utc)
         db.add(persona)
         await db.commit()
 
         result = {
             "telegram_user_id": me.id,
-            "display_name": (getattr(me, "first_name", None) or "") or persona.display_name,
-            "username": getattr(me, "username", None),
+            "display_name": persona.display_name,
+            "username": persona.telegram_username,
         }
         logger.info(
             "verify_code 성공 — persona=%s user_id=%s",
@@ -268,3 +300,74 @@ async def cancel_login(persona_id: UUID) -> bool:
     except Exception:
         logger.exception("cancel_login disconnect 실패")
     return True
+
+
+class SyncNotLoggedInError(RuntimeError):
+    """동기화 시도했으나 인증된 세션이 없음 — 재로그인 필요."""
+
+
+async def _open_authorized_client(
+    persona: DistributionPersona,
+) -> TelegramClient:
+    """기존 세션 파일로 Telethon 클라이언트 연결 + 인증 확인.
+
+    Raises:
+        ValueError: 자격증명 미설정.
+        SyncNotLoggedInError: 세션 없음/만료 → 재로그인 필요.
+    """
+    if not persona.api_id_enc or not persona.api_hash_enc:
+        raise ValueError("자격증명(api_id/api_hash) 미설정. 먼저 등록하세요.")
+    if not persona.session_path:
+        raise SyncNotLoggedInError(
+            "로그인된 세션이 없습니다. 먼저 로그인 후 동기화하세요."
+        )
+
+    api_id = int(decrypt(persona.api_id_enc))
+    api_hash = decrypt(persona.api_hash_enc)
+    client = TelegramClient(persona.session_path, api_id, api_hash)
+    await client.connect()
+    if not await client.is_user_authorized():
+        await client.disconnect()
+        raise SyncNotLoggedInError(
+            "세션이 만료되었습니다. 재로그인이 필요합니다."
+        )
+    return client
+
+
+async def sync_persona_from_telegram(
+    persona: DistributionPersona, db: AsyncSession
+) -> dict[str, object]:
+    """재로그인 없이 연동 계정 정보를 다시 동기화 (요구사항 2 "항상 최신화").
+
+    기존 authorized 세션으로 get_me() 호출 → display_name/username/last_login 갱신.
+
+    Returns:
+        ``{"telegram_user_id": int, "display_name": str, "username": str | None}``
+
+    Raises:
+        ValueError: 자격증명 미설정.
+        SyncNotLoggedInError: 세션 없음/만료.
+    """
+    client = await _open_authorized_client(persona)
+    try:
+        me = await client.get_me()
+        if me is None:
+            raise RuntimeError("get_me() 결과 None — 알 수 없는 Telethon 상태")
+        _apply_me_to_persona(persona, me)
+        db.add(persona)
+        await db.commit()
+        logger.info(
+            "sync_persona_from_telegram 성공 — persona=%s user_id=%s",
+            persona.account_label,
+            me.id,
+        )
+        return {
+            "telegram_user_id": me.id,
+            "display_name": persona.display_name,
+            "username": persona.telegram_username,
+        }
+    finally:
+        try:
+            await client.disconnect()
+        except Exception:
+            logger.exception("sync 후 client disconnect 실패")

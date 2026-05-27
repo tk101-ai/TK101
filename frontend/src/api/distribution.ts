@@ -48,6 +48,8 @@ export interface PersonaOut {
   business_name: string | null;
   telegram_phone: string;
   telegram_user_id: number | null;
+  /** 연동된 텔레그램 계정 @username (로그인/수동 동기화 시 자동, T9 — 2026-05-27). */
+  telegram_username: string | null;
   has_credentials: boolean;
   is_logged_in: boolean;
   tone_profile: Record<string, unknown> | null;
@@ -140,6 +142,20 @@ export async function updatePersonaCredentials(
 
 export async function logoutPersona(id: string): Promise<PersonaOut> {
   const res = await api.post<PersonaOut>(`${BASE}/personas/${id}/logout`);
+  return res.data;
+}
+
+/**
+ * 연동된 텔레그램 계정 정보 재동기화 (T9 — 2026-05-27, 요구사항 2).
+ *
+ * 재로그인(SMS) 없이 기존 세션으로 get_me() 호출 → display_name /
+ * telegram_username / last_login_at 를 라이브 계정 값으로 갱신.
+ * account_label(코드명)·business_name(사업자명)은 보존.
+ *
+ * 세션이 없거나 만료됐으면 백엔드에서 409 → 재로그인 안내.
+ */
+export async function syncPersona(id: string): Promise<PersonaOut> {
+  const res = await api.post<PersonaOut>(`${BASE}/personas/${id}/sync`);
   return res.data;
 }
 

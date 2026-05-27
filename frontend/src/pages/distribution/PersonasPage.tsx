@@ -22,6 +22,7 @@ import {
   LogoutOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SyncOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
@@ -31,6 +32,7 @@ import {
   deletePersona,
   listPersonas,
   logoutPersona,
+  syncPersona,
   type PersonaOut,
 } from "../../api/distribution";
 import { extractErrorDetail } from "../../utils/errorUtils";
@@ -78,6 +80,7 @@ export default function PersonasPage() {
   const [loginTarget, setLoginTarget] = useState<PersonaOut | null>(null);
   const [credsTarget, setCredsTarget] = useState<PersonaOut | null>(null);
   const [nameEditTarget, setNameEditTarget] = useState<PersonaOut | null>(null);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -117,6 +120,21 @@ export default function PersonasPage() {
       await fetchData();
     } catch (err: unknown) {
       message.error(extractErrorDetail(err, "로그아웃 실패"));
+    }
+  };
+
+  const handleSync = async (persona: PersonaOut) => {
+    setSyncingId(persona.id);
+    try {
+      const updated = await syncPersona(persona.id);
+      message.success(
+        `${persona.account_label} 정보 동기화 완료 — 표시명 "${updated.display_name}"`,
+      );
+      await fetchData();
+    } catch (err: unknown) {
+      message.error(extractErrorDetail(err, "정보 동기화 실패"));
+    } finally {
+      setSyncingId(null);
     }
   };
 
@@ -160,9 +178,27 @@ export default function PersonasPage() {
         v ? <Text strong>{v}</Text> : <Text type="secondary">—</Text>,
     },
     {
-      title: "표시명",
+      title: "표시명 (연동 계정)",
       dataIndex: "display_name",
-      width: 160,
+      width: 200,
+      render: (v: string, record: PersonaOut) => (
+        <Space size={2} direction="vertical">
+          <Text>{v || "—"}</Text>
+          {record.telegram_username ? (
+            <Text
+              type="secondary"
+              copyable={{ text: `@${record.telegram_username}` }}
+              style={{ fontSize: 12, fontFamily: "monospace" }}
+            >
+              @{record.telegram_username}
+            </Text>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              @username 없음
+            </Text>
+          )}
+        </Space>
+      ),
     },
     {
       title: "폰번호",
@@ -181,13 +217,15 @@ export default function PersonasPage() {
       ),
     },
     {
-      title: "마지막 로그인",
+      title: "최근 동기화",
       dataIndex: "last_login_at",
       width: 160,
       render: (v: string | null) => (
-        <Text type={v ? undefined : "secondary"} style={{ fontSize: 12 }}>
-          {formatDate(v)}
-        </Text>
+        <Tooltip title="로그인 또는 정보 동기화로 연동 계정 정보를 마지막으로 최신화한 시각">
+          <Text type={v ? undefined : "secondary"} style={{ fontSize: 12 }}>
+            {formatDate(v)}
+          </Text>
+        </Tooltip>
       ),
     },
     {
@@ -249,6 +287,19 @@ export default function PersonasPage() {
                 onClick={() => setLoginTarget(record)}
               >
                 로그인
+              </Button>
+            </Tooltip>
+          )}
+          {record.is_logged_in && (
+            <Tooltip title="재로그인 없이 연동된 텔레그램 계정의 이름/@username 을 최신화">
+              <Button
+                type="link"
+                size="small"
+                icon={<SyncOutlined spin={syncingId === record.id} />}
+                loading={syncingId === record.id}
+                onClick={() => handleSync(record)}
+              >
+                정보 동기화
               </Button>
             </Tooltip>
           )}
