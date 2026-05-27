@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -5,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.logging_setup import setup_logging
+from app.services.distribution.send_worker import run_send_worker
 from app.routers import (
     accounts,
     attachments,
@@ -15,6 +18,7 @@ from app.routers import (
     counterparts,
     distribution,
     distribution_analytics,
+    distribution_customs,
     distribution_dashboard,
     distribution_generate_v2,
     distribution_scenarios,
@@ -35,10 +39,45 @@ from app.routers import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
+def _should_start_send_worker() -> bool:
+    """예약 송신 워커 기동 조건.
+
+    - distribution_worker_enabled=True (기본 False — dev/local 자동 실행 방지).
+    - Fernet 키 존재 (없으면 자격증명 복호화 불가 → 워커 무의미).
+    둘 다 만족할 때만 백그라운드 태스크 기동.
+    """
+    if not settings.distribution_worker_enabled:
+        return False
+    if not settings.distribution_fernet_key:
+        logger.warning(
+            "distribution_worker_enabled=True 이지만 Fernet 키 미설정 — 워커 미기동"
+        )
+        return False
+    return True
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
-    yield
+    worker_task: asyncio.Task | None = None
+    stop_event = asyncio.Event()
+    if _should_start_send_worker():
+        worker_task = asyncio.create_task(run_send_worker(stop_event))
+        logger.info("distribution 예약 송신 워커 기동")
+    try:
+        yield
+    finally:
+        if worker_task is not None:
+            stop_event.set()
+            worker_task.cancel()
+            try:
+                await worker_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("distribution 예약 송신 워커 정지 완료")
 
 
 app = FastAPI(title="TK101 AI Backend", version="0.1.0", lifespan=lifespan)
@@ -88,6 +127,8 @@ app.include_router(distribution_dashboard.router)
 app.include_router(distribution_analytics.router)
 # T9 Phase F-C: 정산 페이지 (엑셀 기반 자금 흐름 — 매입/입금요청/실입금/외상잔고).
 app.include_router(distribution_settlement.router)
+# Priority 4: 면장(통관신고) 데이터 수집. 신고가 → 실가 75% 역산.
+app.include_router(distribution_customs.router)
 
 
 @app.get("/health")
