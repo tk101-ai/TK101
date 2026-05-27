@@ -8,16 +8,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import require_admin, require_internal_token, require_module
-from app.models.sns import SocialAccount, SocialPost, SocialWeeklySnapshot
+from app.models.sns import (
+    SocialAccount,
+    SocialPost,
+    SocialPostMetricSnapshot,
+    SocialWeeklySnapshot,
+)
 from app.modules.constants import Module
 from app.schemas.sns import (
     AccountCreate,
     AccountRead,
     AccountUpdate,
+    CollectMetricsResponse,
+    ContentCreate,
     GrowthCard,
     ImportResponse,
     IngestRequest,
     IngestResponse,
+    MetricSnapshotRead,
     PostCreate,
     PostRead,
     PostUpdate,
@@ -26,6 +34,13 @@ from app.schemas.sns import (
     TopPost,
     WeeklyKpiRow,
 )
+from app.services.sns_collectors.base import BaseCollector, CollectorError
+
+# 자동 수집 가능한 플랫폼. Collector 추가 시 여기에 등록.
+SUPPORTED_PLATFORMS = ("youtube", "facebook", "instagram")
+# 메트릭 시계열(collect-metrics)을 지원하는 플랫폼.
+METRICS_PLATFORMS = ("facebook", "instagram")
+VALID_PERIODS = ("daily", "weekly")
 
 router = APIRouter(
     prefix="/api/sns",
@@ -481,6 +496,41 @@ def _current_iso_week_parts(today: date | None = None) -> tuple[int, int, int]:
     return today.year, today.month, week_of_month
 
 
+async def _build_collector(account: SocialAccount) -> BaseCollector:
+    """플랫폼별 수집기 생성. 토큰/식별자 문제는 명확한 HTTP 에러(한국어)로 변환.
+
+    - youtube: YouTubeCollector (채널 ID/핸들 resolve, external_id 백필).
+    - facebook/instagram: Meta Graph 수집기. 토큰 미설정 시 CollectorError → 503.
+    """
+    platform = account.platform
+    if platform not in SUPPORTED_PLATFORMS:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=f"'{platform}' 플랫폼 자동 수집은 아직 구현되지 않았습니다",
+        )
+
+    try:
+        if platform == "youtube":
+            from app.services.sns_collectors.youtube import YouTubeCollector
+
+            return await YouTubeCollector.from_account(account)
+        if platform == "facebook":
+            from app.services.sns_collectors.facebook import FacebookCollector
+
+            return await FacebookCollector.from_account(account)
+        from app.services.sns_collectors.instagram import InstagramCollector
+
+        return await InstagramCollector.from_account(account)
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail=f"수집기 로딩 실패: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except CollectorError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
 async def _collect_for_account(
     db: AsyncSession,
     account: SocialAccount,
@@ -488,38 +538,29 @@ async def _collect_for_account(
 ) -> IngestResponse:
     """Run the appropriate collector for an account and persist results.
 
-    Currently supports youtube only. The resolved channel_id is written back to
-    account.external_id so subsequent calls skip handle resolution.
+    Supports youtube / facebook / instagram (see SUPPORTED_PLATFORMS).
+    YouTube writes the resolved channel_id back to account.external_id so
+    subsequent calls skip handle resolution. Meta collectors read posts +
+    follower count via the Graph API.
 
-    full=True paginates through every uploaded video (use for first sync /
-    backfill). full=False (default) reads only the most recent 50 — the
-    cheap path used by the weekly cron.
+    full=True paginates through every item (use for first sync / backfill).
+    full=False (default) is the cheap path used by the weekly cron.
     """
-    if account.platform != "youtube":
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=f"'{account.platform}' 플랫폼 자동 수집은 아직 구현되지 않았습니다",
-        )
+    collector = await _build_collector(account)
+
+    # YouTube: persist resolved channel_id to skip the resolution call next time.
+    channel_id = getattr(collector, "channel_id", None)
+    if channel_id and account.external_id != channel_id:
+        account.external_id = channel_id
 
     try:
-        from app.services.sns_collectors.youtube import YouTubeCollector
-    except ImportError as exc:
-        raise HTTPException(status_code=500, detail=f"수집기 로딩 실패: {exc}")
-
-    try:
-        collector = await YouTubeCollector.from_account(account)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-
-    # Persist the resolved channel_id so we don't pay the resolution call next time.
-    if account.external_id != collector.channel_id:
-        account.external_id = collector.channel_id
-
-    try:
-        collected_posts = await collector.fetch_posts(full=full)
+        if account.platform == "youtube":
+            collected_posts = await collector.fetch_posts(full=full)  # type: ignore[call-arg]
+        else:
+            collected_posts = await collector.fetch_posts()
         followers = await collector.fetch_followers()
+    except CollectorError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"외부 API 호출 실패: {exc}")
 
@@ -582,6 +623,199 @@ async def collect(
     return await _collect_for_account(db, account, full=full)
 
 
+# ---------------- 수동 콘텐츠 등록 (FALLBACK 모드) ----------------
+
+
+@router.post(
+    "/accounts/{account_id}/contents",
+    response_model=PostRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_manual_content(
+    account_id: str,
+    body: ContentCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """수동 콘텐츠 1행 등록 (배포일/제목/형태/제작주체/URL). is_manual=true.
+
+    메타 토큰이 없어도 동작하는 FALLBACK 경로. 등록 후 collect-metrics 가
+    조회수/좋아요/댓글/공유를 일/주 주기로 채운다.
+    """
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
+    account = result.scalar_one_or_none()
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="계정을 찾을 수 없습니다")
+
+    post = SocialPost(
+        account_id=account.id,
+        posted_at=body.posted_at,
+        title=body.title,
+        content_type=body.content_type,
+        producer=body.producer,
+        url=body.url,
+        external_id=body.external_id,
+        is_manual=True,
+    )
+    db.add(post)
+    await db.commit()
+    await db.refresh(post)
+    return post
+
+
+# ---------------- 게시물 메트릭 시계열 (collect-metrics) ----------------
+
+
+def _post_ref(post: SocialPost) -> str | None:
+    """수집기에 넘길 게시물 참조값. external_id 우선, 없으면 URL."""
+    return post.external_id or post.url
+
+
+async def _upsert_metric_snapshot(
+    db: AsyncSession,
+    post_id,
+    period: str,
+    metrics,
+) -> bool:
+    """오늘 날짜·period 기준 메트릭 스냅샷 upsert. True=업데이트, False=신규.
+
+    (post_id, period, captured_at::date) UNIQUE 와 정합 — 오늘자 행을 찾으면 갱신.
+    """
+    today = date.today()
+    result = await db.execute(
+        select(SocialPostMetricSnapshot).where(
+            SocialPostMetricSnapshot.post_id == post_id,
+            SocialPostMetricSnapshot.period == period,
+            func.date(SocialPostMetricSnapshot.captured_at) == today,
+        )
+    )
+    existing = result.scalar_one_or_none()
+    if existing is not None:
+        existing.views = metrics.get("views")
+        existing.reach = metrics.get("reach")
+        existing.likes = metrics.get("likes")
+        existing.comments = metrics.get("comments")
+        existing.shares = metrics.get("shares")
+        existing.engagement_total = metrics.get("engagement_total")
+        existing.raw = metrics.get("raw")
+        existing.captured_at = datetime.now(tz=timezone.utc)
+        return True
+    db.add(
+        SocialPostMetricSnapshot(
+            post_id=post_id,
+            period=period,
+            views=metrics.get("views"),
+            reach=metrics.get("reach"),
+            likes=metrics.get("likes"),
+            comments=metrics.get("comments"),
+            shares=metrics.get("shares"),
+            engagement_total=metrics.get("engagement_total"),
+            raw=metrics.get("raw"),
+        )
+    )
+    return False
+
+
+async def _collect_metrics_for_account(
+    db: AsyncSession,
+    account: SocialAccount,
+    period: str,
+) -> CollectMetricsResponse:
+    """계정의 모든 게시물에 대해 fetch_post_metrics → 메트릭 스냅샷 upsert."""
+    if account.platform not in METRICS_PLATFORMS:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=f"'{account.platform}' 는 게시물 메트릭 수집을 지원하지 않습니다",
+        )
+
+    collector = await _build_collector(account)
+    posts_result = await db.execute(
+        select(SocialPost).where(SocialPost.account_id == account.id)
+    )
+    posts = posts_result.scalars().all()
+
+    processed = 0
+    added = 0
+    updated = 0
+    skipped = 0
+    failures: list[str] = []
+
+    for post in posts:
+        ref = _post_ref(post)
+        if not ref:
+            skipped += 1
+            continue
+        try:
+            metrics = await collector.fetch_post_metrics(ref)
+        except CollectorError as exc:
+            failures.append(f"{ref}: {exc}")
+            continue
+        except Exception as exc:  # noqa: BLE001 — 개별 게시물 실패는 격리
+            failures.append(f"{ref}: {exc}")
+            continue
+        was_updated = await _upsert_metric_snapshot(db, post.id, period, metrics)
+        processed += 1
+        if was_updated:
+            updated += 1
+        else:
+            added += 1
+
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"메트릭 저장 실패: {exc}")
+
+    return CollectMetricsResponse(
+        period=period,
+        posts_processed=processed,
+        snapshots_added=added,
+        snapshots_updated=updated,
+        skipped=skipped,
+        failures=failures,
+    )
+
+
+@router.post(
+    "/accounts/{account_id}/collect-metrics",
+    response_model=CollectMetricsResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def collect_metrics(
+    account_id: str,
+    period: str = Query("daily", description="daily | weekly"),
+    db: AsyncSession = Depends(get_db),
+):
+    """단일 계정의 모든 게시물 메트릭을 수집해 시계열 스냅샷으로 저장 (멱등)."""
+    if period not in VALID_PERIODS:
+        raise HTTPException(status_code=422, detail="period 는 daily 또는 weekly 여야 합니다")
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
+    account = result.scalar_one_or_none()
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="계정을 찾을 수 없습니다")
+    return await _collect_metrics_for_account(db, account, period)
+
+
+@router.get(
+    "/posts/{post_id}/metrics",
+    response_model=list[MetricSnapshotRead],
+)
+async def list_post_metrics(
+    post_id: str,
+    period: str | None = Query(None, description="daily | weekly 로 필터"),
+    db: AsyncSession = Depends(get_db),
+):
+    """게시물의 메트릭 시계열 (오래된→최신)."""
+    query = (
+        select(SocialPostMetricSnapshot)
+        .where(SocialPostMetricSnapshot.post_id == post_id)
+        .order_by(SocialPostMetricSnapshot.captured_at.asc())
+    )
+    if period:
+        query = query.where(SocialPostMetricSnapshot.period == period)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
 @router.delete(
     "/accounts/{account_id}/posts",
     dependencies=[Depends(require_admin)],
@@ -617,11 +851,9 @@ internal_router = APIRouter(
 async def collect_all_internal(db: AsyncSession = Depends(get_db)):
     """n8n 등 내부 시스템에서 호출. 자동 수집 가능한 모든 활성 계정 일괄 처리.
 
-    현재는 platform=youtube 계정만 자동 수집 대상. 다른 플랫폼은 조용히 스킵.
-    Collector 추가 시 SUPPORTED_PLATFORMS 확장.
+    대상: SUPPORTED_PLATFORMS (youtube/facebook/instagram). 그 외 플랫폼은 스킵.
+    개별 계정 실패는 격리하고 나머지를 계속 처리한다.
     """
-    SUPPORTED_PLATFORMS = ("youtube",)
-
     accounts_q = await db.execute(
         select(SocialAccount).where(
             SocialAccount.is_active.is_(True),
@@ -656,6 +888,58 @@ async def collect_all_internal(db: AsyncSession = Depends(get_db)):
         posts_updated=posts_updated,
         snapshots_added=snapshots_added,
         snapshots_updated=snapshots_updated,
+    )
+
+
+@internal_router.post("/collect-metrics-all", response_model=CollectMetricsResponse)
+async def collect_metrics_all_internal(
+    period: str = Query("daily", description="daily | weekly"),
+    db: AsyncSession = Depends(get_db),
+):
+    """n8n 일/주 cron 에서 호출. 메트릭 수집 가능한 모든 활성 계정의 게시물 메트릭 수집.
+
+    대상: METRICS_PLATFORMS (facebook/instagram). 개별 계정 실패는 격리.
+    period 별로 (post, period, 오늘) 1건만 유지하므로 재호출은 멱등(같은 날이면 갱신).
+    """
+    if period not in VALID_PERIODS:
+        raise HTTPException(status_code=422, detail="period 는 daily 또는 weekly 여야 합니다")
+
+    accounts_q = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.is_active.is_(True),
+            SocialAccount.platform.in_(METRICS_PLATFORMS),
+        )
+    )
+    accounts = accounts_q.scalars().all()
+
+    processed = 0
+    added = 0
+    updated = 0
+    skipped = 0
+    failures: list[str] = []
+
+    for account in accounts:
+        try:
+            result = await _collect_metrics_for_account(db, account, period)
+            processed += result.posts_processed
+            added += result.snapshots_added
+            updated += result.snapshots_updated
+            skipped += result.skipped
+            failures.extend(result.failures)
+        except HTTPException as exc:
+            failures.append(f"{account.platform}/{account.language}: {exc.detail}")
+            await db.rollback()
+
+    if failures and (processed + added + updated) == 0 and not skipped:
+        raise HTTPException(status_code=502, detail="; ".join(failures[:5]))
+
+    return CollectMetricsResponse(
+        period=period,
+        posts_processed=processed,
+        snapshots_added=added,
+        snapshots_updated=updated,
+        skipped=skipped,
+        failures=failures,
     )
 
 

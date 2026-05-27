@@ -11,6 +11,7 @@ export interface SnsAccount {
   page_url: string | null;
   external_id: string | null;
   is_active: boolean;
+  client: string | null;
   created_at: string;
 }
 
@@ -32,7 +33,40 @@ export interface SnsPost {
   url: string | null;
   data_recorded_at: string | null;
   external_id: string | null;
+  is_manual: boolean;
   created_at: string;
+}
+
+export interface MetricSnapshot {
+  id: string;
+  post_id: string;
+  captured_at: string;
+  period: string;
+  views: number | null;
+  reach: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  engagement_total: number | null;
+  created_at: string;
+}
+
+export interface CreateContentRequest {
+  posted_at: string;
+  title?: string | null;
+  content_type?: string | null;
+  producer?: string | null;
+  url?: string | null;
+  external_id?: string | null;
+}
+
+export interface CollectMetricsResponse {
+  period: string;
+  posts_processed: number;
+  snapshots_added: number;
+  snapshots_updated: number;
+  skipped: number;
+  failures: string[];
 }
 
 export interface SnsSnapshot {
@@ -162,6 +196,24 @@ export const triggerCollect = (accountId: string, options: { full?: boolean } = 
 export const resetAccountPosts = (accountId: string) =>
   api.delete<{ deleted: number }>(`/api/sns/accounts/${accountId}/posts`);
 
+// 수동 콘텐츠 등록 (FALLBACK 모드) — 메타 토큰 없어도 동작.
+export const createManualContent = (accountId: string, data: CreateContentRequest) =>
+  api.post<SnsPost>(`/api/sns/accounts/${accountId}/contents`, data);
+
+// 게시물 메트릭 일괄 수집 (메타 토큰 필요). period=daily|weekly.
+export const collectMetrics = (accountId: string, period: "daily" | "weekly" = "daily") =>
+  api.post<CollectMetricsResponse>(
+    `/api/sns/accounts/${accountId}/collect-metrics`,
+    null,
+    { params: { period } },
+  );
+
+// 게시물 메트릭 시계열 조회 (오래된→최신).
+export const listPostMetrics = (postId: string, period?: "daily" | "weekly") =>
+  api.get<MetricSnapshot[]>(`/api/sns/posts/${postId}/metrics`, {
+    params: period ? { period } : undefined,
+  });
+
 export const PLATFORM_LABELS: Record<Platform, string> = {
   facebook: "페이스북",
   instagram: "인스타그램",
@@ -180,7 +232,21 @@ export const CONTENT_TYPE_LABELS: Record<string, string> = {
   image: "이미지",
   video: "영상",
   short: "숏폼",
+  post: "게시물",
+  reel: "릴스",
 };
+
+// 제작주체 (형태와 별도). 서울시 SNS 시트 기준 값.
+export const PRODUCER_LABELS: Record<string, string> = {
+  서울제작: "서울제작",
+  TK제작: "TK제작",
+  플랫폼언서제작: "플랫폼언서제작",
+};
+
+export const PRODUCER_OPTIONS = Object.keys(PRODUCER_LABELS).map((value) => ({
+  value,
+  label: PRODUCER_LABELS[value],
+}));
 
 export const PLATFORM_OPTIONS = (Object.keys(PLATFORM_LABELS) as Platform[]).map((value) => ({
   value,

@@ -1,0 +1,68 @@
+{
+  "name": "SNS Meta Metrics Weekly (Mon 06:00 KST)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 21 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "3b5d8fac-1111-4d2a-9c91-cc0001000001",
+      "name": "Schedule (Mon 06:00 KST = Sun 21:00 UTC)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/internal/sns/collect-metrics-all?period=weekly",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Token",
+              "value": "={{$env.TK101_INTERNAL_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "3b5d8fac-3333-4d2a-9c91-cc0001000003",
+      "name": "Trigger collect-metrics (weekly)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 320]
+    }
+  ],
+  "connections": {
+    "Schedule (Mon 06:00 KST = Sun 21:00 UTC)": {
+      "main": [
+        [
+          {
+            "node": "Trigger collect-metrics (weekly)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Seoul"
+  },
+  "tags": ["sns", "meta", "metrics", "weekly"]
+}

@@ -30,6 +30,7 @@ class AccountCreate(BaseModel):
     page_url: str | None = None
     external_id: str | None = None
     is_active: bool = True
+    client: str | None = None
     extra_metadata: dict[str, Any] | None = None
 
 
@@ -40,6 +41,7 @@ class AccountUpdate(BaseModel):
     page_url: str | None = None
     external_id: str | None = None
     is_active: bool | None = None
+    client: str | None = None
     extra_metadata: dict[str, Any] | None = None
 
 
@@ -51,6 +53,7 @@ class AccountRead(BaseModel):
     page_url: str | None
     external_id: str | None
     is_active: bool
+    client: str | None = None
     extra_metadata: dict[str, Any] | None
     created_at: datetime
 
@@ -141,6 +144,7 @@ class PostRead(BaseModel):
     url: str | None
     data_recorded_at: date | None
     external_id: str | None
+    is_manual: bool = False
     extra_metadata: dict[str, Any] | None
     created_at: datetime
 
@@ -195,6 +199,48 @@ class TopPost(BaseModel):
     view_count: int | None
     total_engagement: int | None
     url: str | None
+
+
+# ---------------- 수동 콘텐츠 등록 (FALLBACK 모드) ----------------
+
+
+class ContentCreate(BaseModel):
+    """수동 콘텐츠 등록 — 배포일/제목/형태(제작주체)/URL. (메타 토큰 없어도 동작)"""
+
+    posted_at: date
+    title: str | None = None
+    content_type: str | None = None  # 형태: post/reel/image 등
+    producer: str | None = None  # 제작주체: 서울제작/TK제작 등
+    url: str | None = None
+    external_id: str | None = None
+
+
+# ---------------- 게시물 메트릭 스냅샷 (시계열) ----------------
+
+
+class MetricSnapshotRead(BaseModel):
+    id: uuid.UUID
+    post_id: uuid.UUID
+    captured_at: datetime
+    period: str
+    views: int | None
+    reach: int | None
+    likes: int | None
+    comments: int | None
+    shares: int | None
+    engagement_total: int | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CollectMetricsResponse(BaseModel):
+    period: str
+    posts_processed: int
+    snapshots_added: int
+    snapshots_updated: int
+    skipped: int
+    failures: list[str] = Field(default_factory=list)
 
 
 # ---------------- Excel Import ----------------

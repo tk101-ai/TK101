@@ -10,6 +10,7 @@ import {
   EditOutlined,
   FileSearchOutlined,
   FileTextOutlined,
+  GlobalOutlined,
   GoldOutlined,
   HistoryOutlined,
   ImportOutlined,
@@ -96,6 +97,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "accounts", path: "/accounts", label: "계좌 관리", icon: <BankOutlined />, module: "finance", category: "finance" },
   { key: "settings-categories", path: "/settings/categories", label: "카테고리 관리", icon: <ApartmentOutlined />, module: "finance", category: "settings" },
   { key: "settings-counterparts", path: "/settings/counterparts", label: "거래처 관리", icon: <ContactsOutlined />, module: "finance", category: "settings" },
+  { key: "sns-seoul", path: "/sns/seoul", label: "서울시 글로벌 SNS", icon: <GlobalOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "sns-posts", path: "/sns/posts", label: "SNS 콘텐츠", icon: <FileTextOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "sns-snapshots", path: "/sns/snapshots", label: "주간 팔로워", icon: <RiseOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "sns-accounts", path: "/sns/accounts", label: "SNS 계정", icon: <ShareAltOutlined />, module: "marketing_sns", category: "marketing_1" },
@@ -107,6 +109,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "distribution-data-weekly", path: "/distribution/data/weekly", label: "주차별 종합", icon: <TableOutlined />, module: "distribution", category: "new_business" },
   { key: "distribution-data-products", path: "/distribution/data/products", label: "명품재고대장", icon: <GoldOutlined />, module: "distribution", category: "new_business" },
   { key: "distribution-settlement", path: "/distribution/settlement", label: "정산 / 자금 흐름", icon: <CalculatorOutlined />, module: "distribution", category: "new_business" },
+  { key: "distribution-customs", path: "/distribution/customs", label: "면장 (통관신고)", icon: <FileTextOutlined />, module: "distribution", category: "new_business" },
   { key: "distribution-sessions", path: "/distribution/sessions", label: "대화 세션 검수", icon: <CheckSquareOutlined />, module: "distribution", category: "new_business" },
   { key: "distribution-analytics", path: "/distribution/analytics", label: "분석/비용", icon: <LineChartOutlined />, module: "distribution", category: "new_business" },
   // 2026-05-19: admin only 정책 해제 — 일반 직원도 사이드바에 노출. common 그룹.

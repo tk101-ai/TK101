@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
@@ -12,8 +12,10 @@ class SocialAccount(UUIDMixin, TimestampMixin, Base):
     language = Column(String, nullable=False)
     handle = Column(String, nullable=True)
     page_url = Column(String, nullable=True)
-    external_id = Column(String, nullable=True)  # ex: YouTube channel ID
+    external_id = Column(String, nullable=True)  # ex: YouTube channel ID, FB Page ID, IG Business ID
     is_active = Column(Boolean, default=True, nullable=False)
+    # 클라이언트 구분 (예: 'seoul_city'). 향후 다른 발주처 채널 확장 대비. (마이그레이션 022)
+    client = Column(String(32), nullable=True)
     extra_metadata = Column(JSONB, nullable=True)
 
 
@@ -47,4 +49,32 @@ class SocialPost(UUIDMixin, TimestampMixin, Base):
     url = Column(String, nullable=True)
     data_recorded_at = Column(Date, nullable=True)
     external_id = Column(String, nullable=True, index=True)
+    # 수동 등록 콘텐츠 여부 (FALLBACK 모드). True면 사용자가 배포일/제목/형태/URL 직접 입력. (마이그레이션 022)
+    is_manual = Column(Boolean, default=False, nullable=False)
     extra_metadata = Column(JSONB, nullable=True)
+
+
+class SocialPostMetricSnapshot(UUIDMixin, TimestampMixin, Base):
+    """게시물별 시계열 메트릭 스냅샷 (마이그레이션 022).
+
+    수동/자동 콘텐츠 모두 일/주 주기로 조회수·도달·좋아요·댓글·공유를 누적 기록한다.
+    (post_id, period, captured_at::date) UNIQUE 로 같은 날·같은 주기엔 1건만 유지(멱등).
+    """
+
+    __tablename__ = "social_post_metric_snapshots"
+
+    post_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("social_posts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    captured_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    period = Column(String(8), nullable=False)  # 'daily' | 'weekly'
+    views = Column(BigInteger, nullable=True)
+    reach = Column(BigInteger, nullable=True)
+    likes = Column(BigInteger, nullable=True)
+    comments = Column(BigInteger, nullable=True)
+    shares = Column(BigInteger, nullable=True)
+    engagement_total = Column(BigInteger, nullable=True)
+    raw = Column(JSONB, nullable=True)

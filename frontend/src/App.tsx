@@ -15,6 +15,7 @@ import SnsAccounts from "./pages/marketing/SnsAccounts";
 import SnsPosts from "./pages/marketing/SnsPosts";
 import SnsWeeklySnapshots from "./pages/marketing/SnsWeeklySnapshots";
 import SnsExcelImport from "./pages/marketing/SnsExcelImport";
+import SeoulSns from "./pages/marketing/SeoulSns";
 import ReviewTranslationPage from "./pages/marketing/ReviewTranslation";
 import NasSearch from "./pages/nas/Search";
 import FormUploadPage from "./pages/forms/FormUploadPage";
@@ -40,6 +41,7 @@ import SessionsPage from "./pages/distribution/SessionsPage";
 import SessionDetailPage from "./pages/distribution/SessionDetailPage";
 import AnalyticsPage from "./pages/distribution/AnalyticsPage";
 import SettlementPage from "./pages/distribution/SettlementPage";
+import CustomsPage from "./pages/distribution/CustomsPage";
 
 const DARK_MODE_KEY = "tk101_dark_mode";
 
@@ -170,6 +172,14 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="marketing_sns">
                     <SnsWeeklySnapshots />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/sns/seoul"
+                element={
+                  <ProtectedRoute user={user} module="marketing_sns">
+                    <SeoulSns />
                   </ProtectedRoute>
                 }
               />
@@ -338,6 +348,14 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="distribution">
                     <SettlementPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/distribution/customs"
+                element={
+                  <ProtectedRoute user={user} module="distribution">
+                    <CustomsPage />
                   </ProtectedRoute>
                 }
               />
