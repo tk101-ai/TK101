@@ -73,12 +73,15 @@ def upgrade() -> None:
         "ON social_post_metric_snapshots (post_id)"
     )
 
-    # (post_id, period, captured_at::date) UNIQUE — 같은 게시물·주기·날짜엔 1건만.
-    # captured_at 은 TIMESTAMPTZ 라 ::date 캐스트로 일 단위 멱등 보장.
+    # (post_id, period, UTC 날짜) UNIQUE — 같은 게시물·주기·날짜엔 1건만(일 단위 멱등).
+    # 주의: timestamptz::date 는 세션 TZ 의존이라 비-IMMUTABLE → 인덱스식 불가
+    # (asyncpg: "functions in index expression must be marked IMMUTABLE").
+    # (captured_at AT TIME ZONE 'UTC')::date 는 리터럴 존이라 IMMUTABLE → 허용.
     op.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS "
         "uq_social_post_metric_snapshot_period_day "
-        "ON social_post_metric_snapshots (post_id, period, (captured_at::date))"
+        "ON social_post_metric_snapshots "
+        "(post_id, period, ((captured_at AT TIME ZONE 'UTC')::date))"
     )
 
 
