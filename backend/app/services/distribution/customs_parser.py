@@ -438,12 +438,22 @@ def _largest_amount(line: str) -> Decimal | None:
     return max(amounts) if amounts else None
 
 
-def parse_customs_pdf(file_bytes: bytes) -> CustomsParseResult:
+def parse_customs_pdf(
+    file_bytes: bytes,
+    *,
+    source_file_name: str | None = None,
+) -> CustomsParseResult:
     """면장 PDF bytes → CustomsRow 리스트.
 
-    1차: 표 추출(pdfplumber) → 엑셀과 동일한 헤더 매핑/역산 경로.
-    2차: 본문 텍스트 라인 파싱(정규식) fallback.
-    어느 쪽도 못 뽑으면 rows=[] + 경고 (예외 전파하지 않음).
+    경로 우선순위 (양식 변경에 강한 순서):
+    1차: 텍스트 추출 → LLM (Haiku) 의미 기반 추출.
+         면장은 통관사·품목마다 레이아웃이 달라 헤더/정규식이 항상 깨진다.
+         LLM 한 번이 양식 N 종을 동시에 처리한다.
+    2차: pdfplumber 표 추출 → 헤더 매핑 (양식이 표준 헤더를 쓰는 경우).
+    3차: 본문 텍스트 라인 파싱 (정규식 fallback).
+
+    LLM 경로는 키 미설정/응답 깨짐/0건 등 어떤 사유로도 fallback 으로 넘어간다.
+    어느 경로에서든 1건이라도 잡으면 그 결과를 즉시 반환.
 
     Returns:
         CustomsParseResult(rows, warnings). PDF 레이아웃 미확정이므로 추출
@@ -451,18 +461,10 @@ def parse_customs_pdf(file_bytes: bytes) -> CustomsParseResult:
     """
     warnings: list[str] = []
 
-    for table in _extract_pdf_tables(file_bytes):
-        detected = _find_header_row(table)
-        if detected is None:
-            continue
-        header_idx, col_map = detected
-        rows = _rows_to_customs(table, header_idx, col_map)
-        if rows:
-            return CustomsParseResult(rows=rows, warnings=warnings)
-
-    # 표에서 헤더/행을 못 찾음 → 본문 텍스트 라인 fallback.
+    # ---- 1차: LLM 의미 기반 추출 -----------------------------------------
     text = _extract_pdf_text(file_bytes)
     if not text:
+        # 텍스트 레이어 자체가 없으면 표/라인 추출도 무의미 — 바로 종료.
         return CustomsParseResult(
             rows=[],
             warnings=[
@@ -472,17 +474,51 @@ def parse_customs_pdf(file_bytes: bytes) -> CustomsParseResult:
             ],
         )
 
+    # 순환 import 방지 — extractor 가 이 모듈의 CustomsRow / reverse_calc 를 사용한다.
+    from app.services.distribution.customs_llm_extractor import (  # noqa: PLC0415
+        extract_customs_from_text,
+    )
+
+    llm_result = extract_customs_from_text(
+        text, source_file_name=source_file_name
+    )
+    if llm_result.rows:
+        # 성공 — LLM 결과를 그대로 사용. 디버그 정보는 warnings 에 짧게 노출.
+        if llm_result.model:
+            warnings.append(
+                f"면장 LLM 추출 성공 — model={llm_result.model}, "
+                f"건수={len(llm_result.rows)}, cost≈${llm_result.cost_usd:.4f}"
+            )
+        return CustomsParseResult(rows=llm_result.rows, warnings=warnings)
+    # LLM 0건 → fallback. 사유는 운영 진단을 위해 그대로 노출.
+    warnings.extend(llm_result.warnings)
+
+    # ---- 2차: pdfplumber 표 추출 ----------------------------------------
+    for table in _extract_pdf_tables(file_bytes):
+        detected = _find_header_row(table)
+        if detected is None:
+            continue
+        header_idx, col_map = detected
+        rows = _rows_to_customs(table, header_idx, col_map)
+        if rows:
+            warnings.append(
+                "면장 PDF 표 추출(헤더 매핑)으로 파싱했습니다. "
+                "LLM 추출이 실패해 fallback 경로가 사용됐습니다."
+            )
+            return CustomsParseResult(rows=rows, warnings=warnings)
+
+    # ---- 3차: 본문 텍스트 라인 정규식 fallback --------------------------
     rows = _parse_pdf_lines(text)
     if not rows:
         warnings.append(
-            "면장 PDF 표/라인에서 신고번호·신고가를 인식하지 못했습니다. "
-            "실제 면장 PDF 양식 확정 후 파서 매핑(_HEADER_CANDIDATES / "
-            "_PDF_DECL_NO_PATTERN) 조정이 필요합니다."
+            "면장 PDF 에서 신고번호·신고가를 인식하지 못했습니다 "
+            "(LLM · 표 · 라인 정규식 모두 실패). "
+            "PDF 가 면장 양식이 맞는지, 텍스트 레이어가 살아있는지 확인하세요."
         )
     else:
         warnings.append(
-            "면장 PDF 를 라인 기반(추정)으로 파싱했습니다. 신고번호·신고가 "
-            "외 컬럼(품명/재고/BL)은 누락될 수 있으니 결과를 확인하세요."
+            "면장 PDF 를 라인 기반(정규식) fallback 으로 파싱했습니다. "
+            "신고번호·신고가 외 컬럼(품명/재고/BL)은 누락될 수 있으니 결과를 확인하세요."
         )
     return CustomsParseResult(rows=rows, warnings=warnings)
 
@@ -498,7 +534,7 @@ def parse_customs_file(file_bytes: bytes, filename: str) -> CustomsParseResult:
     if ext in (".xlsx", ".xlsm"):
         return parse_customs_sheet(file_bytes)
     if ext == ".pdf":
-        return parse_customs_pdf(file_bytes)
+        return parse_customs_pdf(file_bytes, source_file_name=filename)
     return CustomsParseResult(
         rows=[],
         warnings=[f"지원하지 않는 파일 형식입니다: {ext} (.xlsx/.xlsm/.pdf 만 가능)"],

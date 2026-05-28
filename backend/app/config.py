@@ -123,6 +123,21 @@ class Settings(BaseSettings):
     # (예: 다른 비율 적용 시 .env 에 DISTRIBUTION_CUSTOMS_DECLARE_RATIO=0.70)
     distribution_customs_declare_ratio: float = 0.75
 
+    # T9 면장 LLM 추출 (Priority 4) ----------------------------------------------
+    # 면장 PDF 양식은 통관사/품목마다 천차만별이라 헤더·정규식 기반 파싱은 항상 깨진다.
+    # 텍스트 추출 후 LLM 에 JSON 스키마로 추출 요청 → 양식 변경에 강함.
+    # 모델은 form_filler 와 동일 어댑터(call_claude) 사용. 나중에 텐센트 통합 API로
+    # 교체할 때는 llm_client 어댑터만 손대면 된다 (호출자는 동일).
+    # Haiku 4.5 가 한국어 면장 추출에 충분하고 단가가 낮아 기본값.
+    distribution_customs_llm_model: str = "claude-haiku-4-5-20251001"
+    # LLM 호출 비활성화 스위치 (.env). True 이면 기존 헤더/정규식 경로만 사용.
+    # 키가 없거나 라이브 비용 통제가 필요할 때 즉시 차단 가능.
+    distribution_customs_llm_enabled: bool = True
+    # LLM 입력 텍스트 상한 (문자). 면장 PDF 1장 ~ 수천자 수준. 비용·지연 방어.
+    distribution_customs_llm_max_chars: int = 20000
+    # LLM 출력 토큰 상한. 한 PDF 당 10~50건 정도 예상 → 4k 면 충분.
+    distribution_customs_llm_max_tokens: int = 4096
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
