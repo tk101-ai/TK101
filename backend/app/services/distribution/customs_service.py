@@ -73,10 +73,14 @@ async def _upsert_one(
     if existing is None:
         obj = DistributionCustomsDeclaration(
             company_label=company_label,
+            declaration_type=parsed.declaration_type,
             bl_number=parsed.bl_number,
             declaration_number=parsed.declaration_number,
+            item_name=parsed.item_name,
             product=parsed.product,
+            unit_price=parsed.unit_price,
             declared_price=parsed.declared_price,
+            declared_price_krw=parsed.declared_price_krw,
             actual_price=parsed.actual_price,
             currency=parsed.currency,
             stock_qty=parsed.stock_qty,
@@ -90,9 +94,13 @@ async def _upsert_one(
 
     # 갱신 — 새 값으로 덮어쓰기 (역산값 포함).
     existing.company_label = company_label
+    existing.declaration_type = parsed.declaration_type
     existing.bl_number = parsed.bl_number
+    existing.item_name = parsed.item_name
     existing.product = parsed.product
+    existing.unit_price = parsed.unit_price
     existing.declared_price = parsed.declared_price
+    existing.declared_price_krw = parsed.declared_price_krw
     existing.actual_price = parsed.actual_price
     existing.currency = parsed.currency
     existing.stock_qty = parsed.stock_qty

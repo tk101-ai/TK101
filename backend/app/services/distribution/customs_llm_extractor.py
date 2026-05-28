@@ -50,11 +50,15 @@ _SYSTEM_PROMPT = """당신은 한국 관세청 신고필증(수출신고필증·
 한국 관세청 양식은 항목 번호 체계(① ~ 57)가 표준화되어 있으니, 아래 매핑에 따라 의미 기반으로 추출하세요.
 
 【추출 항목】(JSON 키는 정확히 이 이름 그대로 사용)
+- declaration_type: 문서 종류. PDF 제목 "수출신고필증" → "export", "수입신고필증" → "import". 그 외는 null.
 - declaration_number: ⑤ 신고번호. 형식 "12345-24-008320X" (5자리-2자리-7자리, 끝 알파벳 가능) 또는 11~15자리 숫자.
-- product: 품목명. 우선순위 = ㉚ 모델·규격 (예: "VAN CLEEF & ARPELS BRACELETS") → 없으면 ㉘ 거래품명 → 없으면 ㉗ 품명.
+- item_name: ㉗ 품명. 일반 품목 분류명 (예: "HAND BAG", "BRACELETS").
+- product: ㉚ 모델·규격. 가장 구체적인 제품 표현 (예: "GUCCI BAG", "VAN CLEEF & ARPELS BRACELETS"). 없으면 ㉘ 거래품명, 없으면 ㉗ 품명 폴백.
 - bl_number: ㊴ 송품장부호 (예: "SYBT20240712A") 또는 별도 BL번호가 있으면 그 값. 둘 다 있으면 송품장부호 우선.
-- declared_price: 신고가. 우선순위 = ㊳ 신고가격(FOB) → 없으면 ㉞ 금액 → 없으면 ㉝ 단가. 콤마/통화기호 제거한 숫자 문자열.
-- currency: 통화. ㊳ 옆에 "$"와 "₩" 둘 다 있으면 USD 우선. ㉝ 단가에 "(USD)" 같은 표기 있으면 그것을 사용. ISO 4217 코드로 정규화 ("USD"/"KRW"/"CNY"/"JPY").
+- unit_price: ㉝ 단가. 1 단위(EA 등) 당 가격. (예: "4,917.1" → "4917.1") 콤마/통화기호 제거.
+- declared_price: 신고가격(FOB) 외화. 우선순위 = ㊳ 신고가격(FOB)의 USD/외화 값 → 없으면 ㉞ 금액(USD). 콤마/통화기호 제거한 숫자 문자열.
+- declared_price_krw: ㊳ 신고가격(FOB) 옆의 한화 값. 예: "₩19,439,187" → "19439187". 한화 표기가 없으면 null.
+- currency: declared_price 의 통화. ㊳ 의 외화 값에 붙은 통화. USD/KRW/CNY/JPY 등 ISO 4217 코드. 외화가 없고 KRW 만 있으면 "KRW".
 - stock_qty: ㉜ 수량(단위) 의 수치 부분 (예: "2 (EA)" → 2). 정수.
 - declared_at: ⑦ 신고일자. "YYYY-MM-DD" 형식.
 
@@ -74,16 +78,16 @@ _SYSTEM_PROMPT = """당신은 한국 관세청 신고필증(수출신고필증·
 7. 날짜는 모든 표기를 "YYYY-MM-DD" 로 정규화. "2024.07.12" → "2024-07-12".
 8. 확실하지 않으면 추측 금지 → null. 잘못된 값보다 누락이 안전.
 
-【출력 예시 — 1 신고 3 품목 케이스】
-입력 텍스트에 "⑤ 신고번호 12865-24-008320X", "⑦ 신고일자 2024-07-12",
-"(란번호/총란수 : 001/003) ㉗ 품명 BRACELETS ㉚ VAN CLEEF & ARPELS BRACELETS 2(EA) 단가 7,020.9 ㊳ 신고가격(FOB) $14,042",
-"(란번호/총란수 : 002/003) ㉗ HAND BAG ㉚ LOUIS VUITTON SHOULDER BAG 1(EA) 단가 2,551 ㊳ $2,551",
-"(란번호/총란수 : 003/003) ㉗ HAND BAG ㉚ GUCCI BAG 2(EA) 단가 4,917.1 ㊳ $9,834",
+【출력 예시 — "수출신고필증" 1 신고 3 품목 케이스】
+입력 텍스트에 제목 "수출신고필증(적재전, 갑지)", "⑤ 신고번호 12865-24-008320X", "⑦ 신고일자 2024-07-12",
+"(란번호/총란수 : 001/003) ㉗ 품명 BRACELETS ㉚ VAN CLEEF & ARPELS BRACELETS 2(EA) 단가 7,020.9 ㉞ 금액 14,041.8 ㊳ 신고가격(FOB) $14,042 ₩19,439,187",
+"(란번호/총란수 : 002/003) ㉗ HAND BAG ㉚ LOUIS VUITTON SHOULDER BAG 1(EA) 단가 2,551 ㊳ $2,551 ₩3,531,968",
+"(란번호/총란수 : 003/003) ㉗ HAND BAG ㉚ GUCCI BAG 2(EA) 단가 4,917.1 ㊳ $9,834 ₩13,614,269",
 "㊴ 송품장부호 SYBT20240712A" 가 있으면 출력은:
 {"rows": [
-  {"declaration_number": "12865-24-008320X", "product": "VAN CLEEF & ARPELS BRACELETS", "bl_number": "SYBT20240712A", "declared_price": "14042", "currency": "USD", "stock_qty": 2, "declared_at": "2024-07-12"},
-  {"declaration_number": "12865-24-008320X", "product": "LOUIS VUITTON SHOULDER BAG", "bl_number": "SYBT20240712A", "declared_price": "2551", "currency": "USD", "stock_qty": 1, "declared_at": "2024-07-12"},
-  {"declaration_number": "12865-24-008320X", "product": "GUCCI BAG", "bl_number": "SYBT20240712A", "declared_price": "9834", "currency": "USD", "stock_qty": 2, "declared_at": "2024-07-12"}
+  {"declaration_type": "export", "declaration_number": "12865-24-008320X", "item_name": "BRACELETS", "product": "VAN CLEEF & ARPELS BRACELETS", "bl_number": "SYBT20240712A", "unit_price": "7020.9", "declared_price": "14042", "declared_price_krw": "19439187", "currency": "USD", "stock_qty": 2, "declared_at": "2024-07-12"},
+  {"declaration_type": "export", "declaration_number": "12865-24-008320X", "item_name": "HAND BAG", "product": "LOUIS VUITTON SHOULDER BAG", "bl_number": "SYBT20240712A", "unit_price": "2551", "declared_price": "2551", "declared_price_krw": "3531968", "currency": "USD", "stock_qty": 1, "declared_at": "2024-07-12"},
+  {"declaration_type": "export", "declaration_number": "12865-24-008320X", "item_name": "HAND BAG", "product": "GUCCI BAG", "bl_number": "SYBT20240712A", "unit_price": "4917.1", "declared_price": "9834", "declared_price_krw": "13614269", "currency": "USD", "stock_qty": 2, "declared_at": "2024-07-12"}
 ]}"""
 
 
@@ -176,21 +180,53 @@ def _strip_json_envelope(text: str) -> str:
     return stripped[start : end + 1]
 
 
+def _coerce_declaration_type(value: Any) -> str | None:
+    """declaration_type 도메인 가드. CHECK 제약과 정합해야 한다."""
+    if value is None:
+        return None
+    s = str(value).strip().lower()
+    if s in ("export", "import"):
+        return s
+    return None
+
+
 def _row_from_llm_obj(obj: dict[str, Any], ratio: float) -> CustomsRow | None:
-    """LLM JSON 1건 → CustomsRow. 식별 가능한 값이 없으면 None."""
+    """LLM JSON 1건 → CustomsRow. 식별 가능한 값이 없으면 None.
+
+    actual_price 계산:
+    - declaration_type == 'export' → declared_price 그대로 (역산 미적용).
+    - 'import' 또는 None → declared_price / ratio (수입 가정).
+    """
     declaration_number = _coerce_str(obj.get("declaration_number"))
+    item_name = _coerce_str(obj.get("item_name"))
     product = _coerce_str(obj.get("product"))
     declared_price = _coerce_decimal(obj.get("declared_price"))
 
-    if declaration_number is None and product is None and declared_price is None:
+    # 식별 근거 강화: declaration_number / product / item_name / declared_price 중 하나라도.
+    if (
+        declaration_number is None
+        and product is None
+        and item_name is None
+        and declared_price is None
+    ):
         return None
+
+    declaration_type = _coerce_declaration_type(obj.get("declaration_type"))
 
     return CustomsRow(
         declaration_number=declaration_number,
+        declaration_type=declaration_type,
+        item_name=item_name,
         product=product,
         bl_number=_coerce_str(obj.get("bl_number")),
+        unit_price=_coerce_decimal(obj.get("unit_price")),
         declared_price=declared_price,
-        actual_price=reverse_calc_actual_price(declared_price, ratio=ratio),
+        declared_price_krw=_coerce_decimal(obj.get("declared_price_krw")),
+        actual_price=reverse_calc_actual_price(
+            declared_price,
+            declaration_type=declaration_type,
+            ratio=ratio,
+        ),
         currency=_coerce_str(obj.get("currency")),
         stock_qty=_coerce_int(obj.get("stock_qty")),
         declared_at=_coerce_date(obj.get("declared_at")),

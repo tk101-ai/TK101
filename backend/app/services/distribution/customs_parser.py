@@ -79,13 +79,22 @@ _REQUIRED_ANY: tuple[str, ...] = ("declaration_number", "declared_price")
 
 @dataclass
 class CustomsRow:
-    """파싱된 면장 1행. actual_price 는 파서가 역산해 채운다."""
+    """파싱된 면장 1행. actual_price 는 파서/서비스가 역산해 채운다.
+
+    한국 관세청 신고필증 항목 번호 매핑은 모델 docstring 참조.
+    declaration_type 이 'export' 면 75% 역산 미적용, 'import' 또는 NULL 이면 적용.
+    """
 
     declaration_number: str | None = None
-    product: str | None = None
+    # "export" / "import" / None (미지).
+    declaration_type: str | None = None
+    item_name: str | None = None  # ㉗ 품명 (예: "HAND BAG")
+    product: str | None = None  # ㉚ 모델·규격 (예: "GUCCI BAG")
     bl_number: str | None = None
-    declared_price: Decimal | None = None
-    # actual_price: declared_price / ratio 역산값 (파서 계산).
+    unit_price: Decimal | None = None  # ㉝ 단가
+    declared_price: Decimal | None = None  # ㊳ 신고가격(FOB) — 통상 USD
+    declared_price_krw: Decimal | None = None  # ㊳ 옆 KRW 환산
+    # actual_price: 수입은 declared / ratio, 수출은 declared 그대로 (서비스 계산).
     actual_price: Decimal | None = None
     currency: str | None = None
     stock_qty: int | None = None
@@ -150,11 +159,17 @@ def _to_date(value: object) -> date | None:
 def reverse_calc_actual_price(
     declared_price: Decimal | None,
     *,
+    declaration_type: str | None = None,
     ratio: float | None = None,
 ) -> Decimal | None:
-    """신고가 → 실가 역산. ``actual_price = round(declared_price / ratio, 2)``.
+    """신고가 → 실가 역산. declaration_type 에 따라 분기.
 
-    면장 신고가는 실가의 75% 이므로 ratio(=0.75)로 나눠 실가를 복원한다.
+    - declaration_type == 'export' (수출신고필증):
+        신고가격(FOB)이 실가에 가까움 → actual_price = declared_price (역산 미적용).
+        의미 없는 유령 수치(예: 9,834/0.75 = 13,112) 방지.
+    - declaration_type == 'import' 또는 None (수입/미지):
+        ``actual_price = round(declared_price / ratio, 2)``. 관세 절감 목적으로
+        실가의 75%로 신고된 가정. (legacy 행 하위호환을 위해 NULL 도 import 로 취급.)
 
     안전 가드:
     - declared_price 가 None 또는 0 이하 → None (역산 불가/무의미).
@@ -165,6 +180,9 @@ def reverse_calc_actual_price(
         return None
     if declared_price <= 0:
         return None
+    if declaration_type == "export":
+        # 수출은 역산 미적용 — 화면 일관성을 위해 declared 값 그대로 노출.
+        return declared_price.quantize(Decimal("0.01"))
     effective_ratio = (
         ratio if ratio is not None else settings.distribution_customs_declare_ratio
     )

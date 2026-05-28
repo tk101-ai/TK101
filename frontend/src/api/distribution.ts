@@ -655,12 +655,21 @@ const CUSTOMS_BASE = "/api/distribution/customs";
 export interface CustomsDeclarationOut {
   id: string;
   company_label: string | null;
+  /** "export" | "import" | null. null 은 legacy 또는 양식 미인식. */
+  declaration_type: string | null;
   bl_number: string | null;
   declaration_number: string | null;
+  /** 품명(㉗) - 일반 분류명. */
+  item_name: string | null;
+  /** 모델·규격(㉚) - 가장 구체적 표현. */
   product: string | null;
-  /** 신고가 (실가의 75%). Decimal 문자열. */
+  /** 단가(㉝). Decimal 문자열. */
+  unit_price: string | null;
+  /** 신고가격(㊳) - 통상 USD. Decimal 문자열. */
   declared_price: string | null;
-  /** 실가 (declared / 0.75 역산). Decimal 문자열. */
+  /** 신고가격 KRW(㊳ 옆 한화 환산). Decimal 문자열. */
+  declared_price_krw: string | null;
+  /** 실가. 수입은 declared/0.75, 수출은 declared 그대로. Decimal 문자열. */
   actual_price: string | null;
   currency: string | null;
   stock_qty: number | null;
@@ -670,10 +679,14 @@ export interface CustomsDeclarationOut {
 }
 
 export interface CustomsPreviewRow {
+  declaration_type: string | null;
   declaration_number: string | null;
+  item_name: string | null;
   product: string | null;
   bl_number: string | null;
+  unit_price: string | null;
   declared_price: string | null;
+  declared_price_krw: string | null;
   actual_price: string | null;
   currency: string | null;
   stock_qty: number | null;

@@ -130,10 +130,14 @@ async def upload_customs(
         updated=result.updated,
         preview=[
             CustomsPreviewRow(
+                declaration_type=row.declaration_type,
                 declaration_number=row.declaration_number,
+                item_name=row.item_name,
                 product=row.product,
                 bl_number=row.bl_number,
+                unit_price=row.unit_price,
                 declared_price=row.declared_price,
+                declared_price_krw=row.declared_price_krw,
                 actual_price=row.actual_price,
                 currency=row.currency,
                 stock_qty=row.stock_qty,

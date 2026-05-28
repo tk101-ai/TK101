@@ -17,6 +17,7 @@ import pytest
 from app.services.distribution.customs_llm_extractor import (
     LLMExtractResult,
     _coerce_date,
+    _coerce_declaration_type,
     _coerce_decimal,
     _coerce_int,
     _coerce_str,
@@ -25,6 +26,7 @@ from app.services.distribution.customs_llm_extractor import (
     _strip_json_envelope,
     extract_customs_from_text,
 )
+from app.services.distribution.customs_parser import reverse_calc_actual_price
 from app.services.form_filler.llm_client import LLMResponse
 
 
@@ -137,6 +139,72 @@ class TestCoerceStr:
 # ---------------------------------------------------------------------------
 
 
+class TestCoerceDeclarationType:
+    def test_export(self) -> None:
+        assert _coerce_declaration_type("export") == "export"
+        assert _coerce_declaration_type("EXPORT") == "export"
+        assert _coerce_declaration_type("  Export  ") == "export"
+
+    def test_import(self) -> None:
+        assert _coerce_declaration_type("import") == "import"
+
+    def test_unknown_to_none(self) -> None:
+        # CHECK 제약 위반 방지 — 모르는 값은 NULL.
+        assert _coerce_declaration_type("수출") is None
+        assert _coerce_declaration_type("other") is None
+        assert _coerce_declaration_type(None) is None
+        assert _coerce_declaration_type("") is None
+
+
+class TestReverseCalcActualPrice:
+    def test_export_skips_ratio(self) -> None:
+        # 수출은 declared 그대로 (75% 역산 미적용).
+        result = reverse_calc_actual_price(
+            Decimal("9834"),
+            declaration_type="export",
+            ratio=0.75,
+        )
+        assert result == Decimal("9834.00")
+
+    def test_import_applies_ratio(self) -> None:
+        result = reverse_calc_actual_price(
+            Decimal("9834"),
+            declaration_type="import",
+            ratio=0.75,
+        )
+        # 9834 / 0.75 = 13112.00
+        assert result == Decimal("13112.00")
+
+    def test_none_type_defaults_to_import(self) -> None:
+        # Legacy 행 하위호환 — declaration_type None 은 수입 가정.
+        result = reverse_calc_actual_price(
+            Decimal("1000"),
+            declaration_type=None,
+            ratio=0.5,
+        )
+        assert result == Decimal("2000.00")
+
+    def test_none_price(self) -> None:
+        assert (
+            reverse_calc_actual_price(None, declaration_type="import", ratio=0.75)
+            is None
+        )
+
+    def test_zero_price(self) -> None:
+        assert (
+            reverse_calc_actual_price(Decimal("0"), declaration_type="import")
+            is None
+        )
+
+    def test_invalid_ratio(self) -> None:
+        assert (
+            reverse_calc_actual_price(
+                Decimal("1000"), declaration_type="import", ratio=0
+            )
+            is None
+        )
+
+
 class TestRowFromLLMObj:
     def test_complete_row(self) -> None:
         from datetime import date
@@ -156,11 +224,50 @@ class TestRowFromLLMObj:
         assert row.product == "전자제품"
         assert row.bl_number == "BLABC123"
         assert row.declared_price == Decimal("1000000")
-        # 역산: 1,000,000 / 0.75 = 1,333,333.33
+        # declaration_type 미지정 → import 가정 → 1,000,000 / 0.75 = 1,333,333.33
         assert row.actual_price == Decimal("1333333.33")
         assert row.currency == "KRW"
         assert row.stock_qty == 50
         assert row.declared_at == date(2026, 5, 27)
+
+    def test_export_row_new_fields(self) -> None:
+        """수출신고필증 1행 — 새 필드들(declaration_type/item_name/unit_price/krw) 전부 추출."""
+        obj = {
+            "declaration_type": "export",
+            "declaration_number": "12865-24-008320X",
+            "item_name": "HAND BAG",
+            "product": "GUCCI BAG",
+            "bl_number": "SYBT20240712A",
+            "unit_price": "4917.1",
+            "declared_price": "9834",
+            "declared_price_krw": "13614269",
+            "currency": "USD",
+            "stock_qty": 2,
+            "declared_at": "2024-07-12",
+        }
+        row = _row_from_llm_obj(obj, ratio=0.75)
+        assert row is not None
+        assert row.declaration_type == "export"
+        assert row.item_name == "HAND BAG"
+        assert row.product == "GUCCI BAG"
+        assert row.unit_price == Decimal("4917.1")
+        assert row.declared_price == Decimal("9834")
+        assert row.declared_price_krw == Decimal("13614269")
+        # 수출이므로 actual = declared (75% 역산 미적용 — 유령 수치 13,112 방지).
+        assert row.actual_price == Decimal("9834.00")
+
+    def test_unknown_declaration_type_treated_as_import(self) -> None:
+        """LLM 이 다른 값을 채워도 도메인 가드로 None 으로 정규화 → 수입 가정."""
+        obj = {
+            "declaration_type": "수출",  # 한글 — 도메인 외 값
+            "declaration_number": "12345",
+            "declared_price": "1000",
+        }
+        row = _row_from_llm_obj(obj, ratio=0.5)
+        assert row is not None
+        assert row.declaration_type is None  # 가드로 정규화
+        # None → import 가정 → 75% 역산 (테스트에선 ratio=0.5 라 2배).
+        assert row.actual_price == Decimal("2000.00")
 
     def test_empty_row_returns_none(self) -> None:
         # 식별 가능한 값 없음 → None (합계/소계 행).

@@ -18,16 +18,25 @@ from pydantic import BaseModel, Field
 
 
 class CustomsDeclarationOut(BaseModel):
-    """면장 1행 조회 응답."""
+    """면장 1행 조회 응답. 한국 관세청 신고필증 항목 매핑은 모델 docstring 참조."""
 
     id: uuid.UUID
     company_label: str | None
+    # "export" / "import" / None. None 은 legacy 또는 양식 미인식.
+    declaration_type: str | None
     bl_number: str | None
     declaration_number: str | None
+    # 품명(㉗) - 일반 분류명 (예: HAND BAG)
+    item_name: str | None
+    # 모델·규격(㉚) - 가장 구체적 표현 (예: GUCCI BAG)
     product: str | None
-    # declared_price(신고가): 실가의 75% 로 신고된 금액.
+    # 단가(㉝) - 1 단위당 가격
+    unit_price: Decimal | None
+    # 신고가격(㊳) - 통상 USD
     declared_price: Decimal | None
-    # actual_price(실가): declared_price / 0.75 역산값.
+    # 신고가격 KRW(㊳ 옆) - 한화 환산
+    declared_price_krw: Decimal | None
+    # 실가 - 수입은 declared/0.75, 수출은 declared 그대로
     actual_price: Decimal | None
     currency: str | None
     stock_qty: int | None
@@ -41,10 +50,14 @@ class CustomsDeclarationOut(BaseModel):
 class CustomsPreviewRow(BaseModel):
     """업로드 직후 미리보기 행 (DB 저장 전 파싱 결과)."""
 
+    declaration_type: str | None = None
     declaration_number: str | None = None
+    item_name: str | None = None
     product: str | None = None
     bl_number: str | None = None
+    unit_price: Decimal | None = None
     declared_price: Decimal | None = None
+    declared_price_krw: Decimal | None = None
     actual_price: Decimal | None = None
     currency: str | None = None
     stock_qty: int | None = None

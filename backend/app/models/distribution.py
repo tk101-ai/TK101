@@ -399,16 +399,28 @@ class DistributionSendLog(Base):
 
 
 class DistributionCustomsDeclaration(Base):
-    """면장(통관신고) 1행. 신고번호·신고가·재고 적재 + 실가 역산 (Priority 4).
+    """면장(통관신고) 1행. 수출/수입 신고필증 데이터 적재 (Priority 4).
 
     핵심 비즈니스 규칙:
-    - 면장의 신고가(declared_price)는 관세 절감 목적으로 실제 가치의 75% 로 신고된다.
-    - 실가 역산: actual_price = declared_price / ratio (ratio 기본 0.75, config 조정).
-    - actual_price 는 적재 시 파서가 미리 계산해 컬럼에 저장 (조회 시 재계산 불필요).
+    - 수입 면장(declaration_type='import' 또는 NULL): 신고가는 실가의 75%.
+      → actual_price = declared_price / 0.75 (ratio 는 config 조정 가능).
+    - 수출 면장(declaration_type='export'): 신고가(FOB)가 실가에 가까움.
+      → actual_price = declared_price (역산 미적용, 의미 없는 유령 수치 방지).
+    - 역산값은 서비스 적재 시점에 계산해 actual_price 컬럼에 저장.
 
-    declaration_number(신고번호)는 채워진 경우 UNIQUE — 동일 면장 중복 적재 차단.
-    NULL 은 다수 허용 (partial unique index, social_posts 패턴과 동일).
-    raw_row 에 원본 엑셀 행 보존 → 컬럼 매핑 변경에도 재처리 가능.
+    컬럼 의미 (한국 관세청 신고필증 항목 번호 매핑):
+    - declaration_number ⑤ : 채워진 경우 UNIQUE (partial index).
+    - declaration_type      : "export" / "import" / NULL(미지).
+    - item_name        ㉗ : 품명 (예: "HAND BAG").
+    - product          ㉚ : 모델·규격 (예: "GUCCI BAG"). 가장 구체적인 식별자.
+    - unit_price       ㉝ : 단가 (수량 1 단위 가격, 통상 USD).
+    - declared_price   ㊳ : 신고가격(FOB) — 통상 USD. currency 와 함께 해석.
+    - declared_price_krw  : 신고가격 KRW 환산. 한화 직관성용 (한국 회사 입장).
+    - actual_price        : 역산된 실가 (수입은 ÷ratio, 수출은 그대로).
+    - stock_qty       ㉜ : 수량 (단위 EA 등).
+    - declared_at       ⑦ : 신고일자.
+
+    raw_row 에 원본 추출 응답 보존 → 컬럼 매핑 변경에도 재처리 가능.
     """
 
     __tablename__ = "distribution_customs_declarations"
@@ -420,17 +432,27 @@ class DistributionCustomsDeclaration(Base):
     )
     # company_label: 4 회사 분리 (TK101/래더엑스/뉴테인핏/SYBT). 다른 모듈과 동일 규약.
     company_label = Column(String(100), nullable=True)
+    # declaration_type: "export" (수출신고필증) / "import" (수입신고필증) / NULL.
+    # 75% 역산은 import 인 경우에만 적용됨 (서비스 레벨에서 분기).
+    declaration_type = Column(String(10), nullable=True)
     # bl_number: 연결된 BL 번호 (있으면). distribution_bl_records 와 느슨한 연계.
     bl_number = Column(String(100), nullable=True)
-    # declaration_number(신고번호/면장번호): 채워진 값은 UNIQUE (partial index).
+    # declaration_number(신고번호/면장번호 ⑤): 채워진 값은 UNIQUE (partial index).
     declaration_number = Column(String(100), nullable=True)
+    # item_name(품명 ㉗): 일반 품목 분류명 (예: "HAND BAG").
+    item_name = Column(String(200), nullable=True)
+    # product(모델·규격 ㉚): 가장 구체적인 식별자 (예: "GUCCI BAG").
     product = Column(String(200), nullable=True)
-    # declared_price(신고가): 면장에 기재된 가격 — 실가의 75%.
+    # unit_price(단가 ㉝): 1 단위당 가격. 검증/계산 근거.
+    unit_price = Column(Numeric(15, 2), nullable=True)
+    # declared_price(신고가격 FOB ㊳): 통상 USD.
     declared_price = Column(Numeric(15, 2), nullable=True)
-    # actual_price(실가): declared_price / ratio 역산값. 파서가 적재 시 계산.
+    # declared_price_krw(신고가격 KRW): ㊳ 옆 한화 환산값. 한국 회사 직관성용.
+    declared_price_krw = Column(Numeric(15, 2), nullable=True)
+    # actual_price(실가): 수입은 declared / ratio, 수출은 declared 그대로.
     actual_price = Column(Numeric(15, 2), nullable=True)
     currency = Column(String(10), nullable=True)
-    # stock_qty(재고/재고수량): 면장 기준 재고.
+    # stock_qty(수량 ㉜): 신고 수량 (EA 등).
     stock_qty = Column(Integer, nullable=True)
     declared_at = Column(Date, nullable=True)
     raw_row = Column(JSONB, nullable=False)

@@ -201,6 +201,17 @@ export default function CustomsPage() {
 
   const columns: ColumnsType<CustomsDeclarationOut> = [
     {
+      title: "종류",
+      dataIndex: "declaration_type",
+      key: "declaration_type",
+      width: 70,
+      render: (v: string | null) => {
+        if (v === "export") return <Tag color="blue">수출</Tag>;
+        if (v === "import") return <Tag color="orange">수입</Tag>;
+        return <Text type="secondary">—</Text>;
+      },
+    },
+    {
       title: "신고번호",
       dataIndex: "declaration_number",
       key: "declaration_number",
@@ -209,21 +220,41 @@ export default function CustomsPage() {
         v ? <Text code>{v}</Text> : <Text type="secondary">—</Text>,
     },
     {
-      title: "품명",
+      title: "품명 (㉗)",
+      dataIndex: "item_name",
+      key: "item_name",
+      width: 120,
+      render: (v: string | null) => v ?? <Text type="secondary">—</Text>,
+    },
+    {
+      title: "모델·규격 (㉚)",
       dataIndex: "product",
       key: "product",
       render: (v: string | null) => v ?? <Text type="secondary">—</Text>,
     },
     {
-      title: "신고가",
-      dataIndex: "declared_price",
-      key: "declared_price",
+      title: "수량",
+      dataIndex: "stock_qty",
+      key: "stock_qty",
       align: "right",
-      width: 140,
+      width: 80,
+      render: (v: number | null) =>
+        v == null ? (
+          <Text type="secondary">—</Text>
+        ) : (
+          NUMBER_FORMATTER.format(v)
+        ),
+    },
+    {
+      title: "단가 (㉝)",
+      dataIndex: "unit_price",
+      key: "unit_price",
+      align: "right",
+      width: 110,
       render: (v: string | null, row) => (
         <Text style={{ fontVariantNumeric: "tabular-nums" }}>
           {formatMoney(v)}
-          {row.currency ? (
+          {row.currency && v !== null ? (
             <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
               {row.currency}
             </Text>
@@ -232,32 +263,57 @@ export default function CustomsPage() {
       ),
     },
     {
-      title: `실가 (÷${ratio})`,
-      dataIndex: "actual_price",
-      key: "actual_price",
+      title: "신고가 (㊳)",
+      dataIndex: "declared_price",
+      key: "declared_price",
       align: "right",
-      width: 150,
-      render: (v: string | null) => (
-        <Text
-          strong
-          style={{ fontVariantNumeric: "tabular-nums", color: "#cf1322" }}
-        >
+      width: 130,
+      render: (v: string | null, row) => (
+        <Text style={{ fontVariantNumeric: "tabular-nums" }}>
           {formatMoney(v)}
+          {row.currency && v !== null ? (
+            <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
+              {row.currency}
+            </Text>
+          ) : null}
         </Text>
       ),
     },
     {
-      title: "재고",
-      dataIndex: "stock_qty",
-      key: "stock_qty",
+      title: "신고가 KRW",
+      dataIndex: "declared_price_krw",
+      key: "declared_price_krw",
       align: "right",
-      width: 90,
-      render: (v: number | null) =>
-        v == null ? (
-          <Text type="secondary">—</Text>
-        ) : (
-          NUMBER_FORMATTER.format(v)
-        ),
+      width: 140,
+      render: (v: string | null) => (
+        <Text
+          strong
+          style={{ fontVariantNumeric: "tabular-nums", color: "#1d39c4" }}
+        >
+          {v === null ? <Text type="secondary">—</Text> : `₩${formatMoney(v)}`}
+        </Text>
+      ),
+    },
+    {
+      title: "실가",
+      dataIndex: "actual_price",
+      key: "actual_price",
+      align: "right",
+      width: 120,
+      render: (v: string | null, row) => {
+        // 수출은 declared == actual 이라 추가 정보 없음 → "—" 로 단순화.
+        if (row.declaration_type === "export") {
+          return <Text type="secondary">—</Text>;
+        }
+        return (
+          <Text
+            strong
+            style={{ fontVariantNumeric: "tabular-nums", color: "#cf1322" }}
+          >
+            {formatMoney(v)}
+          </Text>
+        );
+      },
     },
     {
       title: "회사",
@@ -319,20 +375,21 @@ export default function CustomsPage() {
         </Paragraph>
       </div>
 
-      {/* 75% 역산 관계 안내 — 페이지의 핵심 규칙을 명시적으로 노출 */}
+      {/* 수출/수입 구분에 따른 실가 처리 안내 */}
       <Alert
         type="info"
         showIcon
         style={{ marginBottom: 20 }}
-        message={`신고가는 실가의 ${ratioPercent}% 입니다`}
+        message="수출신고필증과 수입신고필증을 자동 구분해 처리합니다"
         description={
           <Text>
-            관세 절감을 위해 면장에는 실제 가치의 {ratioPercent}%만 신고됩니다.
-            따라서{" "}
+            <Tag color="blue">수출</Tag> 신고가격(FOB)이 실가에 가까워 역산
+            없이 그대로 사용 (실가 컬럼은 ‘—’ 표시). <Tag color="orange">수입</Tag>{" "}
+            관세 절감 목적으로 실가의 {ratioPercent}% 로 신고된다고 보고{" "}
             <Text strong style={{ color: "#cf1322" }}>
               실가 = 신고가 ÷ {ratio}
             </Text>{" "}
-            로 역산하여 표시합니다.
+            로 역산.
           </Text>
         }
       />
@@ -523,7 +580,7 @@ export default function CustomsPage() {
           dataSource={rows}
           loading={loading}
           size="small"
-          scroll={{ x: 880 }}
+          scroll={{ x: 1380 }}
           pagination={{
             current: page,
             pageSize,
