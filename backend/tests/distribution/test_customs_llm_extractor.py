@@ -315,6 +315,28 @@ class TestExtractCustomsFromText:
         assert result.rows == []
         assert any("호출 실패" in w for w in result.warnings)
 
+    def test_export_declaration_three_line_items(self) -> None:
+        """수출신고필증 3 품목 케이스 — 동일 신고번호로 3행 분리."""
+        fake_text = """{"rows": [
+            {"declaration_number": "12865-24-008320X", "product": "VAN CLEEF & ARPELS BRACELETS", "bl_number": "SYBT20240712A", "declared_price": "14042", "currency": "USD", "stock_qty": 2, "declared_at": "2024-07-12"},
+            {"declaration_number": "12865-24-008320X", "product": "LOUIS VUITTON SHOULDER BAG", "bl_number": "SYBT20240712A", "declared_price": "2551", "currency": "USD", "stock_qty": 1, "declared_at": "2024-07-12"},
+            {"declaration_number": "12865-24-008320X", "product": "GUCCI BAG", "bl_number": "SYBT20240712A", "declared_price": "9834", "currency": "USD", "stock_qty": 2, "declared_at": "2024-07-12"}
+        ]}"""
+        with patch(
+            "app.services.distribution.customs_llm_extractor.call_claude",
+            return_value=_fake_llm_response(fake_text),
+        ):
+            result = extract_customs_from_text("면장 텍스트")
+        assert len(result.rows) == 3
+        # 모든 란이 동일 신고번호 + 송품장부호 공유.
+        assert all(r.declaration_number == "12865-24-008320X" for r in result.rows)
+        assert all(r.bl_number == "SYBT20240712A" for r in result.rows)
+        # 품목별로 다른 product / declared_price.
+        assert result.rows[0].product == "VAN CLEEF & ARPELS BRACELETS"
+        assert result.rows[0].declared_price == Decimal("14042")
+        assert result.rows[2].product == "GUCCI BAG"
+        assert result.rows[2].declared_price == Decimal("9834")
+
     def test_long_text_truncated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from app.config import settings
 

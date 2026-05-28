@@ -753,3 +753,8 @@ export async function getCustomsSummary(
   });
   return res.data;
 }
+
+/** 면장 1행 삭제. 잘못 업로드한 행 제거용. 204 No Content 응답. */
+export async function deleteCustoms(declarationId: string): Promise<void> {
+  await api.delete(`${CUSTOMS_BASE}/${declarationId}`);
+}

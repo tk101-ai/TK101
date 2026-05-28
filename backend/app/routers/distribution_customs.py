@@ -173,6 +173,24 @@ async def list_customs(
     )
 
 
+@router.delete("/{declaration_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_customs(
+    declaration_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """면장 1행 삭제. 잘못 업로드한 행을 사용자가 직접 제거할 수 있게 한다.
+
+    Errors:
+    - 404: 해당 id 없음 (이미 삭제됐거나 존재하지 않음).
+    """
+    deleted = await customs_service.delete_declaration(db, declaration_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="해당 면장 행을 찾을 수 없습니다 (이미 삭제됐을 수 있음).",
+        )
+
+
 @router.get("/summary")
 async def customs_summary(
     company_label: str | None = None,

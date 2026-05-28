@@ -5,6 +5,7 @@ import {
   Card,
   Col,
   Input,
+  Popconfirm,
   Row,
   Select,
   Space,
@@ -17,6 +18,7 @@ import {
 } from "antd";
 import {
   CloudUploadOutlined,
+  DeleteOutlined,
   InboxOutlined,
   ReloadOutlined,
   RiseOutlined,
@@ -30,6 +32,7 @@ import {
   type CustomsSummaryOut,
   type CustomsUploadResult,
   type DistributionCompany,
+  deleteCustoms,
   getCustomsSummary,
   listCustoms,
   uploadCustoms,
@@ -93,6 +96,8 @@ export default function CustomsPage() {
   const [summary, setSummary] = useState<CustomsSummaryOut | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // 삭제 진행 중인 행 id — 다중 클릭/이중 삭제 방지용.
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const companyParam = companyFilter === "all" ? undefined : companyFilter;
 
@@ -145,6 +150,29 @@ export default function CustomsPage() {
       return false;
     },
   };
+
+  const handleDelete = useCallback(
+    async (row: CustomsDeclarationOut) => {
+      setDeletingId(row.id);
+      try {
+        await deleteCustoms(row.id);
+        message.success(
+          `면장 행을 삭제했습니다${
+            row.declaration_number ? ` (신고번호 ${row.declaration_number})` : ""
+          }`,
+        );
+        void loadData();
+      } catch (err: unknown) {
+        const detail = extractErrorDetail(err, "면장 삭제 실패", {
+          useAxiosMessage: true,
+        });
+        message.error(detail);
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [loadData],
+  );
 
   const handleUpload = async () => {
     if (!pendingFile) {
@@ -246,6 +274,37 @@ export default function CustomsPage() {
       width: 120,
       render: (v: string | null) => v ?? <Text type="secondary">—</Text>,
     },
+    {
+      title: "",
+      key: "actions",
+      width: 60,
+      align: "center",
+      render: (_: unknown, row) => (
+        <Popconfirm
+          title="이 면장 행을 삭제할까요?"
+          description={
+            row.declaration_number
+              ? `신고번호 ${row.declaration_number} (복구 불가)`
+              : "이 행은 복구되지 않습니다."
+          }
+          okText="삭제"
+          cancelText="취소"
+          okButtonProps={{ danger: true }}
+          onConfirm={() => handleDelete(row)}
+          disabled={deletingId !== null}
+        >
+          <Button
+            type="text"
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            loading={deletingId === row.id}
+            disabled={deletingId !== null && deletingId !== row.id}
+            aria-label="면장 행 삭제"
+          />
+        </Popconfirm>
+      ),
+    },
   ];
 
   return (
@@ -318,9 +377,9 @@ export default function CustomsPage() {
             면장 엑셀(.xlsx/.xlsm) 또는 PDF(.pdf)를 끌어다 놓거나 클릭해서 선택
           </p>
           <p className="ant-upload-hint" style={{ fontSize: 12 }}>
-            컬럼 매핑은 실제 면장 양식 확정 후 조정됩니다 (헤더 텍스트 기반 자동
-            인식). PDF는 표 추출을 우선 시도하고, 실패 시 본문 텍스트를
-            분석합니다.
+            PDF는 AI가 양식(수출신고필증·수입신고필증)을 의미 기반으로 인식해
+            추출합니다. 다중 품목(란번호) PDF도 자동으로 행 분리. 잘못 올린 행은
+            목록에서 휴지통 버튼으로 삭제하세요.
           </p>
         </Dragger>
 

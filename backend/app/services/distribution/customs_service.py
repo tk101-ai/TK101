@@ -192,6 +192,30 @@ async def list_declarations(
     return rows, total
 
 
+async def delete_declaration(db: AsyncSession, declaration_id: str) -> bool:
+    """면장 1행 삭제. 잘못 업로드한 행을 사용자가 UI 에서 제거할 수 있게 한다.
+
+    Returns:
+        True: 삭제 성공. False: 해당 id 없음 (이미 삭제됐거나 잘못된 id).
+    Notes:
+        - 본 모델은 FK 가 없는 leaf 라 hard delete 안전. 향후 외부 참조 생기면
+          soft delete (deleted_at) 로 전환 검토.
+        - 라우터에서 권한 가드(require_module) 가 이미 걸려 있으므로 여기선 별도
+          authz 체크하지 않는다.
+    """
+    q = await db.execute(
+        select(DistributionCustomsDeclaration).where(
+            DistributionCustomsDeclaration.id == declaration_id
+        )
+    )
+    obj = q.scalar_one_or_none()
+    if obj is None:
+        return False
+    await db.delete(obj)
+    await db.commit()
+    return True
+
+
 async def summary(
     db: AsyncSession,
     *,
