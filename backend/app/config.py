@@ -17,8 +17,9 @@ class Settings(BaseSettings):
     meta_access_token: str = ""  # Page/IG 장기 액세스 토큰
     meta_app_id: str = ""  # Meta 앱 ID (토큰 디버그/재발급용)
     meta_app_secret: str = ""  # Meta 앱 시크릿 (appsecret_proof 서명용)
-    # Graph API 버전. 운영 중 신버전 전환 시 .env 로만 조정.
-    meta_graph_version: str = "v21.0"
+    # Graph API 버전. 운영 중 신버전 전환 시 .env(META_GRAPH_VERSION)로만 조정.
+    # 2026-06-01: 마케팅1팀 Meta 핸드오프 기준 v25.0 (Seoul Korea 페이지 / seoulcity IG).
+    meta_graph_version: str = "v25.0"
 
     # NAS 자료 검색 (v0.6.0 PoC) -------------------------------------------------
     # 운영 환경에서 NAS 마운트 경로. 컨테이너에서 호스트 NAS를 bind mount.

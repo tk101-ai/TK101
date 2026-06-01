@@ -40,6 +40,8 @@ jobs:
           TENCENT_AIGC_SUBAPP_ID=${{ secrets.TENCENT_AIGC_SUBAPP_ID }}
           TENCENT_AIGC_SECRET_ID=${{ secrets.TENCENT_AIGC_SECRET_ID }}
           TENCENT_AIGC_SECRET_KEY=${{ secrets.TENCENT_AIGC_SECRET_KEY }}
+          META_ACCESS_TOKEN=${{ secrets.META_ACCESS_TOKEN }}
+          META_APP_ID=1376463094533883
           ENVEOF
           sed -i 's/^[[:space:]]*//' .env
 
