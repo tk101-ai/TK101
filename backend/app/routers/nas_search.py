@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import operator
 import os
 from datetime import datetime, timezone
+from functools import reduce
 
 from fastapi import (
     APIRouter,
@@ -22,7 +24,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import case, delete, func, select
+from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -48,6 +50,12 @@ from app.services.nas_search import (
     run_indexing,
 )
 from app.services.nas_search.embedder import embed_passages, embed_query
+from app.services.nas_search.hybrid import (
+    DEFAULT_RRF_K as RRF_K,
+    like_escape,
+    reciprocal_rank_fusion,
+    tokenize_query,
+)
 from app.services.nas_search.indexer import build_filename_header
 from app.services.nas_search.summarizer import summarize_document
 
@@ -429,14 +437,124 @@ def _build_snippet(content: str) -> str:
     return content[:SNIPPET_CHARS]
 
 
+# 파일 그룹핑으로 손실되는 후보를 보정하기 위한 over-fetch 배수.
+OVERFETCH_MULTIPLIER = 5
+
+# 메타데이터 + 대표 청크 본문을 함께 select 하는 공통 컬럼들.
+# 두 검색 arm(벡터/키워드)이 동일하게 사용해 결과 병합 시 일관성을 보장한다.
+_FILE_COLUMNS = (
+    NasFile.id,
+    NasFile.path,
+    NasFile.name,
+    NasFile.file_type,
+    NasFile.mime_type,
+    NasFile.size_bytes,
+    NasFile.mtime,
+    NasTextChunk.content,
+)
+
+
+def _base_filter_conditions(body: NasSearchRequest) -> list:
+    """검색 필터(파일종류/경로/수정일)를 WHERE 조건 리스트로 변환.
+
+    두 arm이 동일 필터를 공유하도록 분리. path_prefix가 root를 벗어나면
+    ValueError를 던지며, caller가 HTTP 400으로 변환한다.
+    """
+    conds: list = []
+    if body.file_kinds:
+        # hwp는 두 MIME(hwp + hwpx)으로 평탄화되므로 헬퍼 사용.
+        mimes = _flatten_kind_mimes(list(body.file_kinds))
+        if mimes:
+            conds.append(NasFile.mime_type.in_(mimes))
+    if body.path_prefix:
+        # ValueError는 caller(search_text)가 400으로 변환.
+        absolute_prefix = _resolve_path_prefix(body.path_prefix, settings.nas_mount_path)
+        conds.append(NasFile.path.startswith(absolute_prefix))
+    if body.mtime_from is not None:
+        conds.append(NasFile.mtime >= body.mtime_from)
+    if body.mtime_to is not None:
+        conds.append(NasFile.mtime <= body.mtime_to)
+    return conds
+
+
+def _collect_by_path(rows) -> tuple[list[str], dict[str, object]]:
+    """best-first로 정렬된 rows를 파일 경로 기준으로 그룹핑.
+
+    같은 파일의 첫 등장(=가장 점수 좋은 청크)만 대표로 남긴다.
+    Returns: (등장 순서 경로 리스트, 경로→대표 row).
+    """
+    order: list[str] = []
+    by_path: dict[str, object] = {}
+    for row in rows:
+        if row.path in by_path:
+            continue
+        by_path[row.path] = row
+        order.append(row.path)
+    return order, by_path
+
+
+async def _vector_arm(
+    db: AsyncSession, query_vec, conds: list, over_limit: int
+) -> tuple[list[str], dict[str, object]]:
+    """의미검색 arm — 임베딩 cosine 거리 오름차순."""
+    distance = NasTextChunk.embedding.cosine_distance(query_vec.tolist()).label("distance")
+    stmt = (
+        select(*_FILE_COLUMNS, distance)
+        .join(NasTextChunk, NasTextChunk.file_id == NasFile.id)
+        .where(*conds)
+        .order_by(distance.asc())
+        .limit(over_limit)
+    )
+    rows = (await db.execute(stmt)).all()
+    return _collect_by_path(rows)
+
+
+async def _keyword_arm(
+    db: AsyncSession, terms: list[str], conds: list, over_limit: int
+) -> tuple[list[str], dict[str, object]]:
+    """정확검색 arm — pg_trgm ILIKE 토큰 매칭. 매칭 토큰 수 많을수록 상위.
+
+    각 토큰이 본문 또는 파일명에 부분일치하면 +1. 품번·금액·고유명사 같은
+    정확 토큰을 가장 많이 포함한 파일이 위로 온다. terms가 비면 빈 결과.
+    """
+    if not terms:
+        return [], {}
+
+    term_conditions = []
+    match_terms = []
+    for term in terms:
+        pattern = f"%{like_escape(term)}%"
+        cond = or_(
+            NasTextChunk.content.ilike(pattern, escape="\\"),
+            NasFile.name.ilike(pattern, escape="\\"),
+        )
+        term_conditions.append(cond)
+        match_terms.append(case((cond, 1), else_=0))
+
+    match_count = reduce(operator.add, match_terms).label("match_count")
+    any_match = or_(*term_conditions)
+
+    stmt = (
+        select(*_FILE_COLUMNS, match_count)
+        .join(NasTextChunk, NasTextChunk.file_id == NasFile.id)
+        .where(*conds, any_match)
+        .order_by(match_count.desc())
+        .limit(over_limit)
+    )
+    rows = (await db.execute(stmt)).all()
+    return _collect_by_path(rows)
+
+
 @router.post("/search/text", response_model=NasSearchResponse)
 async def search_text(
     body: NasSearchRequest,
     db: AsyncSession = Depends(get_db),
 ) -> NasSearchResponse:
-    """텍스트 임베딩 → pgvector cosine 유사도 검색.
+    """하이브리드 검색 — 의미검색(벡터) + 정확검색(pg_trgm 키워드)을 RRF로 결합.
 
-    파일 단위로 그룹핑해서 같은 문서에서 가장 점수 좋은 청크 1개만 대표로 반환.
+    - 벡터 arm: 임베딩 cosine 유사도. 의미·뉘앙스에 강함.
+    - 키워드 arm: 토큰 ILIKE 매칭. 품번·금액·모델명 등 정확 토큰에 강함.
+    두 순위를 RRF로 합쳐 파일 단위로 대표 청크 1개만 반환한다.
     """
     try:
         query_vec = await asyncio.to_thread(embed_query, body.query)
@@ -444,81 +562,52 @@ async def search_text(
         logger.exception("쿼리 임베딩 실패")
         raise HTTPException(status_code=500, detail=f"쿼리 임베딩 실패: {exc}")
 
-    # cosine distance를 distance 컬럼으로 받는다. 점수는 (1 - distance) + 파일명 가산점.
-    distance = NasTextChunk.embedding.cosine_distance(query_vec.tolist()).label("distance")
-    # v0.6.7 하이브리드 검색: 파일명 ILIKE 매칭 시 +0.2 가산점.
-    name_bonus = case(
-        (NasFile.name.ilike(f"%{body.query}%"), 0.2),
-        else_=0.0,
-    ).label("name_bonus")
-    over_limit = body.limit * 5  # 파일 그룹핑 손실 보정
-
-    stmt = (
-        select(
-            NasFile.id,
-            NasFile.path,
-            NasFile.name,
-            NasFile.file_type,
-            NasFile.mime_type,
-            NasFile.size_bytes,
-            NasFile.mtime,
-            NasTextChunk.content,
-            distance,
-            name_bonus,
+    try:
+        conds = _base_filter_conditions(body)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"잘못된 path_prefix: {exc}",
         )
-        .join(NasTextChunk, NasTextChunk.file_id == NasFile.id)
-    )
 
-    # 필터 적용 — None인 필드는 건너뛴다(회귀 없음).
-    if body.file_kinds:
-        # hwp는 두 MIME(hwp + hwpx)으로 평탄화되므로 일반 리스트 컴프리헨션 대신 헬퍼 사용.
-        mimes = _flatten_kind_mimes(list(body.file_kinds))
-        if mimes:
-            stmt = stmt.where(NasFile.mime_type.in_(mimes))
+    over_limit = body.limit * OVERFETCH_MULTIPLIER
+    terms = tokenize_query(body.query)
 
-    if body.path_prefix:
-        try:
-            absolute_prefix = _resolve_path_prefix(
-                body.path_prefix, settings.nas_mount_path
-            )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"잘못된 path_prefix: {exc}",
-            )
-        stmt = stmt.where(NasFile.path.startswith(absolute_prefix))
+    order_v, by_path_v = await _vector_arm(db, query_vec, conds, over_limit)
+    order_k, by_path_k = await _keyword_arm(db, terms, conds, over_limit)
 
-    if body.mtime_from is not None:
-        stmt = stmt.where(NasFile.mtime >= body.mtime_from)
-    if body.mtime_to is not None:
-        stmt = stmt.where(NasFile.mtime <= body.mtime_to)
+    # 두 순위를 RRF로 결합. 양쪽에 모두 등장한 파일이 자연스럽게 상위로.
+    rrf_scores = reciprocal_rank_fusion([order_v, order_k], k=RRF_K)
 
-    stmt = stmt.order_by(distance.asc()).limit(over_limit)
-    result = await db.execute(stmt)
-    rows = result.all()
+    ranked_paths = sorted(rrf_scores, key=lambda p: rrf_scores[p], reverse=True)
+    # RRF 원점수는 ~0.03 스케일이라 그대로 노출하면 UI가 전부 저점으로 표시된다.
+    # 배치 내 최고점 기준으로 0~1 정규화 → 프론트의 유사도 %/색 구간과 정합(최상위=1.0).
+    max_score = rrf_scores[ranked_paths[0]] if ranked_paths else 0.0
 
-    seen: dict[str, NasSearchHit] = {}
-    for row in rows:
-        path = row.path
-        if path in seen:
+    hits: list[NasSearchHit] = []
+    for path in ranked_paths:
+        # 대표 청크는 키워드 매칭 청크 우선(쿼리 토큰을 직접 포함). 없으면 벡터 청크.
+        row = by_path_k.get(path) or by_path_v.get(path)
+        if row is None:
             continue
-        seen[path] = NasSearchHit(
-            id=row.id,
-            path=path,
-            name=row.name,
-            file_type=row.file_type,
-            mime_type=row.mime_type,
-            size=row.size_bytes,
-            mtime=row.mtime,
-            score=float((1.0 - row.distance) + (row.name_bonus or 0.0)),
-            snippet=_build_snippet(row.content or ""),
+        normalized = (rrf_scores[path] / max_score) if max_score else 0.0
+        hits.append(
+            NasSearchHit(
+                id=row.id,
+                path=row.path,
+                name=row.name,
+                file_type=row.file_type,
+                mime_type=row.mime_type,
+                size=row.size_bytes,
+                mtime=row.mtime,
+                score=round(normalized, 4),
+                snippet=_build_snippet(row.content or ""),
+            )
         )
-        if len(seen) >= body.limit:
+        if len(hits) >= body.limit:
             break
 
-    # 가산점 적용 후 재정렬 (파일명 매치된 결과를 상위로).
-    sorted_hits = sorted(seen.values(), key=lambda h: h.score, reverse=True)
-    return NasSearchResponse(results=sorted_hits)
+    return NasSearchResponse(results=hits)
 
 
 @router.get("/folders/top", response_model=NasTopFoldersResponse)
