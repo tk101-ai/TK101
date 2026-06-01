@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Button,
   Card,
@@ -13,6 +13,7 @@ import {
 } from "antd";
 import {
   DeleteOutlined,
+  EditOutlined,
   EyeOutlined,
   ReloadOutlined,
   ThunderboltOutlined,
@@ -30,6 +31,7 @@ import {
 } from "../../api/distribution";
 import { extractErrorDetail } from "../../utils/errorUtils";
 import GenerateTriggerModal from "../../components/distribution/GenerateTriggerModal";
+import ManualSessionModal from "../../components/distribution/ManualSessionModal";
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -76,6 +78,9 @@ export default function SessionsPage() {
 
   // 생성 트리거 모달 — 페르소나/시나리오/주차 선택 후 POST /generate-custom 호출.
   const [triggerOpen, setTriggerOpen] = useState<boolean>(false);
+  // 수동 세션 만들기 모달 — 빈 세션 생성 후 상세에서 직접 작성.
+  const [manualOpen, setManualOpen] = useState<boolean>(false);
+  const navigate = useNavigate();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -278,6 +283,12 @@ export default function SessionsPage() {
               생성 트리거
             </Button>
             <Button
+              icon={<EditOutlined />}
+              onClick={() => setManualOpen(true)}
+            >
+              수동 세션 만들기
+            </Button>
+            <Button
               icon={<ReloadOutlined />}
               onClick={() => {
                 void fetchData();
@@ -324,6 +335,15 @@ export default function SessionsPage() {
           }
           setPage(1);
           void fetchData();
+        }}
+      />
+
+      <ManualSessionModal
+        open={manualOpen}
+        onClose={() => setManualOpen(false)}
+        onCreated={(sessionId) => {
+          setManualOpen(false);
+          navigate(`/distribution/sessions/${sessionId}`);
         }}
       />
     </div>

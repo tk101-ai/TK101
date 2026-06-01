@@ -28,6 +28,7 @@ import {
   EditOutlined,
   FileOutlined,
   PaperClipOutlined,
+  PlusOutlined,
   ReloadOutlined,
   SaveOutlined,
   SendOutlined,
@@ -43,7 +44,9 @@ import {
   SEND_STATE_TAG_COLOR,
   SESSION_STATUS_LABEL,
   SESSION_STATUS_TAG_COLOR,
+  addMessage,
   approveSession,
+  deleteMessage,
   deleteMessageAttachment,
   getSession,
   rejectSession,
@@ -625,6 +628,50 @@ export default function SessionDetailPage() {
     });
   }, []);
 
+  // 타임라인 직접 편집 — 메시지 삭제 / 추가.
+  const handleDeleteMessage = useCallback(
+    async (messageId: string) => {
+      try {
+        await deleteMessage(messageId);
+        message.success("메시지를 삭제했습니다.");
+        await fetchData();
+      } catch (err: unknown) {
+        message.error(extractErrorDetail(err, "메시지 삭제 실패"));
+      }
+    },
+    [fetchData],
+  );
+
+  const [addSide, setAddSide] = useState<"sender" | "receiver">("sender");
+  const [addContent, setAddContent] = useState<string>("");
+  const [addAfterSec, setAddAfterSec] = useState<number>(0);
+  const [adding, setAdding] = useState<boolean>(false);
+
+  const handleAddMessage = useCallback(async () => {
+    if (!id) return;
+    const content = addContent.trim();
+    if (!content) {
+      message.warning("메시지 내용을 입력하세요.");
+      return;
+    }
+    setAdding(true);
+    try {
+      await addMessage(id, {
+        sender: addSide,
+        content,
+        send_after_sec: addAfterSec,
+      });
+      message.success("메시지를 추가했습니다.");
+      setAddContent("");
+      setAddAfterSec(0);
+      await fetchData();
+    } catch (err: unknown) {
+      message.error(extractErrorDetail(err, "메시지 추가 실패"));
+    } finally {
+      setAdding(false);
+    }
+  }, [id, addContent, addSide, addAfterSec, fetchData]);
+
   const handleApprove = async (scheduledStart: string | null) => {
     if (!session) return;
     setActionLoading(true);
@@ -917,19 +964,85 @@ export default function SessionDetailPage() {
             items={messages.map((msg, idx) => ({
               color: msg.status === "sent" ? "green" : msg.status === "failed" ? "red" : "blue",
               children: (
-                <MessageRow
-                  key={msg.id}
-                  msg={msg}
-                  cumulativeOffset={cumulativeOffsets[idx] ?? 0}
-                  onSaved={handleMessageSaved}
-                  editingDisabled={editingDisabled}
-                  showSendState={showSendState}
-                />
+                <div>
+                  <MessageRow
+                    key={msg.id}
+                    msg={msg}
+                    cumulativeOffset={cumulativeOffsets[idx] ?? 0}
+                    onSaved={handleMessageSaved}
+                    editingDisabled={editingDisabled}
+                    showSendState={showSendState}
+                  />
+                  {!editingDisabled && (
+                    <Popconfirm
+                      title="이 메시지를 삭제할까요?"
+                      okText="삭제"
+                      cancelText="취소"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => {
+                        void handleDeleteMessage(msg.id);
+                      }}
+                    >
+                      <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                        메시지 삭제
+                      </Button>
+                    </Popconfirm>
+                  )}
+                </div>
               ),
             }))}
           />
         )}
       </Card>
+
+      {status === "pending" && (
+        <Card title="메시지 추가" size="small" style={{ marginTop: 16 }}>
+          <Space direction="vertical" style={{ width: "100%" }} size={8}>
+            <Select
+              value={addSide}
+              onChange={(v) => setAddSide(v)}
+              style={{ width: 280 }}
+              options={[
+                {
+                  label: `발신: ${session.sender_account_label}`,
+                  value: "sender",
+                },
+                {
+                  label: `수신: ${session.receiver_account_label}`,
+                  value: "receiver",
+                },
+              ]}
+            />
+            <TextArea
+              value={addContent}
+              onChange={(e) => setAddContent(e.target.value)}
+              autoSize={{ minRows: 2, maxRows: 6 }}
+              maxLength={4096}
+              showCount
+              placeholder="추가할 메시지 내용 (맨 끝에 추가됩니다)"
+            />
+            <Space>
+              <Text type="secondary">이전 메시지 후 대기(초):</Text>
+              <InputNumber
+                min={0}
+                max={86400}
+                value={addAfterSec}
+                onChange={(v) => setAddAfterSec(Number(v) || 0)}
+              />
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                loading={adding}
+                onClick={() => {
+                  void handleAddMessage();
+                }}
+              >
+                맨 끝에 추가
+              </Button>
+            </Space>
+          </Space>
+        </Card>
+      )}
 
       <ApproveModal
         open={approveOpen}

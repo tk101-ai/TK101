@@ -123,6 +123,34 @@ class MessageEditRequest(BaseModel):
     send_after_sec: int | None = Field(default=None, ge=0, le=86400)
 
 
+class MessageCreateRequest(BaseModel):
+    """메시지 추가 요청 (타임라인 직접 편집). 검수 대기 세션만 허용.
+
+    sender: 어느 참여자가 말하는지 — 'sender'(세션 발신자) / 'receiver'(세션 수신자).
+    상세 화면이 persona id 없이 라벨만 알아도 되도록 side 로 받는다.
+    """
+
+    sender: Literal["sender", "receiver"]
+    content: str = Field(min_length=1, max_length=4096)
+    send_after_sec: int = Field(default=0, ge=0, le=86400)
+    typing_sec: int = Field(default=3, ge=0, le=60)
+    # 삽입 위치(order_index). None 이면 맨 끝에 추가.
+    position: int | None = Field(default=None, ge=0)
+
+
+class ManualSessionCreate(BaseModel):
+    """사용자가 직접 작성하는 빈 세션 생성 요청.
+
+    생성 후 메시지를 타임라인에서 직접 추가/편집한다.
+    """
+
+    sender_persona_id: UUID
+    receiver_persona_id: UUID
+    language: Literal["ko", "zh"] = "zh"
+    # 그룹 송신 chat id (3명 방). 비우면 1:1.
+    group_chat_id: str | None = Field(default=None, max_length=64)
+
+
 class ApproveRequest(BaseModel):
     """세션 승인 요청.
 

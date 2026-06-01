@@ -348,6 +348,190 @@ async def update_message(
     return _build_message_item(message=message, sender_label=sender_label)
 
 
+# ---------------------------------------------------------------------------
+# 타임라인 직접 편집 (메시지 추가/삭제) + 수동 세션 생성
+# ---------------------------------------------------------------------------
+
+# 타임라인 편집은 검수 대기 상태에서만 (승인/송신 후 변경 차단).
+_EDITABLE_SESSION_STATUS = "pending"
+# 수동 작성 세션이 참조할 숨김 시나리오 이름 (세션은 scenario_id NOT NULL).
+_MANUAL_SCENARIO_NAME = "[수동 작성]"
+
+
+async def _get_or_create_manual_scenario(db: AsyncSession) -> DistributionScenario:
+    """수동 세션용 숨김 시나리오 get-or-create. active=False 라 picker 에 안 보임."""
+    res = await db.execute(
+        select(DistributionScenario).where(
+            DistributionScenario.name == _MANUAL_SCENARIO_NAME
+        )
+    )
+    scenario = res.scalar_one_or_none()
+    if scenario is not None:
+        return scenario
+    scenario = DistributionScenario(
+        name=_MANUAL_SCENARIO_NAME,
+        trigger_event="manual",
+        sender_role="domestic_admin",
+        receiver_role="vietnam_admin",
+        beats=[],
+        example_msgs=None,
+        instruction=None,
+        raw_text=None,
+        language="ko",
+        active=False,
+    )
+    db.add(scenario)
+    await db.flush()
+    return scenario
+
+
+async def create_manual_session(
+    db: AsyncSession,
+    *,
+    sender_persona_id: UUID,
+    receiver_persona_id: UUID,
+    language: str = "zh",
+    group_chat_id: str | None = None,
+) -> UUID:
+    """사용자가 직접 작성할 빈 세션 생성 (메시지 0개, status='pending').
+
+    ValueError: 페르소나 미존재 / 발신=수신 동일.
+    """
+    if sender_persona_id == receiver_persona_id:
+        raise ValueError("발신/수신 페르소나가 동일할 수 없습니다.")
+    res = await db.execute(
+        select(DistributionPersona.id).where(
+            DistributionPersona.id.in_([sender_persona_id, receiver_persona_id])
+        )
+    )
+    found = {row[0] for row in res.all()}
+    for pid in (sender_persona_id, receiver_persona_id):
+        if pid not in found:
+            raise ValueError(f"페르소나 {pid} 가 존재하지 않습니다.")
+
+    scenario = await _get_or_create_manual_scenario(db)
+    session = DistributionSession(
+        scenario_id=scenario.id,
+        sender_persona_id=sender_persona_id,
+        receiver_persona_id=receiver_persona_id,
+        status="pending",
+        language=("zh" if language == "zh" else "ko"),
+        group_chat_id=group_chat_id,
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    logger.info("manual session created — id=%s", session.id)
+    return session.id
+
+
+async def add_message(
+    db: AsyncSession,
+    session_id: UUID,
+    *,
+    sender: str,
+    content: str,
+    send_after_sec: int = 0,
+    typing_sec: int = 3,
+    position: int | None = None,
+) -> MessageItem | None:
+    """타임라인에 메시지 1건 추가. None=세션 없음.
+
+    - 검수 대기(pending) 세션만 허용 (ValueError → 라우터 409).
+    - sender: 'sender'=세션 발신자 / 'receiver'=세션 수신자 (side).
+    - position 위치에 삽입(이후 order_index +1 shift). None 이면 맨 끝.
+    """
+    session = await _get_session(db, session_id)
+    if session is None:
+        return None
+    if session.status != _EDITABLE_SESSION_STATUS:
+        raise ValueError(
+            f"'{session.status}' 상태 세션은 편집할 수 없습니다 (검수 대기만 가능)."
+        )
+    sender_persona_id = (
+        session.receiver_persona_id
+        if sender == "receiver"
+        else session.sender_persona_id
+    )
+
+    msgs = list(
+        (
+            await db.execute(
+                select(DistributionMessage)
+                .where(DistributionMessage.session_id == session_id)
+                .order_by(DistributionMessage.order_index.asc())
+            )
+        ).scalars()
+    )
+    n = len(msgs)
+    pos = n if position is None else max(0, min(position, n))
+    for m in msgs:
+        if m.order_index >= pos:
+            m.order_index += 1
+            db.add(m)
+    new_msg = DistributionMessage(
+        session_id=session_id,
+        order_index=pos,
+        sender_persona_id=sender_persona_id,
+        content=content,
+        send_after_sec=send_after_sec,
+        typing_sec=typing_sec,
+        status="queued",
+        send_state="pending",
+    )
+    db.add(new_msg)
+    await db.commit()
+    await db.refresh(new_msg)
+
+    label = await db.scalar(
+        select(DistributionPersona.account_label).where(
+            DistributionPersona.id == sender_persona_id
+        )
+    )
+    logger.info(
+        "message added — session=%s pos=%s sender=%s", session_id, pos, label
+    )
+    return _build_message_item(message=new_msg, sender_label=label or "")
+
+
+async def delete_message(db: AsyncSession, message_id: UUID) -> bool | None:
+    """메시지 1건 삭제 + 잔여 메시지 order_index 재정렬. None=메시지 없음.
+
+    검수 대기(pending) 세션만 허용 (ValueError → 라우터 409).
+    """
+    res = await db.execute(
+        select(DistributionMessage).where(DistributionMessage.id == message_id)
+    )
+    msg = res.scalar_one_or_none()
+    if msg is None:
+        return None
+    session = await _get_session(db, msg.session_id)
+    if session is not None and session.status != _EDITABLE_SESSION_STATUS:
+        raise ValueError(
+            f"'{session.status}' 상태 세션의 메시지는 삭제할 수 없습니다 (검수 대기만 가능)."
+        )
+    session_id = msg.session_id
+    await db.delete(msg)
+    await db.flush()
+
+    remaining = list(
+        (
+            await db.execute(
+                select(DistributionMessage)
+                .where(DistributionMessage.session_id == session_id)
+                .order_by(DistributionMessage.order_index.asc())
+            )
+        ).scalars()
+    )
+    for idx, m in enumerate(remaining):
+        if m.order_index != idx:
+            m.order_index = idx
+            db.add(m)
+    await db.commit()
+    logger.info("message deleted — id=%s session=%s", message_id, session_id)
+    return True
+
+
 async def approve_session(
     db: AsyncSession,
     session_id: UUID,

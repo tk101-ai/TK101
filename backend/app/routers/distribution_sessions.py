@@ -41,6 +41,8 @@ from app.models.user import User
 from app.modules.constants import Module
 from app.schemas.distribution_sessions import (
     ApproveRequest,
+    ManualSessionCreate,
+    MessageCreateRequest,
     MessageEditRequest,
     MessageItem,
     RejectRequest,
@@ -150,6 +152,82 @@ async def edit_message(
             status_code=status.HTTP_404_NOT_FOUND, detail="메시지 없음"
         )
     return updated
+
+
+# ---------------------------------------------------------------------------
+# 타임라인 직접 편집 (수동 세션 생성 / 메시지 추가·삭제)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/sessions", status_code=status.HTTP_201_CREATED)
+async def create_manual_session_endpoint(
+    payload: ManualSessionCreate,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """사용자가 직접 작성할 빈 세션 생성 (status='pending', 메시지 0개).
+
+    생성 후 ``POST /sessions/{id}/messages`` 로 타임라인을 채운다.
+    """
+    try:
+        session_id = await session_service.create_manual_session(
+            db,
+            sender_persona_id=payload.sender_persona_id,
+            receiver_persona_id=payload.receiver_persona_id,
+            language=payload.language,
+            group_chat_id=payload.group_chat_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return {"id": str(session_id)}
+
+
+@router.post("/sessions/{session_id}/messages", status_code=status.HTTP_201_CREATED)
+async def add_message_endpoint(
+    session_id: UUID,
+    payload: MessageCreateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> MessageItem:
+    """타임라인에 메시지 1건 추가 (검수 대기 세션만)."""
+    try:
+        item = await session_service.add_message(
+            db,
+            session_id,
+            sender=payload.sender,
+            content=payload.content,
+            send_after_sec=payload.send_after_sec,
+            typing_sec=payload.typing_sec,
+            position=payload.position,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="세션 없음"
+        )
+    return item
+
+
+@router.delete("/messages/{message_id}")
+async def delete_message_endpoint(
+    message_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """타임라인에서 메시지 1건 삭제 + 잔여 재정렬 (검수 대기 세션만)."""
+    try:
+        ok = await session_service.delete_message(db, message_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    if ok is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="메시지 없음"
+        )
+    return {"deleted": str(message_id)}
 
 
 # ---------------------------------------------------------------------------

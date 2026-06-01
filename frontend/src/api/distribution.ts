@@ -521,6 +521,59 @@ export async function deleteSession(id: string): Promise<{ deleted: string }> {
   return res.data;
 }
 
+// --- 타임라인 직접 편집 (메시지 추가/삭제) + 수동 세션 생성 ---
+
+export interface AddMessageRequest {
+  /** 발신 측: 세션 발신자('sender') / 수신자('receiver'). */
+  sender: "sender" | "receiver";
+  content: string;
+  send_after_sec?: number;
+  typing_sec?: number;
+  /** 삽입 위치(order_index). 생략/null 이면 맨 끝. */
+  position?: number | null;
+}
+
+/** 타임라인에 메시지 1건 추가 (검수 대기 세션만). */
+export async function addMessage(
+  sessionId: string,
+  payload: AddMessageRequest,
+): Promise<MessageItem> {
+  const res = await api.post<MessageItem>(`${BASE}/sessions/${sessionId}/messages`, {
+    sender: payload.sender,
+    content: payload.content,
+    send_after_sec: payload.send_after_sec ?? 0,
+    typing_sec: payload.typing_sec ?? 3,
+    position: payload.position ?? null,
+  });
+  return res.data;
+}
+
+/** 타임라인에서 메시지 1건 삭제 (검수 대기 세션만). */
+export async function deleteMessage(id: string): Promise<{ deleted: string }> {
+  const res = await api.delete<{ deleted: string }>(`${BASE}/messages/${id}`);
+  return res.data;
+}
+
+export interface ManualSessionRequest {
+  sender_persona_id: string;
+  receiver_persona_id: string;
+  language?: "ko" | "zh";
+  group_chat_id?: string | null;
+}
+
+/** 사용자가 직접 작성할 빈 세션 생성. 반환된 id 상세 화면에서 메시지 추가. */
+export async function createManualSession(
+  payload: ManualSessionRequest,
+): Promise<{ id: string }> {
+  const res = await api.post<{ id: string }>(`${BASE}/sessions`, {
+    sender_persona_id: payload.sender_persona_id,
+    receiver_persona_id: payload.receiver_persona_id,
+    language: payload.language ?? "zh",
+    group_chat_id: payload.group_chat_id ?? null,
+  });
+  return res.data;
+}
+
 /** 메시지 1개 본문 편집. 비어있는 본문은 백엔드에서 422 로 거부. */
 export async function updateMessage(
   id: string,
