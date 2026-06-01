@@ -337,12 +337,12 @@ async def delete_session(
 async def discover_groups(
     persona_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
 ) -> dict[str, list[dict]]:
-    """지정 페르소나 계정이 참여 중인 그룹 목록 (그룹 chat_id 선택용). **admin only**.
+    """지정 페르소나 계정이 참여 중인 그룹 목록 (그룹 chat_id 선택용).
 
-    관리자가 텔레그램에서 3명 방을 개설(2 API 계정 + 본인)한 뒤, 그 계정으로
-    그룹을 조회해 chat_id 를 골라 생성 시 group_chat_id 로 사용한다.
+    모듈 권한(신사업팀)이면 사용 가능 — 그룹 조회는 읽기 작업이라 admin 불필요.
+    (실 송신 send-now 만 admin.) 관리자가 텔레그램에서 3명 방을 개설(2 API 계정 +
+    본인)한 뒤, 그 계정으로 그룹을 조회해 chat_id 를 골라 생성 시 group_chat_id 로 사용.
     """
     res = await db.execute(
         select(DistributionPersona).where(DistributionPersona.id == persona_id)
