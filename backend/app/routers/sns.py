@@ -16,11 +16,13 @@ from app.models.sns import (
     SocialWeeklySnapshot,
 )
 from app.modules.constants import Module
+from app.config import settings
 from app.schemas.sns import (
     AccountCreate,
     AccountRead,
     AccountUpdate,
     CollectCommentsResponse,
+    CommentAnalysisResponse,
     CollectMetricsResponse,
     CommentRead,
     ContentCreate,
@@ -1020,6 +1022,60 @@ async def list_post_comments(
     )
     result = await db.execute(query)
     return result.scalars().all()
+
+
+@router.post(
+    "/posts/{post_id}/comments/analyze",
+    response_model=CommentAnalysisResponse,
+)
+async def analyze_post_comments(
+    post_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """게시물에 수집된 댓글을 Claude 로 분석/요약 (한국어).
+
+    먼저 댓글 수집이 되어 있어야 한다. ANTHROPIC_API_KEY 필요.
+    """
+    post = (
+        await db.execute(select(SocialPost).where(SocialPost.id == post_id))
+    ).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="게시물을 찾을 수 없습니다")
+
+    rows = await db.execute(
+        select(SocialPostComment.text)
+        .where(SocialPostComment.post_id == post_id)
+        .order_by(SocialPostComment.commented_at.asc().nullslast())
+    )
+    comments = [r[0] for r in rows.all() if r[0] and r[0].strip()]
+    if not comments:
+        raise HTTPException(
+            status_code=400,
+            detail="이 게시물에 수집된 댓글이 없습니다. 먼저 '댓글 수집'을 실행하세요.",
+        )
+    if not settings.anthropic_api_key:
+        raise HTTPException(
+            status_code=503, detail="ANTHROPIC_API_KEY 미설정 — 댓글 분석 불가."
+        )
+
+    from app.services.sns_collectors.comment_analyzer import analyze_comments
+
+    try:
+        summary = await analyze_comments(
+            post_title=post.title or "",
+            comments=comments,
+            comment_count=len(comments),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001 — 외부 LLM 호출 실패 격리
+        raise HTTPException(status_code=502, detail=f"댓글 분석 실패: {type(exc).__name__}")
+
+    return CommentAnalysisResponse(
+        post_id=post.id, comment_count=len(comments), summary=summary
+    )
 
 
 @router.delete(

@@ -267,6 +267,14 @@ class CollectCommentsResponse(BaseModel):
     failures: list[str] = Field(default_factory=list)
 
 
+class CommentAnalysisResponse(BaseModel):
+    """게시물 댓글 AI 분석/요약 결과."""
+
+    post_id: uuid.UUID
+    comment_count: int
+    summary: str
+
+
 # ---------------- Excel Import ----------------
 
 

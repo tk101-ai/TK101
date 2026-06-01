@@ -244,6 +244,16 @@ export const collectComments = (accountId: string) =>
 export const listPostComments = (postId: string, params: { limit?: number; offset?: number } = {}) =>
   api.get<SnsComment[]>(`/api/sns/posts/${postId}/comments`, { params });
 
+export interface CommentAnalysis {
+  post_id: string;
+  comment_count: number;
+  summary: string;
+}
+
+// 게시물 댓글 AI 분석/요약 (한국어). 먼저 댓글 수집 필요 + ANTHROPIC_API_KEY.
+export const analyzePostComments = (postId: string) =>
+  api.post<CommentAnalysis>(`/api/sns/posts/${postId}/comments/analyze`);
+
 export const PLATFORM_LABELS: Record<Platform, string> = {
   facebook: "페이스북",
   instagram: "인스타그램",

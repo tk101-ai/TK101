@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Button,
   Drawer,
   Empty,
   List,
@@ -12,7 +13,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { LikeOutlined } from "@ant-design/icons";
+import { BulbOutlined, LikeOutlined } from "@ant-design/icons";
 import {
   CartesianGrid,
   Legend,
@@ -24,6 +25,7 @@ import {
   YAxis,
 } from "recharts";
 import {
+  analyzePostComments,
   listPostComments,
   listPostMetrics,
   type MetricSnapshot,
@@ -78,6 +80,21 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
   const [loading, setLoading] = useState(false);
   const [comments, setComments] = useState<SnsComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
+  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+
+  const handleAnalyze = useCallback(async () => {
+    if (!post) return;
+    setAnalyzing(true);
+    try {
+      const res = await analyzePostComments(post.id);
+      setAnalysis(res.data.summary);
+    } catch (err) {
+      message.error(extractErrorDetail(err, "댓글 분석 실패"));
+    } finally {
+      setAnalyzing(false);
+    }
+  }, [post]);
 
   const fetchMetrics = useCallback(async () => {
     if (!post) return;
@@ -115,6 +132,11 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
     if (post && activeTab === "comments") void fetchComments();
     else if (!post) setComments([]);
   }, [post, activeTab, fetchComments]);
+
+  // 게시물 바뀌면 이전 분석 결과 초기화.
+  useEffect(() => {
+    setAnalysis(null);
+  }, [post]);
 
   const chartData = useMemo(() => snapshots.map(toChartDatum), [snapshots]);
 
@@ -197,13 +219,46 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
         />
       ) : (
         <>
-          <Alert
-            type="info"
-            showIcon
-            banner
-            style={{ marginBottom: 12 }}
-            message={`댓글 ${comments.length}개`}
-          />
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 12,
+              gap: 8,
+            }}
+          >
+            <Alert
+              type="info"
+              showIcon
+              banner
+              style={{ flex: 1, marginBottom: 0 }}
+              message={`댓글 ${comments.length}개`}
+            />
+            <Button
+              icon={<BulbOutlined />}
+              loading={analyzing}
+              onClick={() => {
+                void handleAnalyze();
+              }}
+            >
+              AI 분석/요약
+            </Button>
+          </div>
+          {analysis ? (
+            <Alert
+              type="success"
+              style={{ marginBottom: 12, whiteSpace: "pre-wrap" }}
+              message="AI 댓글 분석"
+              description={
+                <Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                  {analysis}
+                </Paragraph>
+              }
+              closable
+              onClose={() => setAnalysis(null)}
+            />
+          ) : null}
           <List
             dataSource={comments}
             size="small"
