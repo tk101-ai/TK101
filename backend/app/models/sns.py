@@ -1,4 +1,15 @@
-from sqlalchemy import BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Integer, String
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
@@ -78,3 +89,32 @@ class SocialPostMetricSnapshot(UUIDMixin, TimestampMixin, Base):
     shares = Column(BigInteger, nullable=True)
     engagement_total = Column(BigInteger, nullable=True)
     raw = Column(JSONB, nullable=True)
+
+
+class SocialPostComment(UUIDMixin, TimestampMixin, Base):
+    """게시물별 댓글 본문 (마이그레이션 026).
+
+    소유/관리 페이지·IG 비즈니스 계정의 게시물 댓글만 수집한다(Graph API 제약).
+    (post_id, external_comment_id) UNIQUE 로 재수집 시 멱등 upsert.
+    """
+
+    __tablename__ = "social_post_comments"
+
+    post_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("social_posts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    external_comment_id = Column(String, nullable=True, index=True)  # Graph 댓글 ID
+    author = Column(String, nullable=True)  # IG username / FB from.name
+    text = Column(Text, nullable=True)
+    commented_at = Column(DateTime(timezone=True), nullable=True)
+    like_count = Column(Integer, nullable=True)
+    raw = Column(JSONB, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "post_id", "external_comment_id", name="uq_post_comment_external"
+        ),
+    )

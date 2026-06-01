@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 
 from app.services.sns_collectors.base import (
     BaseCollector,
+    CollectedComment,
     CollectedPost,
     CollectorError,
     PostMetrics,
@@ -43,6 +44,8 @@ _POST_FIELDS = (
 )
 # 도달은 insights 별도 엔드포인트로만 제공.
 _REACH_METRIC = "post_impressions_unique"
+# 댓글 노드 필드 — from(작성자)은 권한에 따라 비어 있을 수 있음.
+_COMMENT_FIELDS = "id,message,created_time,like_count,from"
 
 
 def extract_facebook_page_ref(*candidates: str | None) -> str | None:
@@ -128,6 +131,26 @@ class FacebookCollector(BaseCollector):
         reach = await self._fetch_reach(post_id)
         return _build_metrics(data, reach)
 
+    async def fetch_comments(self, post_ref: str) -> list[CollectedComment]:
+        """단일 게시물(URL 또는 Graph ID)의 댓글 본문 목록.
+
+        소유/관리 페이지의 게시물에만 동작 (Graph API 제약).
+        order=chronological 로 오래된→최신 순 수집.
+        """
+        post_id = extract_facebook_post_id(post_ref)
+        if not post_id:
+            raise CollectorError(f"Facebook 게시물 ID 를 인식하지 못했습니다: {post_ref}")
+        raw_comments = await graph_get_paged(
+            f"{post_id}/comments",
+            params={"fields": _COMMENT_FIELDS, "order": "chronological"},
+        )
+        comments: list[CollectedComment] = []
+        for raw in raw_comments:
+            comment = _build_comment(raw)
+            if comment is not None:
+                comments.append(comment)
+        return comments
+
     async def _fetch_reach(self, post_id: str) -> int | None:
         """post insights 에서 unique reach. 권한/가용성 따라 비어 있을 수 있음."""
         try:
@@ -178,6 +201,35 @@ def _parse_iso_date(value: str | None) -> date | None:
         return datetime.fromisoformat(normalized).astimezone(timezone.utc).date()
     except ValueError:
         return None
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    """ISO8601 → tz-aware UTC datetime. 댓글 작성시각 보존용."""
+    if not value:
+        return None
+    try:
+        normalized = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(normalized).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _build_comment(raw: dict) -> CollectedComment | None:
+    comment_id = raw.get("id")
+    if not comment_id:
+        return None
+    author = None
+    from_node = raw.get("from")
+    if isinstance(from_node, dict):
+        author = from_node.get("name")
+    return CollectedComment(
+        external_id=str(comment_id),
+        author=author,
+        text=raw.get("message") or "",
+        commented_at=_parse_iso_datetime(raw.get("created_time")),
+        like_count=safe_int(raw.get("like_count")),
+        raw=raw,
+    )
 
 
 def _summary_count(node: dict | None) -> int | None:

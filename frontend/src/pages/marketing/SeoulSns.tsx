@@ -18,6 +18,7 @@ import {
   message,
 } from "antd";
 import {
+  CommentOutlined,
   LineChartOutlined,
   LinkOutlined,
   PlusOutlined,
@@ -28,6 +29,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import {
   CONTENT_TYPE_OPTIONS,
   PRODUCER_OPTIONS,
+  collectComments,
   collectMetrics,
   createManualContent,
   getContentTypeLabel,
@@ -85,6 +87,7 @@ export default function SeoulSns() {
   const [addOpen, setAddOpen] = useState(false);
   const [metricsPost, setMetricsPost] = useState<SnsPost | null>(null);
   const [collecting, setCollecting] = useState(false);
+  const [collectingComments, setCollectingComments] = useState(false);
   const [form] = Form.useForm<ContentFormValues>();
 
   const fetchAccounts = useCallback(async () => {
@@ -169,6 +172,29 @@ export default function SeoulSns() {
       );
     } finally {
       setCollecting(false);
+    }
+  };
+
+  const handleCollectComments = async () => {
+    if (!channel) return;
+    setCollectingComments(true);
+    try {
+      const res = await collectComments(channel.id);
+      const { posts_processed, comments_added, comments_updated, failures } = res.data;
+      message.success(
+        `댓글 수집 완료 — 게시물 ${posts_processed} · 신규 ${comments_added} · 갱신 ${comments_updated}`,
+      );
+      if (failures.length > 0) {
+        message.warning(`일부 실패 ${failures.length}건 (콘솔/응답 확인)`);
+      }
+    } catch (err) {
+      message.error(
+        extractErrorDetail(err, "댓글 수집 실패", {
+          statusMessages: { 501: "이 플랫폼은 댓글 수집 미지원" },
+        }),
+      );
+    } finally {
+      setCollectingComments(false);
     }
   };
 
@@ -328,6 +354,14 @@ export default function SeoulSns() {
           onClick={handleCollectMetrics}
         >
           메트릭 수집 (자동)
+        </Button>
+        <Button
+          icon={<CommentOutlined />}
+          loading={collectingComments}
+          disabled={!channel}
+          onClick={handleCollectComments}
+        >
+          댓글 수집 (자동)
         </Button>
         <Button
           type="primary"

@@ -11,6 +11,7 @@ from app.dependencies import require_admin, require_internal_token, require_modu
 from app.models.sns import (
     SocialAccount,
     SocialPost,
+    SocialPostComment,
     SocialPostMetricSnapshot,
     SocialWeeklySnapshot,
 )
@@ -19,7 +20,9 @@ from app.schemas.sns import (
     AccountCreate,
     AccountRead,
     AccountUpdate,
+    CollectCommentsResponse,
     CollectMetricsResponse,
+    CommentRead,
     ContentCreate,
     GrowthCard,
     ImportResponse,
@@ -40,6 +43,8 @@ from app.services.sns_collectors.base import BaseCollector, CollectorError
 SUPPORTED_PLATFORMS = ("youtube", "facebook", "instagram")
 # 메트릭 시계열(collect-metrics)을 지원하는 플랫폼.
 METRICS_PLATFORMS = ("facebook", "instagram")
+# 댓글 본문(collect-comments)을 지원하는 플랫폼 (소유/관리 계정 한정).
+COMMENTS_PLATFORMS = ("facebook", "instagram")
 VALID_PERIODS = ("daily", "weekly")
 
 router = APIRouter(
@@ -821,6 +826,148 @@ async def list_post_metrics(
     return result.scalars().all()
 
 
+# ---------------- 게시물 댓글 (collect-comments) ----------------
+
+
+async def _upsert_comment(db: AsyncSession, post_id, comment) -> bool:
+    """(post_id, external_comment_id) 기준 댓글 upsert. True=업데이트, False=신규.
+
+    external_comment_id 가 없으면(이론상 거의 없음) 매번 신규로 저장하지 않고 skip 신호로
+    False 를 주되, caller 가 external_id 유무를 먼저 확인한다.
+    """
+    external_id = comment.get("external_id")
+    result = await db.execute(
+        select(SocialPostComment).where(
+            SocialPostComment.post_id == post_id,
+            SocialPostComment.external_comment_id == external_id,
+        )
+    )
+    existing = result.scalar_one_or_none()
+    if existing is not None:
+        existing.author = comment.get("author")
+        existing.text = comment.get("text")
+        existing.commented_at = comment.get("commented_at")
+        existing.like_count = comment.get("like_count")
+        existing.raw = comment.get("raw")
+        return True
+    db.add(
+        SocialPostComment(
+            post_id=post_id,
+            external_comment_id=external_id,
+            author=comment.get("author"),
+            text=comment.get("text"),
+            commented_at=comment.get("commented_at"),
+            like_count=comment.get("like_count"),
+            raw=comment.get("raw"),
+        )
+    )
+    return False
+
+
+async def _collect_comments_for_account(
+    db: AsyncSession,
+    account: SocialAccount,
+) -> CollectCommentsResponse:
+    """계정의 모든 게시물에 대해 fetch_comments → 댓글 upsert (멱등).
+
+    소유/관리 계정의 게시물에만 동작 (Graph API 제약). 개별 게시물 실패는 격리.
+    """
+    if account.platform not in COMMENTS_PLATFORMS:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=f"'{account.platform}' 는 댓글 수집을 지원하지 않습니다",
+        )
+
+    collector = await _build_collector(account)
+    posts_result = await db.execute(
+        select(SocialPost).where(SocialPost.account_id == account.id)
+    )
+    posts = posts_result.scalars().all()
+
+    processed = 0
+    added = 0
+    updated = 0
+    skipped = 0
+    failures: list[str] = []
+
+    for post in posts:
+        ref = _post_ref(post)
+        if not ref:
+            skipped += 1
+            continue
+        try:
+            comments = await collector.fetch_comments(ref)
+        except CollectorError as exc:
+            failures.append(f"{ref}: {exc}")
+            continue
+        except Exception as exc:  # noqa: BLE001 — 개별 게시물 실패는 격리
+            failures.append(f"{ref}: {exc}")
+            continue
+        for comment in comments:
+            if not comment.get("external_id"):
+                skipped += 1
+                continue
+            was_updated = await _upsert_comment(db, post.id, comment)
+            if was_updated:
+                updated += 1
+            else:
+                added += 1
+        processed += 1
+
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"댓글 저장 실패: {exc}")
+
+    return CollectCommentsResponse(
+        posts_processed=processed,
+        comments_added=added,
+        comments_updated=updated,
+        skipped=skipped,
+        failures=failures,
+    )
+
+
+@router.post(
+    "/accounts/{account_id}/collect-comments",
+    response_model=CollectCommentsResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def collect_comments(
+    account_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """단일 계정(소유/관리)의 모든 게시물 댓글 본문을 수집해 저장 (멱등)."""
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
+    account = result.scalar_one_or_none()
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="계정을 찾을 수 없습니다")
+    return await _collect_comments_for_account(db, account)
+
+
+@router.get(
+    "/posts/{post_id}/comments",
+    response_model=list[CommentRead],
+)
+async def list_post_comments(
+    post_id: str,
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """게시물의 댓글 목록 (오래된→최신)."""
+    query = (
+        select(SocialPostComment)
+        .where(SocialPostComment.post_id == post_id)
+        .order_by(SocialPostComment.commented_at.asc().nullslast())
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
 @router.delete(
     "/accounts/{account_id}/posts",
     dependencies=[Depends(require_admin)],
@@ -943,6 +1090,51 @@ async def collect_metrics_all_internal(
         posts_processed=processed,
         snapshots_added=added,
         snapshots_updated=updated,
+        skipped=skipped,
+        failures=failures,
+    )
+
+
+@internal_router.post("/collect-comments-all", response_model=CollectCommentsResponse)
+async def collect_comments_all_internal(db: AsyncSession = Depends(get_db)):
+    """n8n cron 에서 호출. 댓글 수집 가능한 모든 활성 계정의 게시물 댓글 수집.
+
+    대상: COMMENTS_PLATFORMS (facebook/instagram). 개별 계정 실패는 격리.
+    (post, 댓글ID) UNIQUE 로 재호출은 멱등.
+    """
+    accounts_q = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.is_active.is_(True),
+            SocialAccount.platform.in_(COMMENTS_PLATFORMS),
+        )
+    )
+    accounts = accounts_q.scalars().all()
+
+    processed = 0
+    added = 0
+    updated = 0
+    skipped = 0
+    failures: list[str] = []
+
+    for account in accounts:
+        try:
+            result = await _collect_comments_for_account(db, account)
+            processed += result.posts_processed
+            added += result.comments_added
+            updated += result.comments_updated
+            skipped += result.skipped
+            failures.extend(result.failures)
+        except HTTPException as exc:
+            failures.append(f"{account.platform}/{account.language}: {exc.detail}")
+            await db.rollback()
+
+    if failures and (processed + added + updated) == 0 and not skipped:
+        raise HTTPException(status_code=502, detail="; ".join(failures[:5]))
+
+    return CollectCommentsResponse(
+        posts_processed=processed,
+        comments_added=added,
+        comments_updated=updated,
         skipped=skipped,
         failures=failures,
     )

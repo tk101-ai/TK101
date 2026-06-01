@@ -69,6 +69,25 @@ export interface CollectMetricsResponse {
   failures: string[];
 }
 
+export interface SnsComment {
+  id: string;
+  post_id: string;
+  external_comment_id: string | null;
+  author: string | null;
+  text: string | null;
+  commented_at: string | null;
+  like_count: number | null;
+  created_at: string;
+}
+
+export interface CollectCommentsResponse {
+  posts_processed: number;
+  comments_added: number;
+  comments_updated: number;
+  skipped: number;
+  failures: string[];
+}
+
 export interface SnsSnapshot {
   id: string;
   account_id: string;
@@ -213,6 +232,17 @@ export const listPostMetrics = (postId: string, period?: "daily" | "weekly") =>
   api.get<MetricSnapshot[]>(`/api/sns/posts/${postId}/metrics`, {
     params: period ? { period } : undefined,
   });
+
+// 게시물 댓글 본문 일괄 수집 (메타 토큰 필요, 소유/관리 계정 한정).
+export const collectComments = (accountId: string) =>
+  api.post<CollectCommentsResponse>(
+    `/api/sns/accounts/${accountId}/collect-comments`,
+    null,
+  );
+
+// 게시물 댓글 목록 조회 (오래된→최신).
+export const listPostComments = (postId: string, params: { limit?: number; offset?: number } = {}) =>
+  api.get<SnsComment[]>(`/api/sns/posts/${postId}/comments`, { params });
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
   facebook: "페이스북",

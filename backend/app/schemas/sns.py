@@ -243,6 +243,30 @@ class CollectMetricsResponse(BaseModel):
     failures: list[str] = Field(default_factory=list)
 
 
+# ---------------- 게시물 댓글 ----------------
+
+
+class CommentRead(BaseModel):
+    id: uuid.UUID
+    post_id: uuid.UUID
+    external_comment_id: str | None
+    author: str | None
+    text: str | None
+    commented_at: datetime | None
+    like_count: int | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CollectCommentsResponse(BaseModel):
+    posts_processed: int
+    comments_added: int
+    comments_updated: int
+    skipped: int
+    failures: list[str] = Field(default_factory=list)
+
+
 # ---------------- Excel Import ----------------
 
 

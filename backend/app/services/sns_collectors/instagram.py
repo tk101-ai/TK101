@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 
 from app.services.sns_collectors.base import (
     BaseCollector,
+    CollectedComment,
     CollectedPost,
     CollectorError,
     PostMetrics,
@@ -43,6 +44,8 @@ _MEDIA_FIELDS = (
 # media insights — reels 는 plays, 일반 게시물은 reach/impressions.
 _MEDIA_INSIGHT_METRICS = "reach,impressions"
 _REELS_INSIGHT_METRICS = "reach,plays"
+# 댓글 노드 필드 — IG 댓글은 text/username/timestamp/like_count.
+_COMMENT_FIELDS = "id,text,username,timestamp,like_count"
 
 
 def extract_instagram_user_ref(*candidates: str | None) -> str | None:
@@ -122,6 +125,24 @@ class InstagramCollector(BaseCollector):
         insights = await self._fetch_insights(data)
         return _build_metrics(data, insights)
 
+    async def fetch_comments(self, post_ref: str) -> list[CollectedComment]:
+        """단일 media(URL 또는 media ID)의 댓글 본문 목록.
+
+        소유/관리 IG 비즈니스 계정의 미디어에만 동작 (Graph API 제약).
+        """
+        media_id = extract_instagram_media_id(post_ref)
+        if not media_id:
+            raise CollectorError(f"Instagram 미디어 ID 를 인식하지 못했습니다: {post_ref}")
+        raw_comments = await graph_get_paged(
+            f"{media_id}/comments", params={"fields": _COMMENT_FIELDS}
+        )
+        comments: list[CollectedComment] = []
+        for raw in raw_comments:
+            comment = _build_comment(raw)
+            if comment is not None:
+                comments.append(comment)
+        return comments
+
     async def _fetch_insights(self, media: dict) -> dict[str, int | None]:
         """media insights(reach/views). 미디어 타입에 따라 metric 선택, 실패 시 빈 dict."""
         media_id = media.get("id")
@@ -174,6 +195,31 @@ def _parse_iso_date(value: str | None) -> date | None:
         return datetime.fromisoformat(normalized).astimezone(timezone.utc).date()
     except ValueError:
         return None
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    """ISO8601 → tz-aware UTC datetime. 댓글 작성시각 보존용(날짜만이 아닌 시각까지)."""
+    if not value:
+        return None
+    try:
+        normalized = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(normalized).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _build_comment(raw: dict) -> CollectedComment | None:
+    comment_id = raw.get("id")
+    if not comment_id:
+        return None
+    return CollectedComment(
+        external_id=str(comment_id),
+        author=raw.get("username"),
+        text=raw.get("text") or "",
+        commented_at=_parse_iso_datetime(raw.get("timestamp")),
+        like_count=safe_int(raw.get("like_count")),
+        raw=raw,
+    )
 
 
 def _media_content_type(media_type: str | None) -> str:

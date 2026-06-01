@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import date
+from datetime import date, datetime
 from typing import TypedDict
 
 
@@ -15,6 +15,17 @@ class CollectedPost(TypedDict, total=False):
     url: str
     external_id: str
     extra_metadata: dict | None
+
+
+class CollectedComment(TypedDict, total=False):
+    """단일 댓글 1건 (소유/관리 계정의 게시물 댓글 수집용)."""
+
+    external_id: str  # Graph 댓글 ID
+    author: str | None  # IG username / FB from.name
+    text: str
+    commented_at: datetime | None
+    like_count: int | None
+    raw: dict | None
 
 
 class PostMetrics(TypedDict, total=False):
@@ -53,4 +64,14 @@ class BaseCollector(ABC):
         """
         raise CollectorError(
             f"{type(self).__name__} 는 게시물 메트릭 수집을 지원하지 않습니다."
+        )
+
+    async def fetch_comments(self, post_ref: str) -> list["CollectedComment"]:
+        """게시물(URL 또는 외부 ID)의 댓글 본문 목록을 조회.
+
+        기본 구현은 미지원 표시. 댓글을 지원하는 수집기(Meta 등)가 오버라이드한다.
+        주의: 소유/관리 계정의 게시물에만 적용된다 (타인 공개 게시물은 Graph API 불가).
+        """
+        raise CollectorError(
+            f"{type(self).__name__} 는 댓글 수집을 지원하지 않습니다."
         )
