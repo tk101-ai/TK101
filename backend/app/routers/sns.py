@@ -902,13 +902,21 @@ async def _upsert_comment(db: AsyncSession, post_id, comment) -> bool:
     return False
 
 
+# 대화형 댓글 수집 1회 처리 게시물 상한 — nginx 60s 타임아웃 회피.
+# 최근 게시물 우선. 전체 백필이 필요하면 cron 을 반복 호출(멱등).
+COMMENTS_MAX_POSTS_PER_RUN = 25
+
+
 async def _collect_comments_for_account(
     db: AsyncSession,
     account: SocialAccount,
+    *,
+    max_posts: int = COMMENTS_MAX_POSTS_PER_RUN,
 ) -> CollectCommentsResponse:
-    """계정의 모든 게시물에 대해 fetch_comments → 댓글 upsert (멱등).
+    """계정의 최근 게시물에 대해 fetch_comments → 댓글 upsert (멱등).
 
     소유/관리 계정의 게시물에만 동작 (Graph API 제약). 개별 게시물 실패는 격리.
+    최근 max_posts 개만 처리(동기 호출 60s 회피). 0댓글 게시물은 호출 생략.
     """
     if account.platform not in COMMENTS_PLATFORMS:
         raise HTTPException(
@@ -918,7 +926,10 @@ async def _collect_comments_for_account(
 
     collector = await _build_collector(account)
     posts_result = await db.execute(
-        select(SocialPost).where(SocialPost.account_id == account.id)
+        select(SocialPost)
+        .where(SocialPost.account_id == account.id)
+        .order_by(SocialPost.posted_at.desc())
+        .limit(max_posts)
     )
     posts = posts_result.scalars().all()
 
