@@ -46,6 +46,11 @@ _POST_FIELDS = (
 _REACH_METRIC = "post_impressions_unique"
 # 댓글 노드 필드 — from(작성자)은 권한에 따라 비어 있을 수 있음.
 _COMMENT_FIELDS = "id,message,created_time,like_count,from"
+# 동기(대화형) 수집 페이지 상한 — nginx 60s 타임아웃 회피. 전체 백필은 full=True(cron).
+_QUICK_MAX_PAGES = 2  # 25/page × 2 = 최근 50개
+_FULL_MAX_PAGES = 50
+# 게시물당 댓글 페이지 상한 (50/page).
+_COMMENT_MAX_PAGES = 6
 
 
 def extract_facebook_page_ref(*candidates: str | None) -> str | None:
@@ -131,10 +136,14 @@ class FacebookCollector(BaseCollector):
         self,
         since: date | None = None,
         until: date | None = None,
+        full: bool = False,
     ) -> list[CollectedPost]:
         token = await self._page_token()
         raw_posts = await graph_get_paged(
-            f"{self.page_ref}/posts", params={"fields": _POST_FIELDS}, token=token
+            f"{self.page_ref}/posts",
+            params={"fields": _POST_FIELDS},
+            token=token,
+            max_pages=_FULL_MAX_PAGES if full else _QUICK_MAX_PAGES,
         )
         posts: list[CollectedPost] = []
         for raw in raw_posts:
@@ -171,6 +180,7 @@ class FacebookCollector(BaseCollector):
             f"{post_id}/comments",
             params={"fields": _COMMENT_FIELDS, "order": "chronological"},
             token=token,
+            max_pages=_COMMENT_MAX_PAGES,
         )
         comments: list[CollectedComment] = []
         for raw in raw_comments:
