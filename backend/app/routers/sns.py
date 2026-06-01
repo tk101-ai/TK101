@@ -108,6 +108,44 @@ async def update_account(account_id: str, body: AccountUpdate, db: AsyncSession 
     return account
 
 
+# ---------------- Meta 토큰 진단 (admin) ----------------
+
+
+@router.get("/meta/whoami", dependencies=[Depends(require_admin)])
+async def meta_whoami():
+    """현재 META_ACCESS_TOKEN 이 무엇이고 어떤 페이지/IG 자산을 볼 수 있는지 진단.
+
+    수집 권한 오류(code 10/100) 원인 파악용. 페이지 토큰은 노출하지 않고 보유 여부만.
+    """
+    from app.services.sns_collectors.base import CollectorError
+    from app.services.sns_collectors.meta_graph import graph_get
+
+    try:
+        me = await graph_get("me", params={"fields": "id,name"})
+        accounts = await graph_get(
+            "me/accounts",
+            params={
+                "fields": "id,name,tasks,access_token,instagram_business_account"
+            },
+        )
+    except CollectorError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    pages = []
+    for p in accounts.get("data") or []:
+        ig = p.get("instagram_business_account") or {}
+        pages.append(
+            {
+                "page_id": p.get("id"),
+                "name": p.get("name"),
+                "tasks": p.get("tasks"),
+                "has_page_token": bool(p.get("access_token")),
+                "instagram_business_account_id": ig.get("id"),
+            }
+        )
+    return {"me": me, "pages": pages}
+
+
 # ---------------- 콘텐츠 (Post) ----------------
 
 
