@@ -81,6 +81,9 @@ class GenerateCustomRequest(BaseModel):
     # 주차 데이터(weekly_summary) 참고 여부 (T9 — 2026-06-01).
     # False 면 매입/매출/재고 컨텍스트를 주입하지 않고 시나리오/지시만으로 생성한다.
     use_weekly_summary: bool = True
+    # 그룹 송신 (T9 — 2026-06-01). 설정 시 생성 세션이 1:1 DM 대신 이 텔레그램
+    # 그룹(chat id / @username / t.me 링크)에 게시된다(3명 방). None=1:1.
+    group_chat_id: str | None = Field(default=None, max_length=64)
     # 메시지 간격 분포 (T9 — 2026-05-26).
     # short: 0~30분 빠른 핑퐁 / normal: 5분~3시간 / varied: 1분~12시간 폭넓게.
     timing_profile: Literal["short", "normal", "varied"] = "normal"
@@ -303,6 +306,7 @@ async def generate_custom(
                 bl_ctx=bl_ctx,
                 timing_profile=payload.timing_profile,
                 language=payload.language,
+                group_chat_id=payload.group_chat_id,
             )
             result.sessions_created.append(UUID(session_id))
             logger.info(

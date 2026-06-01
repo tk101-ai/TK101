@@ -49,7 +49,7 @@ from app.services.distribution.session_service import (
     _DELIVER_OK,
     _deliver_message,
     _open_telethon_client,
-    resolve_session_peers,
+    resolve_session_targets,
 )
 
 logger = logging.getLogger(__name__)
@@ -200,9 +200,9 @@ async def _send_claimed_batch(
     try:
         for persona in (sender, receiver):
             clients[persona.id] = await _open_telethon_client(persona)
-        peer_cache = await resolve_session_peers(sender, receiver, clients)
+        targets = await resolve_session_targets(session, sender, receiver, clients)
         for message in claimed:
-            await _deliver_one(db, message, sender_by_id, peer_cache, clients)
+            await _deliver_one(db, message, sender_by_id, targets, clients)
     except Exception:
         # client 오픈/peer 해석 단계 실패 — claim 된 메시지를 failed 로 마감.
         logger.exception(
@@ -222,7 +222,7 @@ async def _deliver_one(
     db: AsyncSession,
     message: DistributionMessage,
     sender_by_id: dict[UUID, DistributionPersona],
-    peer_cache: dict,
+    targets: dict,
     clients: dict[UUID, TelegramClient],
 ) -> None:
     """단일 claim 메시지 송신 → send_state 갱신. 실패해도 다음 메시지 계속."""
@@ -233,11 +233,8 @@ async def _deliver_one(
         db.add(message)
         await db.commit()
         return
-    # 두 페르소나뿐이므로 수신자는 "from 이 아닌 나머지".
-    to_persona = next(
-        p for pid, p in sender_by_id.items() if pid != from_persona.id
-    )
-    target_entity = peer_cache[(from_persona.id, to_persona.id)]
+    # 발신 페르소나별 타겟(그룹 모드면 그룹, 아니면 상대 peer).
+    target_entity = targets[from_persona.id]
     result, _err = await _deliver_message(
         db,
         client=clients[from_persona.id],

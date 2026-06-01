@@ -465,6 +465,7 @@ async def _create_one_pair_combined_session(
     bl_ctx: BlContext | None,
     timing_profile: str = "normal",
     language: str | None = None,
+    group_chat_id: str | None = None,
 ) -> str:
     """N개 시나리오를 합성하여 1 세션 생성 (페르소나당 1 LLM 호출, Phase F-B).
 
@@ -552,6 +553,7 @@ async def _create_one_pair_combined_session(
         receiver_persona_id=receiver.id,
         status="pending",
         language=resolved_language,
+        group_chat_id=group_chat_id,
         llm_cost_usd=result.cost_usd,
         llm_input_tok=result.input_tokens,
         llm_output_tok=result.output_tokens,

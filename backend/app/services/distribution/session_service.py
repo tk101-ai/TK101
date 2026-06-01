@@ -474,6 +474,63 @@ async def resolve_session_peers(
     return peer_cache
 
 
+def _parse_chat_id(raw: str):
+    """그룹 chat 참조 정규화. 숫자(-100… 포함)면 int, 아니면 username/링크 문자열 그대로.
+
+    Telethon get_entity 는 int id / @username / t.me 링크를 모두 허용한다.
+    """
+    text = (raw or "").strip()
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return text
+
+
+async def resolve_session_targets(
+    session: DistributionSession,
+    sender: DistributionPersona,
+    receiver: DistributionPersona,
+    clients: dict[UUID, TelegramClient],
+) -> dict[UUID, object]:
+    """발신 페르소나 id → 송신 타겟 엔티티.
+
+    - session.group_chat_id 설정 시: 모든 발신자가 그 그룹(chat)으로 송신
+      (각 클라이언트가 그룹 엔티티를 각자 resolve). → 3명 방.
+    - 미설정 시: 기존 1:1 — 발신자는 상대 페르소나에게 DM (peer import 포함).
+    """
+    targets: dict[UUID, object] = {}
+    if session.group_chat_id:
+        chat_ref = _parse_chat_id(session.group_chat_id)
+        for persona in (sender, receiver):
+            targets[persona.id] = await clients[persona.id].get_entity(chat_ref)
+        return targets
+    for from_p, to_p in ((sender, receiver), (receiver, sender)):
+        targets[from_p.id] = await _resolve_peer(clients[from_p.id], to_p)
+    return targets
+
+
+async def discover_group_dialogs(persona: DistributionPersona) -> list[dict]:
+    """페르소나 계정이 참여 중인 그룹/슈퍼그룹 목록 (그룹 chat_id 찾기용).
+
+    관리자가 텔레그램에서 3명 방을 만든 뒤, 그 방의 chat_id 를 UI 에서 고를 수
+    있도록 해당 계정의 그룹 대화만 반환한다. 개인 DM 은 제외.
+    """
+    client = await _open_telethon_client(persona)
+    try:
+        out: list[dict] = []
+        async for dialog in client.iter_dialogs():
+            if getattr(dialog, "is_group", False):
+                out.append(
+                    {"chat_id": str(dialog.id), "title": dialog.name or "(제목 없음)"}
+                )
+        return out
+    finally:
+        try:
+            await client.disconnect()
+        except Exception:  # pragma: no cover — 정리 best-effort
+            logger.warning("telethon client disconnect 실패 (무시)")
+
+
 def _typing_action_for(message: DistributionMessage) -> str:
     """첨부 종류에 맞는 Telethon ChatAction 짧은 이름 반환."""
     if not message.attachment_path:
@@ -659,8 +716,8 @@ async def send_session_now(
     # 첫 실패의 사람이 읽을 수 있는 요약 (UI 에 노출 — 디버깅).
     first_error: str | None = None
     clients: dict[UUID, TelegramClient] = {}
-    # (from_persona_id, to_persona_id) → 텔레그램 User entity.
-    peer_cache: dict[tuple[UUID, UUID], TelegramUser] = {}
+    # from_persona_id → 송신 타겟 엔티티 (그룹 모드면 모두 그룹, 아니면 상대 peer).
+    targets: dict[UUID, object] = {}
 
     try:
         # 1) 두 페르소나의 Telethon client 오픈.
@@ -670,8 +727,8 @@ async def send_session_now(
                 "telethon client opened — persona=%s", persona.account_label
             )
 
-        # 2) 양방향 peer entity 해석 (contact import 포함).
-        peer_cache = await resolve_session_peers(sender, receiver, clients)
+        # 2) 송신 타겟 해석 — group_chat_id 있으면 그룹, 없으면 1:1 상대 peer.
+        targets = await resolve_session_targets(session, sender, receiver, clients)
 
         # 3) 메시지 순회 송신 (UI 동기 트리거이므로 cap=30 적용).
         for message in messages:
@@ -690,8 +747,7 @@ async def send_session_now(
                 db.add(message)
                 continue
 
-            to_persona = receiver if from_persona.id == sender.id else sender
-            target_entity = peer_cache[(from_persona.id, to_persona.id)]
+            target_entity = targets[from_persona.id]
 
             result, error_summary = await _deliver_message(
                 db,

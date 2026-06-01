@@ -24,11 +24,13 @@ import type {
 } from "../../api/distribution";
 import {
   createUserScenario,
+  discoverGroups,
   generateCustom,
   listScenarios,
 } from "../../api/distribution_generate";
 import type {
   GenerateCustomResult,
+  GroupDialog,
   ScenarioBrief,
   TimingProfile,
 } from "../../api/distribution_generate";
@@ -64,6 +66,8 @@ interface FormValues {
   // "시나리오로 저장" 시 사용할 이름 + 첨부 권장 여부.
   save_name?: string;
   save_attachment?: boolean;
+  // 그룹 송신 chat id (3명 방). 비우면 1:1 DM.
+  group_chat_id?: string;
 }
 
 const LATEST_VALUE = "__latest__";
@@ -89,6 +93,29 @@ export default function GenerateTriggerModal({
   const [scenarioNames, setScenarioNames] = useState<string[]>([]);
   const [adHoc, setAdHoc] = useState<string>("");
   const [savingScenario, setSavingScenario] = useState<boolean>(false);
+  const [groupOptions, setGroupOptions] = useState<GroupDialog[]>([]);
+  const [discovering, setDiscovering] = useState<boolean>(false);
+
+  // 선택한 발신 계정 기준으로 참여 중인 그룹을 조회해 chat_id 선택지로 노출.
+  const handleDiscoverGroups = async () => {
+    const personaId = (form.getFieldValue("sender_persona_ids") ?? [])[0];
+    if (!personaId) {
+      message.warning("먼저 발신 페르소나를 1명 이상 선택하세요 (그 계정으로 그룹 조회).");
+      return;
+    }
+    setDiscovering(true);
+    try {
+      const groups = await discoverGroups(personaId);
+      setGroupOptions(groups);
+      if (groups.length === 0) {
+        message.info("참여 중인 그룹이 없습니다. 먼저 텔레그램에서 그룹을 개설하세요.");
+      }
+    } catch (err: unknown) {
+      message.error(extractErrorDetail(err, "그룹 조회 실패"));
+    } finally {
+      setDiscovering(false);
+    }
+  };
 
   const reloadScenarios = async () => {
     try {
@@ -161,10 +188,12 @@ export default function GenerateTriggerModal({
           ad_hoc_instruction: "",
           save_name: "",
           save_attachment: false,
+          group_chat_id: "",
         });
         setSenderIds([]);
         setScenarioNames([]);
         setAdHoc("");
+        setGroupOptions([]);
       } catch (err: unknown) {
         message.error(extractErrorDetail(err, "초기 데이터 로드 실패"));
       } finally {
@@ -250,6 +279,7 @@ export default function GenerateTriggerModal({
         language: values.language ?? "ko",
         ad_hoc_instruction: adHocText || undefined,
         use_weekly_summary: useWeekly,
+        group_chat_id: (values.group_chat_id ?? "").trim() || undefined,
       });
       onGenerated(result);
       form.resetFields();
@@ -420,6 +450,33 @@ export default function GenerateTriggerModal({
               <Radio.Button value="varied">다양함 (1분~12시간 · 하루 흐름)</Radio.Button>
             </Radio.Group>
           </Form.Item>
+
+          <Divider style={{ margin: "8px 0" }}>그룹 송신 (3명 방, 선택)</Divider>
+
+          <Form.Item
+            name="group_chat_id"
+            label="그룹 chat id (선택) — 입력 시 1:1 DM 대신 그룹에 게시"
+            help="2 API 계정 + 관리자 1명이 있는 텔레그램 그룹의 chat id. 비우면 기존 1:1 송신. (송신은 페르소나 텔레그램 자격증명 등록 후 동작)"
+          >
+            <Input placeholder="-1001234567890 또는 @groupname" />
+          </Form.Item>
+          <Space.Compact style={{ width: "100%", marginBottom: 8 }}>
+            <Button onClick={handleDiscoverGroups} loading={discovering}>
+              내 그룹 찾기
+            </Button>
+            <Select
+              style={{ flex: 1 }}
+              placeholder="조회된 그룹에서 선택 (발신 계정 기준)"
+              disabled={groupOptions.length === 0}
+              options={groupOptions.map((g) => ({
+                label: `${g.title} (${g.chat_id})`,
+                value: g.chat_id,
+              }))}
+              onChange={(v) => form.setFieldsValue({ group_chat_id: v })}
+            />
+          </Space.Compact>
+
+          <Divider style={{ margin: "8px 0" }} />
 
           <Alert
             type="info"

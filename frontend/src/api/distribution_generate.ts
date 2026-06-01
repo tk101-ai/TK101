@@ -90,6 +90,22 @@ export interface GenerateCustomPayload {
   ad_hoc_instruction?: string;
   /** 주차 데이터(weekly_summary) 참고 여부. default true. false 면 미주입. */
   use_weekly_summary?: boolean;
+  /** 그룹 송신 chat id/@username/링크. 설정 시 1:1 대신 그룹(3명 방)에 게시. */
+  group_chat_id?: string;
+}
+
+/** 페르소나 계정이 참여 중인 그룹 1건 (그룹 chat_id 선택용). */
+export interface GroupDialog {
+  chat_id: string;
+  title: string;
+}
+
+/** 지정 발신 계정이 참여 중인 그룹 목록 조회 (그룹 chat_id 찾기). admin only. */
+export async function discoverGroups(personaId: string): Promise<GroupDialog[]> {
+  const res = await api.get<{ items: GroupDialog[] }>(`${BASE}/groups/discover`, {
+    params: { persona_id: personaId },
+  });
+  return res.data.items;
 }
 
 export interface GenerateCustomResult {
@@ -120,6 +136,7 @@ export async function generateCustom(
       language: payload.language ?? "ko",
       ad_hoc_instruction: payload.ad_hoc_instruction ?? null,
       use_weekly_summary: payload.use_weekly_summary ?? true,
+      group_chat_id: payload.group_chat_id ?? null,
     },
   );
   return res.data;

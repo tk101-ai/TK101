@@ -196,6 +196,9 @@ class DistributionSession(Base):
     )
     # status: pending / approved / rejected / sending / sent / failed.
     status = Column(String(20), nullable=False, server_default=text("'pending'"))
+    # group_chat_id (T9 — 2026-06-01): 설정되면 1:1 DM 대신 이 텔레그램 그룹에
+    # 모든 메시지를 게시(3명 방 — 2 API 계정 자동대화 + 관리자 수동참여). NULL=1:1.
+    group_chat_id = Column(String(64), nullable=True)
     # language: 세션이 생성된 언어 'ko' | 'zh' (T9 — 2026-05-27).
     # 생성 시점의 시나리오 language 또는 사용자 선택값을 기록 (검수 UI 표시용).
     language = Column(String(5), nullable=False, server_default=text("'ko'"))

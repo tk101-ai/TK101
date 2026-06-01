@@ -32,7 +32,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin, require_module
-from app.models.distribution import DistributionMessage, DistributionSession
+from app.models.distribution import (
+    DistributionMessage,
+    DistributionPersona,
+    DistributionSession,
+)
 from app.models.user import User
 from app.modules.constants import Module
 from app.schemas.distribution_sessions import (
@@ -244,6 +248,44 @@ async def delete_session(
     await db.commit()
     logger.info("distribution.session: 삭제 id=%s status=%s", session_id, session_obj.status)
     return {"deleted": str(session_id)}
+
+
+# ---------------------------------------------------------------------------
+# 그룹 chat_id 찾기 (3명 방 송신용)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/groups/discover")
+async def discover_groups(
+    persona_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> dict[str, list[dict]]:
+    """지정 페르소나 계정이 참여 중인 그룹 목록 (그룹 chat_id 선택용). **admin only**.
+
+    관리자가 텔레그램에서 3명 방을 개설(2 API 계정 + 본인)한 뒤, 그 계정으로
+    그룹을 조회해 chat_id 를 골라 생성 시 group_chat_id 로 사용한다.
+    """
+    res = await db.execute(
+        select(DistributionPersona).where(DistributionPersona.id == persona_id)
+    )
+    persona = res.scalar_one_or_none()
+    if persona is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="페르소나 없음")
+    if not (persona.api_id_enc and persona.api_hash_enc):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이 계정에 텔레그램 자격증명이 없어 그룹을 조회할 수 없습니다.",
+        )
+    try:
+        groups = await session_service.discover_group_dialogs(persona)
+    except Exception as exc:  # noqa: BLE001 — 외부 텔레그램 호출 실패 격리
+        logger.exception("그룹 조회 실패 — persona=%s", persona_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"그룹 조회 실패: {type(exc).__name__}",
+        )
+    return {"items": groups}
 
 
 # ---------------------------------------------------------------------------
