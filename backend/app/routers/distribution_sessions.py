@@ -207,6 +207,46 @@ async def reject_session(
 
 
 # ---------------------------------------------------------------------------
+# 세션 삭제 (검수 대기 / 거부 / 실패만)
+# ---------------------------------------------------------------------------
+
+# 송신 이력 보호: 보낸/보내는 중/승인(예약) 세션은 삭제 불가.
+# 검수 대기(pending) · 거부(rejected) · 생성 실패(failed)만 정리 허용.
+_DELETABLE_SESSION_STATUSES = {"pending", "rejected", "failed"}
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """세션 삭제. 메시지·송신로그는 FK ON DELETE CASCADE 로 함께 삭제된다.
+
+    검수 대기/거부/실패 상태만 허용. 그 외(승인/송신중/송신완료)는 409.
+    """
+    res = await db.execute(
+        select(DistributionSession).where(DistributionSession.id == session_id)
+    )
+    session_obj = res.scalar_one_or_none()
+    if session_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="세션 없음"
+        )
+    if session_obj.status not in _DELETABLE_SESSION_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"'{session_obj.status}' 상태 세션은 삭제할 수 없습니다 "
+                "(검수 대기 / 거부 / 실패만 삭제 가능)"
+            ),
+        )
+    await db.delete(session_obj)
+    await db.commit()
+    logger.info("distribution.session: 삭제 id=%s status=%s", session_id, session_obj.status)
+    return {"deleted": str(session_id)}
+
+
+# ---------------------------------------------------------------------------
 # 즉시 송신
 # ---------------------------------------------------------------------------
 

@@ -512,6 +512,15 @@ export async function sendSessionNow(id: string): Promise<SendNowResult> {
   return res.data;
 }
 
+/**
+ * 세션 삭제 (검수 대기 / 거부 / 실패만 허용).
+ * 메시지·송신로그는 백엔드 FK CASCADE 로 함께 삭제된다.
+ */
+export async function deleteSession(id: string): Promise<{ deleted: string }> {
+  const res = await api.delete<{ deleted: string }>(`${BASE}/sessions/${id}`);
+  return res.data;
+}
+
 /** 메시지 1개 본문 편집. 비어있는 본문은 백엔드에서 422 로 거부. */
 export async function updateMessage(
   id: string,

@@ -88,6 +88,8 @@ export interface GenerateCustomPayload {
   language?: DistributionLanguage;
   /** 즉석 지시(저장 안 함) — 있으면 숨김 시나리오 자동 생성 후 사용. */
   ad_hoc_instruction?: string;
+  /** 주차 데이터(weekly_summary) 참고 여부. default true. false 면 미주입. */
+  use_weekly_summary?: boolean;
 }
 
 export interface GenerateCustomResult {
@@ -117,6 +119,7 @@ export async function generateCustom(
       timing_profile: payload.timing_profile ?? "normal",
       language: payload.language ?? "ko",
       ad_hoc_instruction: payload.ad_hoc_instruction ?? null,
+      use_weekly_summary: payload.use_weekly_summary ?? true,
     },
   );
   return res.data;

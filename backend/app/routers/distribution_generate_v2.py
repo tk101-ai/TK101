@@ -78,6 +78,9 @@ class GenerateCustomRequest(BaseModel):
         description="weekly_summary.period_label (예: 2026_0512). None 이면 최신 주차.",
     )
     company_label: str = Field(default="래더엑스", min_length=1, max_length=100)
+    # 주차 데이터(weekly_summary) 참고 여부 (T9 — 2026-06-01).
+    # False 면 매입/매출/재고 컨텍스트를 주입하지 않고 시나리오/지시만으로 생성한다.
+    use_weekly_summary: bool = True
     # 메시지 간격 분포 (T9 — 2026-05-26).
     # short: 0~30분 빠른 핑퐁 / normal: 5분~3시간 / varied: 1분~12시간 폭넓게.
     timing_profile: Literal["short", "normal", "varied"] = "normal"
@@ -232,23 +235,26 @@ async def generate_custom(
         )
         return result
 
-    # 3. weekly_summary 조회.
-    weekly = await _weekly_summary_by_label(
-        db,
-        company_label=payload.company_label,
-        period_label=payload.period_label,
-    )
-    if weekly is None:
-        target = payload.period_label or "최신"
-        result.skipped.append(
-            f"weekly_summary[{payload.company_label}/{target}]: 데이터 없음 — 빈 컨텍스트로 진행"
-        )
+    # 3. weekly_summary 조회 (use_weekly_summary=False 면 컨텍스트 미주입).
+    if not payload.use_weekly_summary:
+        bl_ctx = None
         result.used_period_label = None
     else:
-        result.used_period_label = weekly.period_label
-
-    products = await _top_products(db, limit=TOP_PRODUCT_LIMIT)
-    bl_ctx = _build_bl_context(weekly, products)
+        weekly = await _weekly_summary_by_label(
+            db,
+            company_label=payload.company_label,
+            period_label=payload.period_label,
+        )
+        if weekly is None:
+            target = payload.period_label or "최신"
+            result.skipped.append(
+                f"weekly_summary[{payload.company_label}/{target}]: 데이터 없음 — 빈 컨텍스트로 진행"
+            )
+            result.used_period_label = None
+        else:
+            result.used_period_label = weekly.period_label
+        products = await _top_products(db, limit=TOP_PRODUCT_LIMIT)
+        bl_ctx = _build_bl_context(weekly, products)
 
     # 4. 시나리오 조회.
     scenarios = await _scenarios_by_names_active(db, names=payload.scenario_names)

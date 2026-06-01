@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   Button,
   Card,
+  Popconfirm,
   Radio,
   Space,
   Table,
@@ -11,6 +12,7 @@ import {
   message,
 } from "antd";
 import {
+  DeleteOutlined,
   EyeOutlined,
   ReloadOutlined,
   ThunderboltOutlined,
@@ -21,6 +23,7 @@ import dayjs from "dayjs";
 import {
   SESSION_STATUS_LABEL,
   SESSION_STATUS_TAG_COLOR,
+  deleteSession,
   listSessions,
   type SessionListItem,
   type SessionStatus,
@@ -108,6 +111,20 @@ export default function SessionsPage() {
     setPage(1);
   };
 
+  // 검수 대기 / 거부 / 실패 세션만 삭제 가능 (백엔드와 동일 규칙).
+  const handleDelete = useCallback(
+    async (id: string) => {
+      try {
+        await deleteSession(id);
+        message.success("세션을 삭제했습니다.");
+        await fetchData();
+      } catch (err: unknown) {
+        message.error(extractErrorDetail(err, "세션 삭제 실패"));
+      }
+    },
+    [fetchData],
+  );
+
   const columns = useMemo<ColumnsType<SessionListItem>>(
     () => [
       {
@@ -188,17 +205,39 @@ export default function SessionsPage() {
       {
         title: "작업",
         key: "actions",
-        width: 120,
-        render: (_: unknown, record: SessionListItem) => (
-          <Link to={`/distribution/sessions/${record.id}`}>
-            <Button type="link" size="small" icon={<EyeOutlined />}>
-              상세 보기
-            </Button>
-          </Link>
-        ),
+        width: 180,
+        render: (_: unknown, record: SessionListItem) => {
+          const deletable =
+            record.status === "pending" ||
+            record.status === "rejected" ||
+            record.status === "failed";
+          return (
+            <Space size={0}>
+              <Link to={`/distribution/sessions/${record.id}`}>
+                <Button type="link" size="small" icon={<EyeOutlined />}>
+                  상세 보기
+                </Button>
+              </Link>
+              {deletable ? (
+                <Popconfirm
+                  title="세션 삭제"
+                  description="이 세션과 메시지를 삭제합니다. 되돌릴 수 없습니다."
+                  okText="삭제"
+                  okButtonProps={{ danger: true }}
+                  cancelText="취소"
+                  onConfirm={() => handleDelete(record.id)}
+                >
+                  <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                    삭제
+                  </Button>
+                </Popconfirm>
+              ) : null}
+            </Space>
+          );
+        },
       },
     ],
-    [],
+    [handleDelete],
   );
 
   return (

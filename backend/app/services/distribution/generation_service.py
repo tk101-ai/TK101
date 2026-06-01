@@ -354,7 +354,7 @@ def _generate_one_sync(
     scenario_ctx: ScenarioContext,
     sender_ctx: PersonaContext,
     receiver_ctx: PersonaContext,
-    bl_ctx: BlContext,
+    bl_ctx: BlContext | None,
     timing_profile: str = "normal",
     language: str = "ko",
 ) -> GenerationResult:
@@ -462,7 +462,7 @@ async def _create_one_pair_combined_session(
     scenarios: list[DistributionScenario],
     kr_persona: DistributionPersona,
     vn_persona: DistributionPersona,
-    bl_ctx: BlContext,
+    bl_ctx: BlContext | None,
     timing_profile: str = "normal",
     language: str | None = None,
 ) -> str:

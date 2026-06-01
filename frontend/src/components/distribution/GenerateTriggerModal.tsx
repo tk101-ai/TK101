@@ -67,6 +67,8 @@ interface FormValues {
 }
 
 const LATEST_VALUE = "__latest__";
+// 주차 데이터를 참고하지 않는 선택지 (매입/매출/재고 컨텍스트 미주입).
+const NONE_VALUE = "__none__";
 
 export default function GenerateTriggerModal({
   open,
@@ -199,6 +201,7 @@ export default function GenerateTriggerModal({
   const weekOptions = useMemo(() => {
     const opts: { label: string; value: string }[] = [
       { label: "전체 — 최신 자동", value: LATEST_VALUE },
+      { label: "참고 안 함 (주차 데이터 미사용)", value: NONE_VALUE },
     ];
     for (const w of weeks) {
       opts.push({
@@ -234,14 +237,19 @@ export default function GenerateTriggerModal({
     }
     setSubmitting(true);
     try {
+      const useWeekly = values.period_label !== NONE_VALUE;
       const result = await generateCustom({
         sender_persona_ids: values.sender_persona_ids,
         scenario_names: values.scenario_names,
         period_label:
-          values.period_label === LATEST_VALUE ? null : values.period_label,
+          values.period_label === LATEST_VALUE ||
+          values.period_label === NONE_VALUE
+            ? null
+            : values.period_label,
         timing_profile: values.timing_profile ?? "normal",
         language: values.language ?? "ko",
         ad_hoc_instruction: adHocText || undefined,
+        use_weekly_summary: useWeekly,
       });
       onGenerated(result);
       form.resetFields();
@@ -382,7 +390,7 @@ export default function GenerateTriggerModal({
           <Form.Item
             name="period_label"
             label="주차 데이터 (weekly_summary)"
-            help="선택한 주차의 매입/매출/입금 요약이 LLM 컨텍스트로 주입됩니다."
+            help="선택한 주차의 매입/매출/입금 요약이 LLM 컨텍스트로 주입됩니다. '참고 안 함'을 고르면 주차 데이터 없이 시나리오/지시만으로 생성합니다."
             rules={[{ required: true, message: "주차를 선택하세요" }]}
           >
             <Select options={weekOptions} placeholder="주차 선택" />
