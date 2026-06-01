@@ -88,6 +88,11 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173}
       GOOGLE_YOUTUBE_API_KEY: ${GOOGLE_YOUTUBE_API_KEY:-}
+      # 마케팅 SNS — Meta(Facebook/Instagram) 게시물·댓글 수집 (Seoul Korea/seoulcity).
+      META_ACCESS_TOKEN: ${META_ACCESS_TOKEN:-}
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v25.0}
       NAS_MOUNT_PATH: ${NAS_MOUNT_PATH:-/mnt/nas}
       # T5 범용 문서 자동 작성기 (v0.8.0) ----------------------------------------
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
