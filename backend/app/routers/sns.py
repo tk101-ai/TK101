@@ -933,6 +933,11 @@ async def _collect_comments_for_account(
         if not ref:
             skipped += 1
             continue
+        # 댓글 0개로 집계된 게시물은 Graph 호출 생략 (성능 — nginx 60s 타임아웃 회피).
+        # 대량 계정에서 0댓글 게시물 네트워크 호출이 누적되면 동기 응답이 초과됨.
+        if not post.comment_count:
+            skipped += 1
+            continue
         try:
             comments = await collector.fetch_comments(ref)
         except CollectorError as exc:
