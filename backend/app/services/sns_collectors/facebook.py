@@ -82,6 +82,9 @@ class FacebookCollector(BaseCollector):
         if not page_ref:
             raise CollectorError("Facebook Page ID/슬러그가 필요합니다.")
         self.page_ref = page_ref
+        # 페이지 액세스 토큰 lazy 캐시 (한 번만 도출).
+        self._page_token_resolved = False
+        self._page_token_value: str | None = None
 
     @classmethod
     async def from_account(cls, account: "SocialAccount") -> "FacebookCollector":
@@ -94,9 +97,30 @@ class FacebookCollector(BaseCollector):
             )
         return cls(page_ref=page_ref)
 
+    async def _page_token(self) -> str | None:
+        """페이지 액세스 토큰 도출.
+
+        페이지 콘텐츠(게시물/댓글/인사이트)는 User/System-User 토큰이 아니라
+        **Page access token** 으로 읽어야 한다(아니면 code 10/190). 설정 토큰(시스템
+        유저)이 페이지를 보유하면 GET /{page}?fields=access_token 으로 페이지 토큰을
+        얻는다. 실패 시 None → 설정 토큰으로 폴백.
+        """
+        if self._page_token_resolved:
+            return self._page_token_value
+        self._page_token_resolved = True
+        try:
+            data = await graph_get(self.page_ref, params={"fields": "access_token"})
+            self._page_token_value = data.get("access_token")
+        except CollectorError:
+            self._page_token_value = None
+        return self._page_token_value
+
     async def fetch_followers(self) -> int:
+        token = await self._page_token()
         data = await graph_get(
-            self.page_ref, params={"fields": "followers_count,fan_count"}
+            self.page_ref,
+            params={"fields": "followers_count,fan_count"},
+            token=token,
         )
         followers = data.get("followers_count")
         if followers is None:
@@ -108,8 +132,9 @@ class FacebookCollector(BaseCollector):
         since: date | None = None,
         until: date | None = None,
     ) -> list[CollectedPost]:
+        token = await self._page_token()
         raw_posts = await graph_get_paged(
-            f"{self.page_ref}/posts", params={"fields": _POST_FIELDS}
+            f"{self.page_ref}/posts", params={"fields": _POST_FIELDS}, token=token
         )
         posts: list[CollectedPost] = []
         for raw in raw_posts:
@@ -127,7 +152,8 @@ class FacebookCollector(BaseCollector):
         post_id = extract_facebook_post_id(post_ref)
         if not post_id:
             raise CollectorError(f"Facebook 게시물 ID 를 인식하지 못했습니다: {post_ref}")
-        data = await graph_get(post_id, params={"fields": _POST_FIELDS})
+        token = await self._page_token()
+        data = await graph_get(post_id, params={"fields": _POST_FIELDS}, token=token)
         reach = await self._fetch_reach(post_id)
         return _build_metrics(data, reach)
 
@@ -140,9 +166,11 @@ class FacebookCollector(BaseCollector):
         post_id = extract_facebook_post_id(post_ref)
         if not post_id:
             raise CollectorError(f"Facebook 게시물 ID 를 인식하지 못했습니다: {post_ref}")
+        token = await self._page_token()
         raw_comments = await graph_get_paged(
             f"{post_id}/comments",
             params={"fields": _COMMENT_FIELDS, "order": "chronological"},
+            token=token,
         )
         comments: list[CollectedComment] = []
         for raw in raw_comments:
@@ -153,9 +181,12 @@ class FacebookCollector(BaseCollector):
 
     async def _fetch_reach(self, post_id: str) -> int | None:
         """post insights 에서 unique reach. 권한/가용성 따라 비어 있을 수 있음."""
+        token = await self._page_token()
         try:
             data = await graph_get(
-                f"{post_id}/insights", params={"metric": _REACH_METRIC}
+                f"{post_id}/insights",
+                params={"metric": _REACH_METRIC},
+                token=token,
             )
         except CollectorError:
             return None
