@@ -212,6 +212,7 @@ class ScenarioOut(BaseModel):
     beats: list[dict]
     raw_text: str | None
     example_msgs: list[dict] | None
+    instruction: str | None = None
     active: bool
     created_at: datetime
 

@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Button,
   Checkbox,
+  Divider,
   Empty,
   Form,
+  Input,
   Modal,
   Radio,
   Select,
+  Space,
   Spin,
+  Switch,
   Typography,
   message,
 } from "antd";
@@ -18,6 +23,7 @@ import type {
   WeeklySummaryOut,
 } from "../../api/distribution";
 import {
+  createUserScenario,
   generateCustom,
   listScenarios,
 } from "../../api/distribution_generate";
@@ -53,6 +59,11 @@ interface FormValues {
   period_label: string | "__latest__";
   timing_profile: TimingProfile;
   language: DistributionLanguage;
+  // 즉석 지시(저장 안 함). 채워지면 시나리오 미선택이어도 생성 가능.
+  ad_hoc_instruction?: string;
+  // "시나리오로 저장" 시 사용할 이름 + 첨부 권장 여부.
+  save_name?: string;
+  save_attachment?: boolean;
 }
 
 const LATEST_VALUE = "__latest__";
@@ -74,6 +85,48 @@ export default function GenerateTriggerModal({
   // 선택값 미리보기용 — useMemo 로 계산.
   const [senderIds, setSenderIds] = useState<string[]>([]);
   const [scenarioNames, setScenarioNames] = useState<string[]>([]);
+  const [adHoc, setAdHoc] = useState<string>("");
+  const [savingScenario, setSavingScenario] = useState<boolean>(false);
+
+  const reloadScenarios = async () => {
+    try {
+      setScenarios(await listScenarios());
+    } catch (err: unknown) {
+      message.error(extractErrorDetail(err, "시나리오 목록 갱신 실패"));
+    }
+  };
+
+  // 즉석 지시를 이름 붙여 재사용 가능한 시나리오로 저장 (저장형).
+  const handleSaveScenario = async () => {
+    const name = (form.getFieldValue("save_name") ?? "").trim();
+    const instruction = (form.getFieldValue("ad_hoc_instruction") ?? "").trim();
+    const language: DistributionLanguage = form.getFieldValue("language") ?? "zh";
+    const attachment = Boolean(form.getFieldValue("save_attachment"));
+    if (!instruction) {
+      message.warning("저장하려면 먼저 '시나리오 지시' 내용을 입력하세요.");
+      return;
+    }
+    if (!name) {
+      message.warning("저장할 시나리오 이름을 입력하세요.");
+      return;
+    }
+    setSavingScenario(true);
+    try {
+      const created = await createUserScenario({
+        name,
+        instruction,
+        language,
+        attachment_required: attachment,
+      });
+      message.success(`시나리오 저장됨: ${created.name}`);
+      await reloadScenarios();
+      form.setFieldsValue({ save_name: "" });
+    } catch (err: unknown) {
+      message.error(extractErrorDetail(err, "시나리오 저장 실패"));
+    } finally {
+      setSavingScenario(false);
+    }
+  };
 
   // 모달 오픈 시 한 번 데이터 로드.
   useEffect(() => {
@@ -103,9 +156,13 @@ export default function GenerateTriggerModal({
           period_label: LATEST_VALUE,
           timing_profile: "normal",
           language: "ko",
+          ad_hoc_instruction: "",
+          save_name: "",
+          save_attachment: false,
         });
         setSenderIds([]);
         setScenarioNames([]);
+        setAdHoc("");
       } catch (err: unknown) {
         message.error(extractErrorDetail(err, "초기 데이터 로드 실패"));
       } finally {
@@ -152,7 +209,10 @@ export default function GenerateTriggerModal({
     return opts;
   }, [weeks]);
 
-  const expectedSessions = senderIds.length * scenarioNames.length;
+  // 즉석 지시가 채워지면 시나리오 1개로 계산.
+  const adHocCount = adHoc.trim() ? 1 : 0;
+  const effectiveScenarioCount = scenarioNames.length + adHocCount;
+  const expectedSessions = senderIds.length * effectiveScenarioCount;
 
   const handleClose = () => {
     if (submitting) {
@@ -163,12 +223,13 @@ export default function GenerateTriggerModal({
   };
 
   const handleSubmit = async (values: FormValues) => {
+    const adHocText = (values.ad_hoc_instruction ?? "").trim();
     if (values.sender_persona_ids.length === 0) {
       message.warning("발신 페르소나를 1명 이상 선택하세요.");
       return;
     }
-    if (values.scenario_names.length === 0) {
-      message.warning("시나리오를 1개 이상 선택하세요.");
+    if (values.scenario_names.length === 0 && !adHocText) {
+      message.warning("시나리오를 선택하거나 '즉석 지시'를 입력하세요.");
       return;
     }
     setSubmitting(true);
@@ -180,6 +241,7 @@ export default function GenerateTriggerModal({
           values.period_label === LATEST_VALUE ? null : values.period_label,
         timing_profile: values.timing_profile ?? "normal",
         language: values.language ?? "ko",
+        ad_hoc_instruction: adHocText || undefined,
       });
       onGenerated(result);
       form.resetFields();
@@ -220,6 +282,7 @@ export default function GenerateTriggerModal({
           onValuesChange={(_changed, all) => {
             setSenderIds(all.sender_persona_ids ?? []);
             setScenarioNames(all.scenario_names ?? []);
+            setAdHoc(all.ad_hoc_instruction ?? "");
           }}
         >
           <Form.Item
@@ -253,19 +316,11 @@ export default function GenerateTriggerModal({
 
           <Form.Item
             name="scenario_names"
-            label="시나리오 (활성 시나리오만 노출)"
-            rules={[
-              {
-                required: true,
-                message: "시나리오를 1개 이상 선택하세요",
-                type: "array",
-                min: 1,
-              },
-            ]}
+            label="시나리오 (활성 시나리오만 노출 · 즉석 지시 사용 시 미선택 가능)"
           >
             {scenarioOptions.length === 0 ? (
               <Empty
-                description="활성 시나리오가 없습니다"
+                description="저장된 시나리오가 없습니다 — 아래 '즉석 지시'로 바로 생성하거나 시나리오로 저장하세요"
                 imageStyle={{ height: 48 }}
               />
             ) : (
@@ -279,6 +334,50 @@ export default function GenerateTriggerModal({
               />
             )}
           </Form.Item>
+
+          <Divider style={{ margin: "8px 0" }}>
+            또는 — 즉석 지시 (AI 자유 생성)
+          </Divider>
+
+          <Form.Item
+            name="ad_hoc_instruction"
+            label="즉석 지시 (선택) — 자연어로 어떤 대화를 만들지 적으면 매번 새로 생성됩니다"
+            help="예: 缺货抢货 — 매수측이 '공급 가능한 만큼 다 산다, 최대한 더 구해달라', 매도측은 '과다 주문 금지·재고 리스크 주의'. OFFER 엑셀은 검수 화면에서 첨부. (한국어로 써도 선택 언어로 생성)"
+          >
+            <Input.TextArea
+              rows={4}
+              placeholder="이번 대화에서 다룰 내용/흐름을 자유롭게 적으세요. 문장은 매번 AI가 새로 생성합니다."
+            />
+          </Form.Item>
+
+          <Space.Compact style={{ width: "100%" }}>
+            <Form.Item name="save_name" noStyle>
+              <Input
+                placeholder="이 지시를 시나리오로 저장할 이름 (재사용)"
+                disabled={!adHoc.trim()}
+              />
+            </Form.Item>
+            <Button
+              onClick={handleSaveScenario}
+              loading={savingScenario}
+              disabled={!adHoc.trim()}
+            >
+              시나리오로 저장
+            </Button>
+          </Space.Compact>
+          <Form.Item
+            name="save_attachment"
+            valuePropName="checked"
+            style={{ marginTop: 8 }}
+          >
+            <Switch
+              size="small"
+              checkedChildren="첨부 권장"
+              unCheckedChildren="첨부 권장"
+            />
+          </Form.Item>
+
+          <Divider style={{ margin: "8px 0" }} />
 
           <Form.Item
             name="period_label"
@@ -321,9 +420,10 @@ export default function GenerateTriggerModal({
               <Text>
                 예상 세션 수:{" "}
                 <Text strong>
-                  {senderIds.length} × {scenarioNames.length} ={" "}
+                  {senderIds.length} × {effectiveScenarioCount} ={" "}
                   {expectedSessions}
                 </Text>
+                {adHocCount > 0 ? " (즉석 지시 1개 포함)" : ""}
               </Text>
             }
             description={

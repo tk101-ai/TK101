@@ -69,7 +69,10 @@ class GenerateCustomRequest(BaseModel):
     """
 
     sender_persona_ids: list[UUID] = Field(min_length=1)
-    scenario_names: list[str] = Field(min_length=1)
+    # 저장형 시나리오 이름 목록. 즉석(ad_hoc_instruction) 사용 시 비워도 됨.
+    scenario_names: list[str] = Field(default_factory=list)
+    # 즉석 지시(저장 안 함) — 있으면 active=False 숨김 시나리오를 자동 생성해 사용.
+    ad_hoc_instruction: str | None = Field(default=None, max_length=20_000)
     period_label: str | None = Field(
         default=None,
         description="weekly_summary.period_label (예: 2026_0512). None 이면 최신 주차.",
@@ -253,8 +256,28 @@ async def generate_custom(
     for name in missing_scenarios:
         result.errors.append(f"시나리오 '{name}': 존재하지 않거나 비활성")
 
+    # 4-b. 즉석 지시(ad-hoc): 숨김 시나리오(active=False) 자동 생성 후 사용.
+    #      세션은 시나리오를 반드시 참조(NOT NULL)하므로 저장하지 않는 즉석도 행이 필요.
+    if payload.ad_hoc_instruction and payload.ad_hoc_instruction.strip():
+        instruction = payload.ad_hoc_instruction.strip()
+        ad_hoc = DistributionScenario(
+            name=f"[즉석] {instruction[:60]}",
+            trigger_event="custom",
+            sender_role="domestic_admin",
+            receiver_role="vietnam_admin",
+            beats=[],
+            example_msgs=None,
+            instruction=instruction,
+            raw_text=None,
+            language=payload.language,
+            active=False,
+        )
+        db.add(ad_hoc)
+        await db.flush()
+        scenarios.append(ad_hoc)
+
     if not scenarios:
-        result.errors.append("실행 가능한 시나리오 없음.")
+        result.errors.append("실행 가능한 시나리오 없음 (시나리오 선택 또는 즉석 지시 입력 필요).")
         return result
 
     # 5. 페르소나별 1 세션 생성 (시나리오 N개 합성, Phase F-B). 실패 격리.

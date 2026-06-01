@@ -231,6 +231,8 @@ class ScenarioContext:
     beats: list[dict[str, Any]]
     example_msgs: list[dict[str, Any]] | None
     raw_text: str | None
+    # 사용자 자유 텍스트 지시 (있으면 beats 대신/우선 흐름 가이드로 주입).
+    instruction: str | None = None
 
 
 def merge_scenario_contexts(
@@ -279,12 +281,17 @@ def merge_scenario_contexts(
         sc.raw_text or "" for sc in scenarios if sc.raw_text
     ) or None
 
+    merged_instruction = "\n\n---\n\n".join(
+        sc.instruction or "" for sc in scenarios if sc.instruction
+    ) or None
+
     return ScenarioContext(
         name=name,
         trigger_event=scenarios[0].trigger_event,
         beats=merged_beats,
         example_msgs=merged_examples if merged_examples else None,
         raw_text=merged_raw,
+        instruction=merged_instruction,
     )
 
 
@@ -448,6 +455,24 @@ def _format_examples(
     return "\n".join(lines)
 
 
+def _format_instruction(instruction: str | None, *, language: Language = "ko") -> str:
+    """사용자 자유 텍스트 지시를 프롬프트 블록으로 직렬화. 없으면 빈 문자열.
+
+    고정 beats 대신/우선해서 LLM 에 흐름 가이드로 주입한다.
+    """
+    if not instruction or not instruction.strip():
+        return ""
+    if language == "zh":
+        return (
+            "\n[场景指示 — 按以下要求自由生成简短自然的对话, 不要照抄原文]\n"
+            f"{instruction.strip()}\n"
+        )
+    return (
+        "\n[지시 — 아래 요구에 맞춰 짧고 자연스러운 대화를 자유 생성. 원문을 그대로 베끼지 말 것]\n"
+        f"{instruction.strip()}\n"
+    )
+
+
 def _build_system_prompt(
     *,
     scenario: ScenarioContext,
@@ -535,6 +560,14 @@ def _build_user_content(
     bl_text = _format_bl(bl, language=language)
     beats_text = _format_beats(scenario.beats, language=language)
     examples_text = _format_examples(scenario.example_msgs, language=language)
+    instruction_block = _format_instruction(scenario.instruction, language=language)
+    # 사용자 지시만 있고 고정 beats 가 비면 beat 자리에 자유 생성 안내.
+    if not scenario.beats:
+        beats_text = (
+            "(无固定 beat — 参考[场景指示]自由生成简短自然的对话)"
+            if language == "zh"
+            else "(고정 비트 없음 — [지시]를 참고해 짧고 자연스럽게 자유 생성)"
+        )
 
     if language == "zh":
         return f"""\
@@ -544,7 +577,7 @@ def _build_user_content(
 
 [BL 上下文]
 {bl_text}
-
+{instruction_block}
 [对话 beat — 按此流程撰写]
 {beats_text}
 
@@ -562,7 +595,7 @@ def _build_user_content(
 
 [BL 컨텍스트]
 {bl_text}
-
+{instruction_block}
 [대화 비트 — 이 흐름을 따라 작성]
 {beats_text}
 

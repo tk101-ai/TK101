@@ -258,6 +258,7 @@ def _scenario_context(scenario: DistributionScenario) -> ScenarioContext:
         beats=scenario.beats or [],
         example_msgs=scenario.example_msgs,
         raw_text=scenario.raw_text,
+        instruction=getattr(scenario, "instruction", None),
     )
 
 
@@ -319,6 +320,8 @@ def _scenario_context_for_language(
                 if twin.example_msgs
                 else scenario.example_msgs,
                 raw_text=twin.raw_text or scenario.raw_text,
+                # 사용자 지시는 원본 시나리오 것을 유지 (사용자 시나리오는 트윈 없음).
+                instruction=getattr(scenario, "instruction", None),
             )
     return _scenario_context(scenario)
 

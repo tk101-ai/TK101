@@ -141,6 +141,9 @@ class DistributionScenario(Base):
     beats = Column(JSONB, nullable=False)
     raw_text = Column(Text, nullable=True)
     example_msgs = Column(JSONB, nullable=True)
+    # 사용자 자유 텍스트 지시 (T9 — 2026-06-01). 있으면 beats 대신/우선해서
+    # 흐름 가이드로 LLM 에 주입한다. beats 가 비어도 이 지시만으로 생성 가능.
+    instruction = Column(Text, nullable=True)
     # language: 'ko' (한국어) | 'zh' (간체 중국어). 시나리오가 생성하는 대화 언어 (T9 — 2026-05-27).
     # 주간/자동 생성 경로는 이 컬럼 값을 그대로 사용한다. 기본은 'ko' (하위호환).
     language = Column(String(5), nullable=False, server_default=text("'ko'"))
