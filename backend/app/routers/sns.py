@@ -829,12 +829,23 @@ async def _upsert_metric_snapshot(
     return False
 
 
+# 동기(대화형) 메트릭 수집 1회 처리 게시물 상한 — nginx 60s 타임아웃(504) 회피.
+# 게시물당 2회 Graph 호출(post + insights)이라 댓글 수집보다 무겁다.
+# 최근 게시물 우선. 전체 백필은 internal cron(max_posts=None)이 담당.
+METRICS_MAX_POSTS_PER_RUN = 20
+
+
 async def _collect_metrics_for_account(
     db: AsyncSession,
     account: SocialAccount,
     period: str,
+    *,
+    max_posts: int | None = None,
 ) -> CollectMetricsResponse:
-    """신규 게시물 동기화 → 게시물별 메트릭 스냅샷 upsert + 게시물 컬럼 write-back."""
+    """신규 게시물 동기화 → 게시물별 메트릭 스냅샷 upsert + 게시물 컬럼 write-back.
+
+    max_posts 지정 시 최근 게시물 그만큼만 처리(동기 호출 60s 회피). None이면 전체.
+    """
     if account.platform not in METRICS_PLATFORMS:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -855,10 +866,15 @@ async def _collect_metrics_for_account(
     except Exception as exc:  # noqa: BLE001 — 동기화 실패해도 메트릭은 진행
         sync_failures.append(f"게시물 동기화 실패: {exc}")
 
-    # 2) (동기화 반영된) 게시물 목록으로 메트릭 수집.
-    posts_result = await db.execute(
-        select(SocialPost).where(SocialPost.account_id == account.id)
+    # 2) (동기화 반영된) 게시물 목록으로 메트릭 수집. 최근 게시물 우선.
+    posts_query = (
+        select(SocialPost)
+        .where(SocialPost.account_id == account.id)
+        .order_by(SocialPost.posted_at.desc())
     )
+    if max_posts:
+        posts_query = posts_query.limit(max_posts)
+    posts_result = await db.execute(posts_query)
     posts = posts_result.scalars().all()
 
     processed = 0
@@ -923,7 +939,10 @@ async def collect_metrics(
     account = result.scalar_one_or_none()
     if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="계정을 찾을 수 없습니다")
-    return await _collect_metrics_for_account(db, account, period)
+    # 동기(대화형) 호출은 최근 게시물 상한 적용 — nginx 60s 504 회피. 전체는 cron.
+    return await _collect_metrics_for_account(
+        db, account, period, max_posts=METRICS_MAX_POSTS_PER_RUN
+    )
 
 
 @router.get(
