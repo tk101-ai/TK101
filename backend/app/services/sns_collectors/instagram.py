@@ -47,8 +47,11 @@ _MEDIA_INSIGHT_METRICS = "reach,views"
 _REELS_INSIGHT_METRICS = "reach,views"
 # 댓글 노드 필드 — IG 댓글은 text/username/timestamp/like_count.
 _COMMENT_FIELDS = "id,text,username,timestamp,like_count"
-# permalink→media_id 매핑용 미디어 인덱스 페이지 상한 (id/permalink 만이라 가벼움).
-_MEDIA_INDEX_MAX_PAGES = 50
+# 동기(대화형) 게시물 동기화 시 최근 미디어만 — 대형 계정 nginx 60s 504 회피. 전체는 full=True.
+_QUICK_MAX_PAGES = 3  # 25/page × 3 = 최근 75개
+# permalink→media_id 매핑용 미디어 인덱스 페이지 상한.
+# 대형 계정에서 전체(50p)는 동기 호출 60s 초과 → 최근 분량만 인덱싱(이후 external_id 백필로 빠른 경로).
+_MEDIA_INDEX_MAX_PAGES = 12
 # permalink 경로에서 shortcode 앞에 오는 segment.
 _SHORTCODE_PREFIXES = {"p", "reel", "reels", "tv"}
 
@@ -147,9 +150,13 @@ class InstagramCollector(BaseCollector):
         self,
         since: date | None = None,
         until: date | None = None,
+        *,
+        full: bool = False,
     ) -> list[CollectedPost]:
+        # 동기 수집은 최근 미디어만(대형 계정 60s 504 회피). 전체 백필은 full=True.
+        kwargs = {} if full else {"max_pages": _QUICK_MAX_PAGES}
         raw_media = await graph_get_paged(
-            f"{self.user_ref}/media", params={"fields": _MEDIA_FIELDS}
+            f"{self.user_ref}/media", params={"fields": _MEDIA_FIELDS}, **kwargs
         )
         posts: list[CollectedPost] = []
         for raw in raw_media:
