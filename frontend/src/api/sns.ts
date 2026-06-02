@@ -66,6 +66,8 @@ export interface CollectMetricsResponse {
   snapshots_added: number;
   snapshots_updated: number;
   skipped: number;
+  posts_added: number;
+  posts_updated: number;
   failures: string[];
 }
 
@@ -75,9 +77,16 @@ export interface SnsComment {
   external_comment_id: string | null;
   author: string | null;
   text: string | null;
+  translated_text: string | null;
   commented_at: string | null;
   like_count: number | null;
   created_at: string;
+}
+
+export interface CommentTranslateResponse {
+  post_id: string;
+  translated: number;
+  comments: SnsComment[];
 }
 
 export interface CollectCommentsResponse {
@@ -253,6 +262,14 @@ export interface CommentAnalysis {
 // 게시물 댓글 AI 분석/요약 (한국어). 먼저 댓글 수집 필요 + ANTHROPIC_API_KEY.
 export const analyzePostComments = (postId: string) =>
   api.post<CommentAnalysis>(`/api/sns/posts/${postId}/comments/analyze`);
+
+// 게시물 댓글 다국어→한국어 번역. 원문 보존, 번역문만 캐시. force=true면 재번역.
+export const translatePostComments = (postId: string, force = false) =>
+  api.post<CommentTranslateResponse>(
+    `/api/sns/posts/${postId}/comments/translate`,
+    null,
+    { params: { force } },
+  );
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
   facebook: "페이스북",

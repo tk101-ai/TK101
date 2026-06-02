@@ -240,6 +240,9 @@ class CollectMetricsResponse(BaseModel):
     snapshots_added: int
     snapshots_updated: int
     skipped: int
+    # 메트릭 수집 전 신규 게시물 동기화 결과 (fetch_posts 통합). 동기화 실패 시 0.
+    posts_added: int = 0
+    posts_updated: int = 0
     failures: list[str] = Field(default_factory=list)
 
 
@@ -252,6 +255,7 @@ class CommentRead(BaseModel):
     external_comment_id: str | None
     author: str | None
     text: str | None
+    translated_text: str | None = None
     commented_at: datetime | None
     like_count: int | None
     created_at: datetime
@@ -265,6 +269,14 @@ class CollectCommentsResponse(BaseModel):
     comments_updated: int
     skipped: int
     failures: list[str] = Field(default_factory=list)
+
+
+class CommentTranslateResponse(BaseModel):
+    """게시물 댓글 번역 결과 — 번역된 건수 + 번역 포함 전체 댓글."""
+
+    post_id: uuid.UUID
+    translated: int  # 이번 호출에서 새로 번역한 건수
+    comments: list[CommentRead]
 
 
 class CommentAnalysisResponse(BaseModel):

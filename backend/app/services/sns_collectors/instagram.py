@@ -41,11 +41,16 @@ _MEDIA_FIELDS = (
     "id,caption,media_type,permalink,timestamp,"
     "like_count,comments_count"
 )
-# media insights — reels 는 plays, 일반 게시물은 reach/impressions.
-_MEDIA_INSIGHT_METRICS = "reach,impressions"
-_REELS_INSIGHT_METRICS = "reach,plays"
+# media insights — v25부터 impressions/plays 가 deprecated 되고 'views' 로 통합됨.
+# 일반 게시물·reels 모두 reach,views 로 요청한다(구버전 metric 요청 시 Graph 오류 → 빈 결과).
+_MEDIA_INSIGHT_METRICS = "reach,views"
+_REELS_INSIGHT_METRICS = "reach,views"
 # 댓글 노드 필드 — IG 댓글은 text/username/timestamp/like_count.
 _COMMENT_FIELDS = "id,text,username,timestamp,like_count"
+# permalink→media_id 매핑용 미디어 인덱스 페이지 상한 (id/permalink 만이라 가벼움).
+_MEDIA_INDEX_MAX_PAGES = 50
+# permalink 경로에서 shortcode 앞에 오는 segment.
+_SHORTCODE_PREFIXES = {"p", "reel", "reels", "tv"}
 
 
 def extract_instagram_user_ref(*candidates: str | None) -> str | None:
@@ -78,6 +83,9 @@ class InstagramCollector(BaseCollector):
         if not user_ref:
             raise CollectorError("Instagram Business 계정 ID 가 필요합니다.")
         self.user_ref = user_ref
+        # shortcode→media_id 인덱스 lazy 캐시 (permalink 만 저장된 게시물 해석용).
+        self._media_index_loaded = False
+        self._shortcode_to_id: dict[str, str] = {}
 
     @classmethod
     async def from_account(cls, account: "SocialAccount") -> "InstagramCollector":
@@ -90,6 +98,44 @@ class InstagramCollector(BaseCollector):
                 "계정 정보에 입력해 주세요."
             )
         return cls(user_ref=user_ref)
+
+    async def _load_media_index(self) -> dict[str, str]:
+        """계정 미디어 목록에서 shortcode→media_id 인덱스 구축 (1회, 캐시).
+
+        permalink 만 저장된 게시물(external_id NULL)의 댓글/메트릭 수집을 위해,
+        본인 소유 계정의 /{user}/media?fields=id,permalink 로 매핑을 만든다.
+        """
+        if self._media_index_loaded:
+            return self._shortcode_to_id
+        self._media_index_loaded = True
+        raw_media = await graph_get_paged(
+            f"{self.user_ref}/media",
+            params={"fields": "id,permalink"},
+            max_pages=_MEDIA_INDEX_MAX_PAGES,
+        )
+        index: dict[str, str] = {}
+        for media in raw_media:
+            media_id = media.get("id")
+            shortcode = _instagram_shortcode(media.get("permalink"))
+            if media_id and shortcode:
+                index[shortcode] = str(media_id)
+        self._shortcode_to_id = index
+        return index
+
+    async def resolve_media_ref(self, post_ref: str | None) -> str | None:
+        """게시물 참조(숫자 ID/permalink/URL)를 Graph media_id 로 해석.
+
+        숫자 media_id 면 그대로. permalink shortcode 면 미디어 인덱스로 역매핑.
+        해석 실패 시 None (caller 가 skip 처리).
+        """
+        direct = extract_instagram_media_id(post_ref)
+        if direct:
+            return direct
+        shortcode = _instagram_shortcode(post_ref)
+        if shortcode:
+            index = await self._load_media_index()
+            return index.get(shortcode)
+        return None
 
     async def fetch_followers(self) -> int:
         data = await graph_get(
@@ -118,7 +164,7 @@ class InstagramCollector(BaseCollector):
         return posts
 
     async def fetch_post_metrics(self, post_ref: str) -> PostMetrics:
-        media_id = extract_instagram_media_id(post_ref)
+        media_id = await self.resolve_media_ref(post_ref)
         if not media_id:
             raise CollectorError(f"Instagram 미디어 ID 를 인식하지 못했습니다: {post_ref}")
         data = await graph_get(media_id, params={"fields": _MEDIA_FIELDS})
@@ -129,8 +175,9 @@ class InstagramCollector(BaseCollector):
         """단일 media(URL 또는 media ID)의 댓글 본문 목록.
 
         소유/관리 IG 비즈니스 계정의 미디어에만 동작 (Graph API 제약).
+        external_id(숫자) 가 없고 permalink 만 있는 게시물도 미디어 인덱스로 해석한다.
         """
-        media_id = extract_instagram_media_id(post_ref)
+        media_id = await self.resolve_media_ref(post_ref)
         if not media_id:
             raise CollectorError(f"Instagram 미디어 ID 를 인식하지 못했습니다: {post_ref}")
         raw_comments = await graph_get_paged(
@@ -163,6 +210,25 @@ class InstagramCollector(BaseCollector):
             if name and values:
                 result[name] = safe_int(values[0].get("value"))
         return result
+
+
+def _instagram_shortcode(url_or_ref: str | None) -> str | None:
+    """IG permalink/URL 에서 shortcode 추출.
+
+    `https://www.instagram.com/p/DXeGpNfGYSL/` → `DXeGpNfGYSL`
+    `/reel/DXbMaYAkSOv/` → `DXbMaYAkSOv`. /p/, /reel(s)/, /tv/ 뒤 segment.
+    instagram.com 이 아니거나 패턴 불일치면 None.
+    """
+    if not url_or_ref:
+        return None
+    text = url_or_ref.strip()
+    if "instagram.com" not in text:
+        return None
+    segments = [seg for seg in (urlparse(text).path or "").split("/") if seg]
+    for idx, seg in enumerate(segments):
+        if seg in _SHORTCODE_PREFIXES and idx + 1 < len(segments):
+            return segments[idx + 1]
+    return None
 
 
 def extract_instagram_media_id(post_ref: str) -> str | None:
@@ -257,7 +323,12 @@ def _build_metrics(raw: dict, insights: dict[str, int | None]) -> PostMetrics:
     likes = safe_int(raw.get("like_count")) or 0
     comments = safe_int(raw.get("comments_count")) or 0
     reach = insights.get("reach")
-    views = insights.get("plays") or insights.get("impressions")
+    # v25 'views' 우선, 구버전 metric(plays/impressions)도 폴백 처리.
+    views = (
+        insights.get("views")
+        or insights.get("plays")
+        or insights.get("impressions")
+    )
     return PostMetrics(
         views=views,
         reach=reach,

@@ -156,9 +156,17 @@ export default function SeoulSns() {
     setCollecting(true);
     try {
       const res = await collectMetrics(channel.id, "daily");
-      const { posts_processed, snapshots_added, snapshots_updated, failures } = res.data;
+      const {
+        posts_processed,
+        snapshots_added,
+        snapshots_updated,
+        posts_added,
+        posts_updated,
+        failures,
+      } = res.data;
       message.success(
-        `메트릭 수집 완료 — 처리 ${posts_processed} · 신규 ${snapshots_added} · 갱신 ${snapshots_updated}`,
+        `수집 완료 — 신규 게시물 ${posts_added} · 게시물 갱신 ${posts_updated} · ` +
+          `메트릭 처리 ${posts_processed}(신규 ${snapshots_added}/갱신 ${snapshots_updated})`,
       );
       if (failures.length > 0) {
         message.warning(`일부 실패 ${failures.length}건 (콘솔/응답 확인)`);
@@ -328,7 +336,7 @@ export default function SeoulSns() {
         showIcon
         style={{ marginBottom: 20 }}
         message="자동 모드는 메타 API 토큰이 등록되어야 동작합니다"
-        description="토큰 미설정 시 게시물/메트릭 자동 수집은 비활성화되며, 수동 콘텐츠 등록은 정상 동작합니다. 토큰 등록 후 '메트릭 수집'을 누르면 조회수/좋아요/댓글/공유가 채워집니다."
+        description="토큰 미설정 시 자동 수집은 비활성화되며, 수동 콘텐츠 등록은 정상 동작합니다. '게시물·메트릭 수집'을 누르면 신규 게시물을 가져오고 조회수/좋아요/댓글/공유를 채웁니다. (페이스북 일반 게시물은 메타가 조회수를 제공하지 않아 영상/릴스만 표시됩니다.)"
       />
 
       <ChannelSelector
@@ -353,7 +361,7 @@ export default function SeoulSns() {
           disabled={!channel}
           onClick={handleCollectMetrics}
         >
-          메트릭 수집 (자동)
+          게시물·메트릭 수집
         </Button>
         <Button
           icon={<CommentOutlined />}

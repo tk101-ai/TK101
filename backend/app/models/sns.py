@@ -109,6 +109,8 @@ class SocialPostComment(UUIDMixin, TimestampMixin, Base):
     external_comment_id = Column(String, nullable=True, index=True)  # Graph 댓글 ID
     author = Column(String, nullable=True)  # IG username / FB from.name
     text = Column(Text, nullable=True)
+    # 조회 시 번역(다국어→한국어) 캐시. 원문(text)은 보존. NULL이면 아직 미번역. (마이그레이션 029)
+    translated_text = Column(Text, nullable=True)
     commented_at = Column(DateTime(timezone=True), nullable=True)
     like_count = Column(Integer, nullable=True)
     raw = Column(JSONB, nullable=True)

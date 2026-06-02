@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 from datetime import date, datetime, timedelta, timezone
 
@@ -25,6 +26,7 @@ from app.schemas.sns import (
     CommentAnalysisResponse,
     CollectMetricsResponse,
     CommentRead,
+    CommentTranslateResponse,
     ContentCreate,
     GrowthCard,
     ImportResponse,
@@ -40,6 +42,8 @@ from app.schemas.sns import (
     WeeklyKpiRow,
 )
 from app.services.sns_collectors.base import BaseCollector, CollectorError
+
+logger = logging.getLogger(__name__)
 
 # 자동 수집 가능한 플랫폼. Collector 추가 시 여기에 등록.
 SUPPORTED_PLATFORMS = ("youtube", "facebook", "instagram")
@@ -715,6 +719,66 @@ def _post_ref(post: SocialPost) -> str | None:
     return post.external_id or post.url
 
 
+def _writeback_post_metrics(post: SocialPost, metrics) -> None:
+    """수집한 메트릭을 게시물 컬럼에 반영해 목록/통계에서 바로 보이게 한다.
+
+    None 값은 해당 플랫폼이 제공하지 않는 지표이므로 기존 값을 보존(덮어쓰지 않음).
+    예) FB 일반 게시물은 조회수(views)를 제공하지 않으므로 view_count 를 건드리지 않는다.
+    """
+    if metrics.get("views") is not None:
+        post.view_count = metrics.get("views")
+    if metrics.get("reach") is not None:
+        post.reach_count = metrics.get("reach")
+    if metrics.get("likes") is not None:
+        post.like_count = metrics.get("likes")
+    if metrics.get("comments") is not None:
+        post.comment_count = metrics.get("comments")
+    if metrics.get("shares") is not None:
+        post.share_count = metrics.get("shares")
+    if metrics.get("engagement_total") is not None:
+        post.total_engagement = metrics.get("engagement_total")
+
+
+async def _sync_account_posts(
+    db: AsyncSession, account: SocialAccount, collector: BaseCollector
+) -> tuple[int, int]:
+    """메트릭 수집 전 최신 게시물 목록을 동기화. (추가, 갱신) 수 반환.
+
+    '메트릭 수집' 한 번으로 신규 게시물도 함께 반영되도록 fetch_posts → upsert 한다.
+    좋아요/댓글 집계(comment_count 등)도 최신화되어 이후 댓글 수집의 0댓글 스킵 판단이
+    정확해진다. 팔로워 주간 스냅샷도 함께 갱신(실패는 격리). commit 은 caller 담당.
+    """
+    if account.platform == "youtube":
+        collected = await collector.fetch_posts(full=False)  # type: ignore[call-arg]
+    else:
+        collected = await collector.fetch_posts()
+    added = 0
+    updated = 0
+    for cp in collected:
+        payload = PostCreate(account_id=account.id, **cp)
+        if await _upsert_post(db, payload):
+            updated += 1
+        else:
+            added += 1
+    try:
+        followers = await collector.fetch_followers()
+        year, month, week_number = _current_iso_week_parts()
+        await _upsert_snapshot(
+            db,
+            SnapshotCreate(
+                account_id=account.id,
+                year=year,
+                month=month,
+                week_number=week_number,
+                followers=int(followers),
+            ),
+        )
+    except Exception:  # noqa: BLE001 — 팔로워 동기화 실패는 메트릭 수집을 막지 않음
+        logger.warning("팔로워 스냅샷 갱신 실패: account=%s", account.id, exc_info=True)
+    await db.flush()
+    return added, updated
+
+
 async def _upsert_metric_snapshot(
     db: AsyncSession,
     post_id,
@@ -770,7 +834,7 @@ async def _collect_metrics_for_account(
     account: SocialAccount,
     period: str,
 ) -> CollectMetricsResponse:
-    """계정의 모든 게시물에 대해 fetch_post_metrics → 메트릭 스냅샷 upsert."""
+    """신규 게시물 동기화 → 게시물별 메트릭 스냅샷 upsert + 게시물 컬럼 write-back."""
     if account.platform not in METRICS_PLATFORMS:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -778,6 +842,20 @@ async def _collect_metrics_for_account(
         )
 
     collector = await _build_collector(account)
+
+    # 1) 신규 게시물 동기화 — '메트릭 수집' 한 번으로 최근 게시물도 갱신되게 한다.
+    #    동기화 실패(권한/네트워크)는 기존 게시물 메트릭 수집을 막지 않도록 격리한다.
+    posts_added = 0
+    posts_updated = 0
+    sync_failures: list[str] = []
+    try:
+        posts_added, posts_updated = await _sync_account_posts(db, account, collector)
+    except CollectorError as exc:
+        sync_failures.append(f"게시물 동기화: {exc}")
+    except Exception as exc:  # noqa: BLE001 — 동기화 실패해도 메트릭은 진행
+        sync_failures.append(f"게시물 동기화 실패: {exc}")
+
+    # 2) (동기화 반영된) 게시물 목록으로 메트릭 수집.
     posts_result = await db.execute(
         select(SocialPost).where(SocialPost.account_id == account.id)
     )
@@ -787,7 +865,7 @@ async def _collect_metrics_for_account(
     added = 0
     updated = 0
     skipped = 0
-    failures: list[str] = []
+    failures: list[str] = list(sync_failures)
 
     for post in posts:
         ref = _post_ref(post)
@@ -803,6 +881,7 @@ async def _collect_metrics_for_account(
             failures.append(f"{ref}: {exc}")
             continue
         was_updated = await _upsert_metric_snapshot(db, post.id, period, metrics)
+        _writeback_post_metrics(post, metrics)
         processed += 1
         if was_updated:
             updated += 1
@@ -821,6 +900,8 @@ async def _collect_metrics_for_account(
         snapshots_added=added,
         snapshots_updated=updated,
         skipped=skipped,
+        posts_added=posts_added,
+        posts_updated=posts_updated,
         failures=failures,
     )
 
@@ -934,6 +1015,22 @@ async def _collect_comments_for_account(
         .limit(max_posts)
     )
     posts = posts_result.scalars().all()
+
+    # IG: permalink 만 저장된 게시물(external_id NULL)은 media_id 로 백필.
+    # 이후 댓글/메트릭 수집이 숫자 ID 빠른 경로를 타고, 메트릭 수집도 정상화된다.
+    # 인덱스 구축(1회) 실패는 전체를 막지 않도록 격리 — fetch_comments 가 내부 재해석.
+    if account.platform == "instagram" and hasattr(collector, "resolve_media_ref"):
+        for post in posts:
+            if post.external_id or not post.url:
+                continue
+            try:
+                media_id = await collector.resolve_media_ref(post.url)
+            except CollectorError:
+                break  # 토큰/권한 등 공통 실패 — 백필 중단(수집 단계에서 보고)
+            except Exception:  # noqa: BLE001 — 개별 해석 실패는 건너뜀
+                continue
+            if media_id:
+                post.external_id = media_id
 
     processed = 0
     added = 0
@@ -1075,6 +1172,80 @@ async def analyze_post_comments(
 
     return CommentAnalysisResponse(
         post_id=post.id, comment_count=len(comments), summary=summary
+    )
+
+
+@router.post(
+    "/posts/{post_id}/comments/translate",
+    response_model=CommentTranslateResponse,
+)
+async def translate_post_comments(
+    post_id: str,
+    force: bool = Query(False, description="True면 이미 번역된 댓글도 다시 번역"),
+    db: AsyncSession = Depends(get_db),
+):
+    """게시물 댓글을 한국어로 번역(다국어→한국어). 원문은 보존, 번역문만 캐시.
+
+    글로벌 채널 특성상 댓글이 외국어로 달리므로 마케팅 담당자가 읽을 수 있게 번역한다.
+    이미 번역된 댓글은 건너뛴다(force=True면 재번역). ANTHROPIC_API_KEY 필요.
+    """
+    post = (
+        await db.execute(select(SocialPost).where(SocialPost.id == post_id))
+    ).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="게시물을 찾을 수 없습니다")
+    post_pk = post.id
+
+    rows = await db.execute(
+        select(SocialPostComment)
+        .where(SocialPostComment.post_id == post_id)
+        .order_by(SocialPostComment.commented_at.asc().nullslast())
+    )
+    all_comments = list(rows.scalars().all())
+
+    # 번역 대상: 원문이 있고, force 거나 아직 미번역인 댓글.
+    targets = [
+        c
+        for c in all_comments
+        if (c.text and c.text.strip()) and (force or not c.translated_text)
+    ]
+
+    translated_count = 0
+    if targets:
+        if not settings.anthropic_api_key:
+            raise HTTPException(
+                status_code=503, detail="ANTHROPIC_API_KEY 미설정 — 댓글 번역 불가."
+            )
+        from app.services.sns_collectors.comment_translator import translate_to_korean
+
+        try:
+            results = await translate_to_korean([c.text or "" for c in targets])
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:  # noqa: BLE001 — 외부 LLM 호출 실패 격리
+            raise HTTPException(
+                status_code=502, detail=f"댓글 번역 실패: {type(exc).__name__}"
+            )
+        for comment, translated in zip(targets, results):
+            if translated:
+                comment.translated_text = translated
+                translated_count += 1
+        try:
+            await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=f"번역 저장 실패: {exc}")
+
+    # 번역 반영된 최종 목록 재조회 (commit 후 일관 상태로 반환).
+    final = await db.execute(
+        select(SocialPostComment)
+        .where(SocialPostComment.post_id == post_id)
+        .order_by(SocialPostComment.commented_at.asc().nullslast())
+    )
+    return CommentTranslateResponse(
+        post_id=post_pk,
+        translated=translated_count,
+        comments=list(final.scalars().all()),
     )
 
 

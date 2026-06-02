@@ -13,7 +13,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { BulbOutlined, LikeOutlined } from "@ant-design/icons";
+import { BulbOutlined, LikeOutlined, TranslationOutlined } from "@ant-design/icons";
 import {
   CartesianGrid,
   Legend,
@@ -28,6 +28,7 @@ import {
   analyzePostComments,
   listPostComments,
   listPostMetrics,
+  translatePostComments,
   type MetricSnapshot,
   type SnsComment,
   type SnsPost,
@@ -82,6 +83,27 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const [showTranslation, setShowTranslation] = useState(false);
+
+  const handleTranslate = useCallback(async () => {
+    if (!post) return;
+    setTranslating(true);
+    try {
+      const res = await translatePostComments(post.id);
+      setComments(res.data.comments);
+      setShowTranslation(true);
+      message.success(
+        res.data.translated > 0
+          ? `번역 완료 — ${res.data.translated}건 새로 번역`
+          : "이미 번역된 댓글입니다 (번역 보기로 전환)",
+      );
+    } catch (err) {
+      message.error(extractErrorDetail(err, "댓글 번역 실패"));
+    } finally {
+      setTranslating(false);
+    }
+  }, [post]);
 
   const handleAnalyze = useCallback(async () => {
     if (!post) return;
@@ -133,12 +155,17 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
     else if (!post) setComments([]);
   }, [post, activeTab, fetchComments]);
 
-  // 게시물 바뀌면 이전 분석 결과 초기화.
+  // 게시물 바뀌면 이전 분석/번역 상태 초기화.
   useEffect(() => {
     setAnalysis(null);
+    setShowTranslation(false);
   }, [post]);
 
   const chartData = useMemo(() => snapshots.map(toChartDatum), [snapshots]);
+  const hasTranslations = useMemo(
+    () => comments.some((c) => c.translated_text),
+    [comments],
+  );
 
   const metricsTab = (
     <>
@@ -219,31 +246,45 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
         />
       ) : (
         <>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 12,
-              gap: 8,
-            }}
-          >
+          <div style={{ marginBottom: 12 }}>
             <Alert
               type="info"
               showIcon
               banner
-              style={{ flex: 1, marginBottom: 0 }}
+              style={{ marginBottom: 8 }}
               message={`댓글 ${comments.length}개`}
             />
-            <Button
-              icon={<BulbOutlined />}
-              loading={analyzing}
-              onClick={() => {
-                void handleAnalyze();
-              }}
-            >
-              AI 분석/요약
-            </Button>
+            <Space wrap>
+              {hasTranslations ? (
+                <Segmented
+                  size="small"
+                  value={showTranslation ? "ko" : "orig"}
+                  onChange={(v) => setShowTranslation(v === "ko")}
+                  options={[
+                    { value: "orig", label: "원문" },
+                    { value: "ko", label: "번역" },
+                  ]}
+                />
+              ) : null}
+              <Button
+                icon={<TranslationOutlined />}
+                loading={translating}
+                onClick={() => {
+                  void handleTranslate();
+                }}
+              >
+                {hasTranslations ? "재번역" : "한국어 번역"}
+              </Button>
+              <Button
+                icon={<BulbOutlined />}
+                loading={analyzing}
+                onClick={() => {
+                  void handleAnalyze();
+                }}
+              >
+                AI 분석/요약
+              </Button>
+            </Space>
           </div>
           {analysis ? (
             <Alert
@@ -281,9 +322,22 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
                     </Space>
                   }
                   description={
-                    <Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                      {c.text || "(내용 없음)"}
-                    </Paragraph>
+                    showTranslation && c.translated_text ? (
+                      <Space direction="vertical" size={2} style={{ width: "100%" }}>
+                        <Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                          {c.translated_text}
+                        </Paragraph>
+                        {c.text ? (
+                          <Text type="secondary" style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>
+                            원문: {c.text}
+                          </Text>
+                        ) : null}
+                      </Space>
+                    ) : (
+                      <Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                        {c.text || "(내용 없음)"}
+                      </Paragraph>
+                    )
                   }
                 />
               </List.Item>
