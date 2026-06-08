@@ -1,8 +1,10 @@
 import { useEffect } from "react";
-import { Alert, Form, Input, Modal, Typography, message } from "antd";
+import { Alert, Form, Input, Modal, Select, Typography, message } from "antd";
 import {
+  PERSONA_ROLE_OPTIONS,
   updatePersona,
   type PersonaOut,
+  type PersonaRole,
   type PersonaUpdatePayload,
 } from "../../api/distribution";
 import { extractErrorDetail } from "../../utils/errorUtils";
@@ -26,6 +28,7 @@ interface Props {
 
 interface FormValues {
   account_label: string;
+  role: PersonaRole;
   business_name: string;
   display_name: string;
 }
@@ -48,6 +51,7 @@ export default function PersonaBusinessNameModal({
     if (open && persona) {
       form.setFieldsValue({
         account_label: persona.account_label ?? "",
+        role: persona.role,
         business_name: persona.business_name ?? "",
         display_name: persona.display_name ?? "",
       });
@@ -70,6 +74,9 @@ export default function PersonaBusinessNameModal({
     const payload: PersonaUpdatePayload = {};
     if (nextLabel.length > 0 && nextLabel !== persona.account_label) {
       payload.account_label = nextLabel;
+    }
+    if (values.role && values.role !== persona.role) {
+      payload.role = values.role;
     }
     if (nextBusinessName !== (persona.business_name ?? null)) {
       payload.business_name = nextBusinessName;
@@ -134,6 +141,14 @@ export default function PersonaBusinessNameModal({
               ]}
             >
               <Input placeholder="예: LA / VN-admin" maxLength={20} />
+            </Form.Item>
+
+            <Form.Item
+              name="role"
+              label="역할 (발신/수신 라우팅)"
+              help="국내 어드민 = 한국(발신 후보) · 베트남 어드민 = 베트남(수신 자동선택 대상). 계정을 재배치하면 역할도 맞춰주세요."
+            >
+              <Select options={PERSONA_ROLE_OPTIONS} />
             </Form.Item>
 
             <Form.Item

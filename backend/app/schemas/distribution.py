@@ -77,6 +77,10 @@ class PersonaUpdate(BaseModel):
         max_length=20,
         pattern=r"^[A-Za-z0-9_-]+$",
     )
+    # role(역할) 수정 가능 (2026-06-08). 발신/수신 라우팅의 기준 —
+    # domestic_admin=한국(발신 후보), vietnam_admin=베트남(수신 자동선택 대상).
+    # 계정을 재배치한 뒤 역할이 안 맞으면 라우팅이 어긋나므로 편집 허용.
+    role: PersonaRole | None = None
     display_name: str | None = Field(default=None, max_length=100)
     # business_name: 사업자명 라벨 (UI 표시 우선). account_label 코드명과 별개.
     business_name: str | None = Field(default=None, max_length=200)

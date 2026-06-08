@@ -64,6 +64,8 @@ export interface PersonaOut {
 export interface PersonaUpdatePayload {
   // 라벨(코드명) 수정 — 영문/숫자/하이픈/언더스코어만, UNIQUE (중복 시 409).
   account_label?: string;
+  // 역할 수정 — 발신(국내)/수신(베트남) 라우팅 기준.
+  role?: PersonaRole;
   display_name?: string;
   business_name?: string | null;
   active?: boolean;
