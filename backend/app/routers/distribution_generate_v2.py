@@ -164,6 +164,42 @@ async def _pick_active_vietnam_admin(
     return candidates[0]
 
 
+def _is_logged_in(p: DistributionPersona) -> bool:
+    """로그인(세션) 완료 여부 — session_path + telegram_user_id 둘 다 있어야."""
+    return bool(p.session_path) and bool(p.telegram_user_id)
+
+
+async def _pick_counterpart(
+    db: AsyncSession, sender: DistributionPersona
+) -> DistributionPersona | None:
+    """발신 sender 의 대화 상대(수신) 1명 자동 선택 (2026-06-08).
+
+    역할 제한 없이 발신을 허용하므로, 상대는 'sender 와 다른 활성·자격증명 보유'
+    계정 중에서 고른다. 우선순위:
+      1) 반대 역할 + 로그인됨   2) 반대 역할   3) 로그인됨   4) 그 외
+    공급 방향(한국=공급/베트남=수령) 일관성을 위해 반대 역할을 우선한다.
+    """
+    stmt = (
+        select(DistributionPersona)
+        .where(
+            DistributionPersona.id != sender.id,
+            DistributionPersona.active.is_(True),
+        )
+        .order_by(DistributionPersona.account_label)
+    )
+    res = await db.execute(stmt)
+    candidates = [p for p in res.scalars().all() if _has_credentials(p)]
+    if not candidates:
+        return None
+    opposite = (
+        "vietnam_admin" if sender.role == "domestic_admin" else "domestic_admin"
+    )
+    candidates.sort(
+        key=lambda p: (p.role == opposite, _is_logged_in(p)), reverse=True
+    )
+    return candidates[0]
+
+
 async def _scenarios_by_names_active(
     db: AsyncSession, *, names: list[str]
 ) -> list[DistributionScenario]:
@@ -207,35 +243,18 @@ async def generate_custom(
             detail="period_label 형식이 올바르지 않습니다 (예: 2026_0512).",
         )
 
-    # 1. 한국 페르소나 조회 + 역할 검증.
+    # 1. 발신 페르소나 조회 (역할 무관 — 2026-06-08).
+    #    로그인/자격증명 보유 계정이면 역할(국내/베트남) 상관없이 발신 가능.
+    #    상대(수신)는 _pick_counterpart 로 발신마다 반대역할·로그인 우선 자동 선택.
     requested = await _personas_by_ids(db, ids=payload.sender_persona_ids)
     found_ids = {p.id for p in requested}
     missing_ids = [pid for pid in payload.sender_persona_ids if pid not in found_ids]
     for pid in missing_ids:
         result.errors.append(f"페르소나 {pid}: 존재하지 않음")
 
-    kr_personas: list[DistributionPersona] = []
-    for p in requested:
-        if p.role != "domestic_admin":
-            result.errors.append(
-                f"{_label_or_id(p)}: role={p.role} — 국내 어드민이 아니므로 제외"
-            )
-            continue
-        kr_personas.append(p)
-
-    if not kr_personas:
-        result.errors.append("유효한 국내 어드민 페르소나가 없습니다.")
-        return result
-
-    # 2. 베트남 어드민 자동 선택.
-    vn_persona = await _pick_active_vietnam_admin(db)
-    if vn_persona is None:
-        result.errors.append("활성 베트남 어드민 페르소나가 없습니다.")
-        return result
-    if not _has_credentials(vn_persona):
-        result.skipped.append(
-            f"{_label_or_id(vn_persona)}: credentials missing — 베트남 페어 불가, 전체 중단"
-        )
+    sender_personas: list[DistributionPersona] = list(requested)
+    if not sender_personas:
+        result.errors.append("유효한 발신 페르소나가 없습니다.")
         return result
 
     # 3. weekly_summary 조회 (use_weekly_summary=False 면 컨텍스트 미주입).
@@ -291,17 +310,25 @@ async def generate_custom(
 
     # 5. 페르소나별 1 세션 생성 (시나리오 N개 합성, Phase F-B). 실패 격리.
     scenario_names_str = " + ".join(s.name for s in scenarios)
-    for kr in kr_personas:
-        kr_label = _label_or_id(kr)
-        if not _has_credentials(kr):
-            result.skipped.append(f"{kr_label}: credentials missing")
+    for sender in sender_personas:
+        sender_label = _label_or_id(sender)
+        if not _has_credentials(sender):
+            result.skipped.append(f"{sender_label}: credentials missing")
+            continue
+
+        # 발신마다 상대(수신) 자동 선택 — 반대역할·로그인 우선, 자신 제외.
+        vn_persona = await _pick_counterpart(db, sender)
+        if vn_persona is None:
+            result.skipped.append(
+                f"{sender_label}: 대화 상대(수신)로 쓸 다른 활성·자격증명 계정이 없습니다."
+            )
             continue
 
         try:
             session_id = await _create_one_pair_combined_session(
                 db,
                 scenarios=scenarios,
-                kr_persona=kr,
+                kr_persona=sender,
                 vn_persona=vn_persona,
                 bl_ctx=bl_ctx,
                 timing_profile=payload.timing_profile,
@@ -312,17 +339,17 @@ async def generate_custom(
             logger.info(
                 "distribution.custom: session=%s pair=%s↔%s scenarios=%s 생성(합성)",
                 session_id,
-                kr_label,
+                sender_label,
                 vn_persona.account_label,
                 scenario_names_str,
             )
         except GenerationError as exc:
-            msg = f"{kr_label} / 합성({scenario_names_str}): {exc}"
+            msg = f"{sender_label} / 합성({scenario_names_str}): {exc}"
             result.errors.append(msg)
             logger.warning("distribution.custom: 생성 실패 — %s", msg)
         except Exception as exc:  # noqa: BLE001 — 페르소나 단위 격리
             msg = (
-                f"{kr_label} / 합성({scenario_names_str}): "
+                f"{sender_label} / 합성({scenario_names_str}): "
                 f"예기치 못한 오류 ({type(exc).__name__})"
             )
             result.errors.append(msg)

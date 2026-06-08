@@ -104,14 +104,15 @@ export default function GenerateTriggerModal({
   const [editingPersona, setEditingPersona] = useState<PersonaOut | null>(null);
   const [editOpen, setEditOpen] = useState<boolean>(false);
 
-  // 한국 어드민 + 자격증명 보유만 노출하는 공통 필터.
-  const onlyUsableKr = (list: PersonaOut[]): PersonaOut[] =>
-    list.filter((p) => p.role === "domestic_admin" && p.has_credentials);
+  // 로그인(세션) 완료된 계정은 역할(국내/베트남) 무관 모두 발신 후보로 노출 (2026-06-08).
+  // 상대(수신)는 백엔드가 발신마다 반대역할·로그인 우선으로 자동 선택.
+  const loggedInPersonas = (list: PersonaOut[]): PersonaOut[] =>
+    list.filter((p) => p.is_logged_in);
 
   // 이름 수정 후 목록만 다시 불러와 라벨을 즉시 갱신 (선택값은 유지).
   const reloadPersonas = async () => {
     try {
-      setPersonas(onlyUsableKr(await listPersonas()));
+      setPersonas(loggedInPersonas(await listPersonas()));
     } catch (err: unknown) {
       message.error(extractErrorDetail(err, "페르소나 목록 갱신 실패"));
     }
@@ -192,7 +193,7 @@ export default function GenerateTriggerModal({
           listWeeklySummary({ limit: 50 }),
         ]);
         // 한국 어드민 + 자격증명 보유만 노출.
-        setPersonas(onlyUsableKr(personaList));
+        setPersonas(loggedInPersonas(personaList));
         setScenarios(scenarioList);
         setWeeks(weekList);
 
@@ -340,8 +341,8 @@ export default function GenerateTriggerModal({
         >
           <Form.Item
             name="sender_persona_ids"
-            label="발신 페르소나 (한국 어드민 · 로그인 완료만 선택 가능)"
-            help="자격증명만 등록된 계정은 '로그인 필요'로 비활성 표시됩니다. 그룹 조회·송신은 로그인(세션) 완료 계정만 가능합니다."
+            label="발신 페르소나 (로그인된 계정 — 역할 무관)"
+            help="텔레그램 로그인(세션) 완료된 계정은 국내/베트남 상관없이 모두 노출됩니다. 상대(수신)는 반대 역할·로그인 계정이 자동 선택됩니다. 안 보이는 계정은 페르소나 관리에서 먼저 로그인하세요."
             rules={[
               {
                 required: true,
@@ -353,7 +354,7 @@ export default function GenerateTriggerModal({
           >
             {personas.length === 0 ? (
               <Empty
-                description="사용 가능한 한국 어드민 페르소나가 없습니다"
+                description="로그인된 페르소나가 없습니다 — 페르소나 관리에서 먼저 로그인(SMS)하세요"
                 imageStyle={{ height: 48 }}
               />
             ) : (
@@ -370,17 +371,14 @@ export default function GenerateTriggerModal({
                       key={p.id}
                       style={{ display: "flex", alignItems: "center", gap: 4 }}
                     >
-                      <Checkbox
-                        value={p.id}
-                        disabled={!p.is_logged_in}
-                        style={{ flex: 1, marginRight: 0 }}
-                      >
+                      <Checkbox value={p.id} style={{ flex: 1, marginRight: 0 }}>
                         {personaLabel(p)}
-                        {!p.is_logged_in && (
-                          <Tag color="warning" style={{ marginLeft: 6 }}>
-                            로그인 필요
-                          </Tag>
-                        )}
+                        <Tag
+                          color={p.role === "vietnam_admin" ? "blue" : "green"}
+                          style={{ marginLeft: 6 }}
+                        >
+                          {p.role === "vietnam_admin" ? "베트남" : "국내"}
+                        </Tag>
                       </Checkbox>
                       <Tooltip title="이름/역할 수정">
                         <Button
