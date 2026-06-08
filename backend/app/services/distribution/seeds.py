@@ -198,7 +198,93 @@ PERSONA_SEEDS: list[dict] = [
 
 
 # ---------------------------------------------------------------------------
-# 시나리오 5종 — 시나리오 샘플.txt 에서 추출
+# 신규 추가 시나리오 — 시나리오 추가.txt 3종 (T9 — 2026-06-08)
+# 공급 방향 고정: 한국=공급/매입/발송, 베트남=주문/수령/현지판매 (f2e4cc2 정정값).
+# ---------------------------------------------------------------------------
+
+NEW_DELIVERY_SCENARIOS: list[dict] = [
+    {
+        "name": "물품 하자·장기재고 관리 협의",
+        "trigger_event": "defect_inventory_mgmt",
+        "sender_role": "domestic_admin",
+        "receiver_role": "vietnam_admin",
+        "beats": [
+            {"step": 1, "intent": "한국이 현지에서 접수된 일부 품목 하자 건 처리 진행 상황 안내 (안부 없이 본론, 메일성 정중 톤)", "tone_hint": "정중"},
+            {"step": 2, "intent": "장기 미판매(장기재고) 품목 현황 정리해서 회신 요청", "tone_hint": "정중"},
+            {"step": 3, "intent": "베트남이 하자 수량·사진과 장기재고 리스트 회신", "tone_hint": "단정"},
+            {"step": 4, "intent": "한국이 교환/반품·재고 소진(프로모션 등) 처리 방침 안내 + 기록 보관 언급", "tone_hint": "정보 분할"},
+            {"step": 5, "intent": "베트남이 확인 + 진행 동의", "tone_hint": None},
+            {"step": 6, "intent": "한국이 이번 협의 내용 정리해 남기겠다고 마무리(증빙용)", "tone_hint": "마무리"},
+        ],
+        "example_msgs": [
+            {"sender": "KR-A1", "content": "지난번 접수된 하자 건 처리 진행 상황 공유드립니다."},
+            {"sender": "KR-A1", "content": "장기 미판매로 남아있는 품목들도 현황 한번 정리해서 보내주실 수 있을까요?"},
+            {"sender": "VN-A", "content": "넵. 하자 3건 사진하고 장기재고 리스트 정리해서 보내드리겠습니다."},
+            {"sender": "KR-A1", "content": "하자분은 교환 처리하고, 장기재고는 프로모션으로 소진하는 방향으로 진행하겠습니다."},
+            {"sender": "KR-A1", "content": "처리 내역은 기록으로 남겨두겠습니다."},
+            {"sender": "VN-A", "content": "넵 확인했습니다. 그렇게 진행 부탁드립니다."},
+        ],
+        "raw_text": "[시나리오 추가.txt ① 하자·장기재고 관리 · 2026-06-08]",
+    },
+    {
+        "name": "명품 주문~에어 수출~대금 회수",
+        "trigger_event": "luxury_order_to_settlement",
+        "sender_role": "vietnam_admin",
+        "receiver_role": "domestic_admin",
+        "beats": [
+            {"step": 1, "intent": "베트남이 명품 주문 발주 (브랜드·수량) (안부 없이 본론)", "tone_hint": None},
+            {"step": 2, "intent": "한국이 접수 + 국내에서 해당 명품 매입 진행한다고 안내", "tone_hint": "단정"},
+            {"step": 3, "intent": "한국이 인천 창고 집결 후 에어(항공) 수출 일정 안내", "tone_hint": "정보 분할"},
+            {"step": 4, "intent": "베트남이 수령 예정 확인", "tone_hint": None},
+            {"step": 5, "intent": "한국이 수출대금 회수(결제) 일정·방식 안내", "tone_hint": "정중"},
+            {"step": 6, "intent": "베트남이 입금/정산 확인하며 마무리", "tone_hint": "마무리"},
+        ],
+        "example_msgs": [
+            {"sender": "VN-A", "content": "이번에 루이비통, 고야드 위주로 주문드립니다. 수량은 정리해서 보냈어요."},
+            {"sender": "KR-A1", "content": "넵 접수했습니다. 국내에서 해당 제품 매입 바로 진행하겠습니다."},
+            {"sender": "KR-A1", "content": "인천 창고에 모아서 에어로 수출 보내겠습니다. 출고되면 일정 공유드릴게요."},
+            {"sender": "VN-A", "content": "넵 도착하면 수령 확인드리겠습니다."},
+            {"sender": "KR-A1", "content": "수출대금은 도착 확인 후 정산으로 부탁드립니다."},
+            {"sender": "VN-A", "content": "넵 입금 처리하고 정산 내역 보내드리겠습니다."},
+        ],
+        "raw_text": "[시나리오 추가.txt ② 명품 주문~에어수출~대금회수 · 2026-06-08]",
+    },
+    {
+        "name": "주문~입금확인~1차배송~정산",
+        "trigger_event": "order_payment_settlement",
+        "sender_role": "domestic_admin",
+        "receiver_role": "vietnam_admin",
+        "beats": [
+            {"step": 1, "intent": "한국이 단톡방으로 들어온 주문 접수 확인 (안부 없이 본론)", "tone_hint": None},
+            {"step": 2, "intent": "자금 입금 확인 (위챗으로 선물영수증 확인 후 등록 완료 언급)", "tone_hint": "단정"},
+            {"step": 3, "intent": "한국이 물품 수령 후 베트남으로 1차 배송 진행 안내", "tone_hint": "정보 분할"},
+            {"step": 4, "intent": "베트남이 수령 확인", "tone_hint": None},
+            {"step": 5, "intent": "한국이 최종 판매 후 정산 + 구글시트 정리하겠다고 안내", "tone_hint": "마무리"},
+            {"step": 6, "intent": "베트남이 정산 내역 확인하며 마무리", "tone_hint": None},
+        ],
+        "example_msgs": [
+            {"sender": "KR-A1", "content": "단톡방으로 들어온 주문 접수했습니다."},
+            {"sender": "KR-A1", "content": "입금 확인했고, 위챗으로 받은 선물영수증도 등록 완료했습니다."},
+            {"sender": "KR-A1", "content": "물건 수령해서 베트남으로 1차 배송 진행하겠습니다."},
+            {"sender": "VN-A", "content": "넵 받으면 바로 확인드리겠습니다."},
+            {"sender": "KR-A1", "content": "최종 판매되면 정산하고 구글시트에 정리해두겠습니다."},
+            {"sender": "VN-A", "content": "넵 정산 내역 확인하겠습니다. 감사합니다."},
+        ],
+        "raw_text": "[시나리오 추가.txt ③ 주문~입금~1차배송~정산 · 2026-06-08]",
+    },
+]
+
+
+# 2026-06-08 — picker(생성 트리거)에서 비활성(숨김) 처리할 불필요 시나리오.
+# 라이브 반영은 migration 030 에서 active=False. seeds 에서도 제거되어 신규 설치 시 미생성.
+DEACTIVATED_SCENARIO_NAMES: list[str] = [
+    "지연 안내 (연휴/물류)",
+    "延迟通知 (假期/物流) (中文)",
+]
+
+
+# ---------------------------------------------------------------------------
+# 시나리오 — 시나리오 샘플.txt 추출 + 0518 요구사항 + 시나리오 추가.txt(2026-06-08)
 # ---------------------------------------------------------------------------
 
 
@@ -285,27 +371,8 @@ SCENARIO_SEEDS: list[dict] = [
         ],
         "raw_text": "[샘플 2026-04-03 발췌 · 2026-05-26 안부 인사 제거]",
     },
-    {
-        "name": "지연 안내 (연휴/물류)",
-        "trigger_event": "delay",
-        "sender_role": "domestic_admin",
-        "receiver_role": "vietnam_admin",
-        "beats": [
-            {"step": 1, "intent": "한국이 연휴/물류 사정으로 다음달 출고 가능성 안내 (안부 없이 본론)", "tone_hint": "정중"},
-            {"step": 2, "intent": "베트남이 이해 + 자기 측 연휴 일정 공유 + 다른 업체도 비슷한 상황 언급", "tone_hint": "공감"},
-            {"step": 3, "intent": "한국이 동의 + 준비해서 보내겠다고 답변", "tone_hint": None},
-            {"step": 4, "intent": "베트남이 현재 한국 재고 수량 추가 질문 (선택)", "tone_hint": None},
-            {"step": 5, "intent": "한국이 재고 수량 답변", "tone_hint": None},
-        ],
-        "example_msgs": [
-            {"sender": "KR-A1", "content": "이번달 한국 명절하고, 물류사 일정이 떄문에 다음달에 보내야 할수도 있습니다."},
-            {"sender": "VN-A", "content": "넵. 저도 이야기 들었습니다. 저희도 2월 14일부터 2월 22일까지 연휴이기 떄문에 다른 회사들도 모두 물류 문제가 있다고 이야기 들었습니다."},
-            {"sender": "KR-A1", "content": "맞습니다. 물류 준비해서 보내겠습니다."},
-            {"sender": "VN-A", "content": "현재 한국에는 재고가 대략 몇 개 정도 있을까요?"},
-            {"sender": "KR-A1", "content": "477개"},
-        ],
-        "raw_text": "[샘플 2026-02-13 발췌 · 2026-05-26 안부 인사 제거]",
-    },
+    # "지연 안내 (연휴/물류)" 시나리오는 2026-06-08 사용자 결정으로 picker 에서 제거
+    # (불필요 시나리오 정리). 라이브는 migration 030 에서 active=False.
     # -----------------------------------------------------------------------
     # B-2 신규 시나리오 — 종합관리시트 주간 + 명품재고대장 연동 (0518 요구사항)
     # -----------------------------------------------------------------------
@@ -380,6 +447,8 @@ SCENARIO_SEEDS: list[dict] = [
         ],
         "raw_text": "[2026-05-26 신규 — VIP 프로모션, 숫자는 엑셀 첨부 전달]",
     },
+    # 시나리오 추가.txt 3종 (2026-06-08) — 하자·장기재고 / 명품주문~대금회수 / 주문~정산.
+    *NEW_DELIVERY_SCENARIOS,
 ]
 
 
@@ -477,28 +546,7 @@ SCENARIO_SEEDS_ZH: list[dict] = [
         ],
         "raw_text": "[샘플 2026-04-03 기반 zh 미러 · 2026-05-27 商务礼貌톤 보강]",
     },
-    {
-        "name": "延迟通知 (假期/物流) (中文)",
-        "trigger_event": "delay",
-        "sender_role": "domestic_admin",
-        "receiver_role": "vietnam_admin",
-        "language": "zh",
-        "beats": [
-            {"step": 1, "intent": "韩国方说因假期/物流档期, 可能要下个月才发(不寒暄)", "tone_hint": "客气"},
-            {"step": 2, "intent": "越南仓表示理解+说自己这边假期安排+别家也都这样", "tone_hint": "共情"},
-            {"step": 3, "intent": "韩国方同意+说会备好就发", "tone_hint": None},
-            {"step": 4, "intent": "越南仓追问韩国现在大概多少库存", "tone_hint": None},
-            {"step": 5, "intent": "韩国方报库存数", "tone_hint": None},
-        ],
-        "example_msgs": [
-            {"sender": "KR-A1", "content": "不好意思，这个月赶上韩国节假日，加上物流公司档期，可能得下个月才能发"},
-            {"sender": "VN-A", "content": "嗯，我也听说了。我们这边 2月14到22号 也放假，别家公司也都说物流有点卡"},
-            {"sender": "KR-A1", "content": "是的，我这边备好物流就发"},
-            {"sender": "VN-A", "content": "您这边现在大概还有多少库存呀？"},
-            {"sender": "KR-A1", "content": "现在大概 477件"},
-        ],
-        "raw_text": "[샘플 2026-02-13 기반 zh 미러 · 2026-05-27 商务礼貌톤 보강]",
-    },
+    # "延迟通知 (假期/物流) (中文)" 는 2026-06-08 사용자 결정으로 제거 (지연 시나리오 정리).
     {
         "name": "名品追加采购请求 (中文)",
         "trigger_event": "product_request",
