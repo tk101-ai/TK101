@@ -88,7 +88,9 @@ async def list_scenarios_endpoint(
                 DistributionScenario.language == "ko",
             ),
         )
-        .order_by(DistributionScenario.name)
+        # 추가된 날짜순(created_at) — picker 에서 1·2·3 번호로 노출 (사용자 요청 2026-06-08).
+        # name 은 동일 배치(시드) created_at 동률 시 결정적 정렬용 보조 키.
+        .order_by(DistributionScenario.created_at, DistributionScenario.name)
     )
     rows = await db.execute(stmt)
     items = [ScenarioBrief.model_validate(s) for s in rows.scalars().all()]

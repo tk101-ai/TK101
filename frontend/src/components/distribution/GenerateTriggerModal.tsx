@@ -13,9 +13,12 @@ import {
   Space,
   Spin,
   Switch,
+  Tooltip,
   Typography,
   message,
 } from "antd";
+import { EditOutlined } from "@ant-design/icons";
+import PersonaBusinessNameModal from "./PersonaBusinessNameModal";
 import { listPersonas, listWeeklySummary } from "../../api/distribution";
 import type {
   DistributionLanguage,
@@ -96,6 +99,23 @@ export default function GenerateTriggerModal({
   const [groupOptions, setGroupOptions] = useState<GroupDialog[]>([]);
   const [discovering, setDiscovering] = useState<boolean>(false);
 
+  // 발신 페르소나 이름 인라인 수정 (모달 안에서 바로 변경 — 2026-06-08 요청).
+  const [editingPersona, setEditingPersona] = useState<PersonaOut | null>(null);
+  const [editOpen, setEditOpen] = useState<boolean>(false);
+
+  // 한국 어드민 + 자격증명 보유만 노출하는 공통 필터.
+  const onlyUsableKr = (list: PersonaOut[]): PersonaOut[] =>
+    list.filter((p) => p.role === "domestic_admin" && p.has_credentials);
+
+  // 이름 수정 후 목록만 다시 불러와 라벨을 즉시 갱신 (선택값은 유지).
+  const reloadPersonas = async () => {
+    try {
+      setPersonas(onlyUsableKr(await listPersonas()));
+    } catch (err: unknown) {
+      message.error(extractErrorDetail(err, "페르소나 목록 갱신 실패"));
+    }
+  };
+
   // 선택한 발신 계정 기준으로 참여 중인 그룹을 조회해 chat_id 선택지로 노출.
   const handleDiscoverGroups = async () => {
     const personaId = (form.getFieldValue("sender_persona_ids") ?? [])[0];
@@ -171,10 +191,7 @@ export default function GenerateTriggerModal({
           listWeeklySummary({ limit: 50 }),
         ]);
         // 한국 어드민 + 자격증명 보유만 노출.
-        const usableKr = personaList.filter(
-          (p) => p.role === "domestic_admin" && p.has_credentials,
-        );
-        setPersonas(usableKr);
+        setPersonas(onlyUsableKr(personaList));
         setScenarios(scenarioList);
         setWeeks(weekList);
 
@@ -203,25 +220,21 @@ export default function GenerateTriggerModal({
     void loadAll();
   }, [open, form]);
 
-  const personaOptions = useMemo(
-    () =>
-      personas.map((p) => {
-        // 발신자 식별: 사업자명(수동) 우선, 없으면 연동 계정의 라이브 표시명.
-        // 동기화된 @username 이 있으면 함께 노출해 실제 연동 계정을 확인 가능하게.
-        const identity = p.business_name ?? p.display_name;
-        const handle = p.telegram_username ? ` (@${p.telegram_username})` : "";
-        return {
-          label: `${p.account_label} — ${identity}${handle}`,
-          value: p.id,
-        };
-      }),
-    [personas],
-  );
+  // 발신자 식별 라벨: 사업자명(수동) 우선, 없으면 연동 계정의 라이브 표시명.
+  // 동기화된 @username 이 있으면 함께 노출해 실제 연동 계정을 확인 가능하게.
+  // business_name 을 비우면(migration 030) 이 라벨이 라이브 display_name 으로 자동 표기됨.
+  const personaLabel = (p: PersonaOut): string => {
+    const identity = p.business_name ?? p.display_name;
+    const handle = p.telegram_username ? ` (@${p.telegram_username})` : "";
+    return `${p.account_label} — ${identity}${handle}`;
+  };
 
+  // 시나리오는 추가된 날짜순(백엔드 created_at 정렬)으로 내려오며, 1·2·3 번호를
+  // 붙여 구분을 쉽게 한다. 영어 trigger_event 는 노출하지 않는다 (사용자 요청 2026-06-08).
   const scenarioOptions = useMemo(
     () =>
-      scenarios.map((s) => ({
-        label: `${s.name} (${s.trigger_event})`,
+      scenarios.map((s, i) => ({
+        label: `${i + 1}. ${s.name}`,
         value: s.name,
       })),
     [scenarios],
@@ -292,6 +305,7 @@ export default function GenerateTriggerModal({
   };
 
   return (
+    <>
     <Modal
       title="생성 트리거 — 페르소나 / 시나리오 / 주차 선택"
       open={open}
@@ -335,20 +349,43 @@ export default function GenerateTriggerModal({
               },
             ]}
           >
-            {personaOptions.length === 0 ? (
+            {personas.length === 0 ? (
               <Empty
                 description="사용 가능한 한국 어드민 페르소나가 없습니다"
                 imageStyle={{ height: 48 }}
               />
             ) : (
-              <Checkbox.Group
-                options={personaOptions}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 8,
-                }}
-              />
+              <Checkbox.Group style={{ width: "100%" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 8,
+                  }}
+                >
+                  {personas.map((p) => (
+                    <div
+                      key={p.id}
+                      style={{ display: "flex", alignItems: "center", gap: 4 }}
+                    >
+                      <Checkbox value={p.id} style={{ flex: 1, marginRight: 0 }}>
+                        {personaLabel(p)}
+                      </Checkbox>
+                      <Tooltip title="이름 수정">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={() => {
+                            setEditingPersona(p);
+                            setEditOpen(true);
+                          }}
+                        />
+                      </Tooltip>
+                    </div>
+                  ))}
+                </div>
+              </Checkbox.Group>
             )}
           </Form.Item>
 
@@ -501,5 +538,17 @@ export default function GenerateTriggerModal({
         </Form>
       )}
     </Modal>
+
+    {/* 발신 페르소나 이름 인라인 수정 — 저장 시 목록만 갱신해 라벨 즉시 반영. */}
+    <PersonaBusinessNameModal
+      open={editOpen}
+      persona={editingPersona}
+      onClose={() => {
+        setEditOpen(false);
+        setEditingPersona(null);
+      }}
+      onUpdated={reloadPersonas}
+    />
+    </>
   );
 }
