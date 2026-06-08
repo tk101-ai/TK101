@@ -357,12 +357,20 @@ async def discover_groups(
         )
     try:
         groups = await session_service.discover_group_dialogs(persona)
+    except RuntimeError as exc:
+        # 우리 코드가 던지는 친절한 사유(세션 미인증/세션경로 없음/자격증명 미설정 등).
+        # 그대로 노출해 "RuntimeError" 대신 실제 원인(로그인 필요 등)을 보여준다.
+        logger.warning("그룹 조회 불가 — persona=%s: %s", persona_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"그룹 조회 불가: {exc}",
+        ) from exc
     except Exception as exc:  # noqa: BLE001 — 외부 텔레그램 호출 실패 격리
         logger.exception("그룹 조회 실패 — persona=%s", persona_id)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"그룹 조회 실패: {type(exc).__name__}",
-        )
+        ) from exc
     return {"items": groups}
 
 
