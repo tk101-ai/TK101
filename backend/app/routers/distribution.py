@@ -292,8 +292,18 @@ async def update_persona(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> PersonaOut:
-    """페르소나 부분 수정 (display_name, tone_profile, daily_msg_limit, active, warmup_until). **admin only**."""
-    persona = await persona_service.update_persona(db, persona_id, payload)
+    """페르소나 부분 수정 (account_label, display_name, business_name, tone_profile, daily_msg_limit, active, warmup_until). **admin only**.
+
+    account_label 변경 시 중복이면 409.
+    """
+    try:
+        persona = await persona_service.update_persona(db, persona_id, payload)
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이미 사용 중인 라벨(account_label)입니다.",
+        ) from exc
     if persona is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="페르소나 없음"

@@ -25,6 +25,7 @@ interface Props {
 }
 
 interface FormValues {
+  account_label: string;
   business_name: string;
   display_name: string;
 }
@@ -46,6 +47,7 @@ export default function PersonaBusinessNameModal({
   useEffect(() => {
     if (open && persona) {
       form.setFieldsValue({
+        account_label: persona.account_label ?? "",
         business_name: persona.business_name ?? "",
         display_name: persona.display_name ?? "",
       });
@@ -61,10 +63,14 @@ export default function PersonaBusinessNameModal({
 
   const handleSubmit = async (values: FormValues) => {
     if (!persona) return;
+    const nextLabel = (values.account_label ?? "").trim();
     const nextBusinessName = toNullable(values.business_name);
     const nextDisplayName = (values.display_name ?? "").trim();
 
     const payload: PersonaUpdatePayload = {};
+    if (nextLabel.length > 0 && nextLabel !== persona.account_label) {
+      payload.account_label = nextLabel;
+    }
     if (nextBusinessName !== (persona.business_name ?? null)) {
       payload.business_name = nextBusinessName;
     }
@@ -91,7 +97,7 @@ export default function PersonaBusinessNameModal({
 
   return (
     <Modal
-      title="사업자명 / 표시명 편집"
+      title="라벨 / 사업자명 / 표시명 편집"
       open={open}
       onCancel={handleClose}
       onOk={() => form.submit()}
@@ -115,6 +121,21 @@ export default function PersonaBusinessNameModal({
             description="자격증명·텔레그램 세션에는 영향이 없습니다."
           />
           <Form form={form} onFinish={handleSubmit} layout="vertical">
+            <Form.Item
+              name="account_label"
+              label="라벨 (코드명)"
+              help="영문/숫자/하이픈(-)/언더스코어(_)만, 최대 20자. 중복 불가. 예: LA, VN-admin"
+              rules={[
+                { max: 20, message: "최대 20자까지 입력 가능합니다" },
+                {
+                  pattern: /^[A-Za-z0-9_-]+$/,
+                  message: "영문/숫자/하이픈/언더스코어만 사용할 수 있습니다",
+                },
+              ]}
+            >
+              <Input placeholder="예: LA / VN-admin" maxLength={20} />
+            </Form.Item>
+
             <Form.Item
               name="business_name"
               label="사업자명"

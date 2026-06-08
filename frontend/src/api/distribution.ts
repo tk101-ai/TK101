@@ -62,6 +62,8 @@ export interface PersonaOut {
 }
 
 export interface PersonaUpdatePayload {
+  // 라벨(코드명) 수정 — 영문/숫자/하이픈/언더스코어만, UNIQUE (중복 시 409).
+  account_label?: string;
   display_name?: string;
   business_name?: string | null;
   active?: boolean;

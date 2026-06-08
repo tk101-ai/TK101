@@ -67,6 +67,16 @@ class PersonaCreate(BaseModel):
 class PersonaUpdate(BaseModel):
     """페르소나 부분 수정. api_id/api_hash 재입력은 별도 흐름 (보안)."""
 
+    # account_label(라벨/코드명) 수정 가능 (2026-06-08 요청).
+    # .session 파일명에 쓰이므로 path traversal 방지 위해 영문/숫자/하이픈/언더스코어만.
+    # UNIQUE — 중복 시 라우터에서 409. 이미 로그인된 계정은 stored session_path 를
+    # 그대로 사용하므로 라벨을 바꿔도 기존 세션은 유지됨(파일명만 옛 라벨로 남음).
+    account_label: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=20,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
     display_name: str | None = Field(default=None, max_length=100)
     # business_name: 사업자명 라벨 (UI 표시 우선). account_label 코드명과 별개.
     business_name: str | None = Field(default=None, max_length=200)
