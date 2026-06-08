@@ -13,6 +13,7 @@ import {
   Space,
   Spin,
   Switch,
+  Tag,
   Tooltip,
   Typography,
   message,
@@ -339,7 +340,8 @@ export default function GenerateTriggerModal({
         >
           <Form.Item
             name="sender_persona_ids"
-            label="발신 페르소나 (한국 어드민, 자격증명 보유만 노출)"
+            label="발신 페르소나 (한국 어드민 · 로그인 완료만 선택 가능)"
+            help="자격증명만 등록된 계정은 '로그인 필요'로 비활성 표시됩니다. 그룹 조회·송신은 로그인(세션) 완료 계정만 가능합니다."
             rules={[
               {
                 required: true,
@@ -368,10 +370,19 @@ export default function GenerateTriggerModal({
                       key={p.id}
                       style={{ display: "flex", alignItems: "center", gap: 4 }}
                     >
-                      <Checkbox value={p.id} style={{ flex: 1, marginRight: 0 }}>
+                      <Checkbox
+                        value={p.id}
+                        disabled={!p.is_logged_in}
+                        style={{ flex: 1, marginRight: 0 }}
+                      >
                         {personaLabel(p)}
+                        {!p.is_logged_in && (
+                          <Tag color="warning" style={{ marginLeft: 6 }}>
+                            로그인 필요
+                          </Tag>
+                        )}
                       </Checkbox>
-                      <Tooltip title="이름 수정">
+                      <Tooltip title="이름/역할 수정">
                         <Button
                           type="text"
                           size="small"
