@@ -509,6 +509,7 @@ async def search_text(
                 mime_type=_SOURCE_TYPE_TO_MIME.get(source_type or ""),
                 size=None,  # Qdrant payload에 없음
                 mtime=None,  # Qdrant payload에 없음
+                dept=pl.get("dept"),
                 score=round(normalized, 4),
                 snippet=_build_snippet(pl.get("text") or ""),
             )

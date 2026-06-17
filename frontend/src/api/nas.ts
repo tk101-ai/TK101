@@ -40,10 +40,12 @@ export interface NasSearchHit {
   id: string;
   path: string;
   name: string;
-  file_type: NasFileType;
-  mime_type: string;
-  size: number;
-  mtime: string;
+  // Qdrant 엔진 전환 후: file_type 은 다양한 문자열, mime/size/mtime 은 없을 수 있음.
+  file_type: string;
+  mime_type: string | null;
+  size: number | null;
+  mtime: string | null;
+  dept?: string | null;  // 부서(신사업/RND/마케팅 등) — 새 데이터 출처 표시
   score: number;
   snippet: string | null;
 }

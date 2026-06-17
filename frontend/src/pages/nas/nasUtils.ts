@@ -1,4 +1,5 @@
-export function formatFileSize(bytes: number): string {
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes == null || bytes <= 0) return "";  // 새 데이터(Qdrant)는 size 없음 → 표기 생략
   if (bytes < 1024) {
     return `${bytes} B`;
   }
@@ -34,14 +35,26 @@ export function formatDateTime(value: string | null | undefined): string {
   return `${date} ${hh}:${mi}`;
 }
 
-export function fileIconType(mimeType: string, fileType: string): "pdf" | "doc" | "ppt" | "xls" | "hwp" | "image" | "file" {
+export function fileIconType(
+  mimeType: string | null | undefined,
+  fileType: string | null | undefined,
+  name?: string | null,
+): "pdf" | "doc" | "ppt" | "xls" | "hwp" | "image" | "file" {
+  // 확장자 우선(Qdrant 결과는 mime_type 이 비어 있을 수 있음).
+  const ext = (name ?? "").split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "pdf") return "pdf";
+  if (ext === "doc" || ext === "docx") return "doc";
+  if (ext === "ppt" || ext === "pptx") return "ppt";
+  if (ext === "xls" || ext === "xlsx" || ext === "csv") return "xls";
+  if (ext === "hwp" || ext === "hwpx") return "hwp";
+  if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) return "image";
+  // mime 폴백(null 안전).
   if (fileType === "image") return "image";
-  const m = mimeType.toLowerCase();
+  const m = (mimeType ?? "").toLowerCase();
   if (m.includes("pdf")) return "pdf";
   if (m.includes("word") || m.includes("officedocument.wordprocessing")) return "doc";
   if (m.includes("powerpoint") || m.includes("presentation")) return "ppt";
   if (m.includes("excel") || m.includes("spreadsheet")) return "xls";
-  // 한글: HWP5(application/x-hwp)와 HWPX(application/vnd.hancom.hwpx) 둘 다 hancom 서명 포함.
   if (m.includes("hwp") || m.includes("hancom")) return "hwp";
   return "file";
 }
