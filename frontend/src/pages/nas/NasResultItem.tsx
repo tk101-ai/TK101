@@ -90,7 +90,7 @@ export default function NasResultItem({ hit, highlight }: NasResultItemProps) {
 
   const handleOpen = async () => {
     try {
-      await downloadNasFile(hit.id, hit.name || "download");
+      await downloadNasFile(hit.path, hit.name || "download");
     } catch {
       message.error("파일 다운로드 실패");
     }

@@ -485,21 +485,32 @@ async def search_text(
     # 두 순위를 RRF로 결합(키=doc_id). 양쪽에 모두 등장한 문서가 상위로.
     rrf_scores = reciprocal_rank_fusion([order_v, order_k], k=RRF_K)
     ranked = sorted(rrf_scores, key=lambda d: rrf_scores[d], reverse=True)
-    # RRF 원점수는 ~0.03 스케일 → 배치 최고점 기준 0~1 정규화(프론트 유사도 %/색 정합).
-    max_score = rrf_scores[ranked[0]] if ranked else 0.0
 
+    # 정직한 점수 + 관련도 게이트:
+    #  - 키워드 매칭(쿼리어를 실제로 포함) → 높은 신뢰.
+    #  - 벡터-only → raw cosine 그대로 노출(1.0 강제 정규화 안 함). 고유명사 등
+    #    아무것도 안 맞을 때 벡터가 0.6대 노이즈를 반환하므로, 임계값 미만은 제외해
+    #    "없으면 없다"가 되게 한다(nas_min_relevance, 튜닝 가능).
+    min_rel = settings.nas_min_relevance
     hits: list[NasSearchHit] = []
     for doc_id in ranked:
-        # 대표 payload는 키워드 매칭 우선(쿼리 토큰 직접 포함), 없으면 벡터.
-        pl = by_k.get(doc_id) or by_v.get(doc_id)
+        pl_k = by_k.get(doc_id)
+        pl_v = by_v.get(doc_id)
+        pl = pl_k or pl_v
         if pl is None:
             continue
         path = pl.get("path") or ""
-        # path_prefix 정확 prefix 후처리(Qdrant MatchText는 부분일치라 보정).
         if body.path_prefix and body.path_prefix not in path:
             continue
+        vec_score = (pl_v or {}).get("_score")
+        is_keyword = pl_k is not None
+        if is_keyword:
+            confidence = max(0.85, float(vec_score or 0.0))  # 직접 포함 → 높게
+        else:
+            if vec_score is None or float(vec_score) < min_rel:
+                continue  # 벡터-only 노이즈 제외
+            confidence = float(vec_score)
         source_type = pl.get("source_type")
-        normalized = (rrf_scores[doc_id] / max_score) if max_score else 0.0
         hits.append(
             NasSearchHit(
                 id=_doc_id_to_uuid(doc_id),
@@ -507,10 +518,10 @@ async def search_text(
                 name=os.path.basename(path) if path else None,
                 file_type=pl.get("modality") or "document",
                 mime_type=_SOURCE_TYPE_TO_MIME.get(source_type or ""),
-                size=None,  # Qdrant payload에 없음
-                mtime=None,  # Qdrant payload에 없음
+                size=None,
+                mtime=None,
                 dept=pl.get("dept"),
-                score=round(normalized, 4),
+                score=round(min(1.0, confidence), 4),
                 snippet=_build_snippet(pl.get("text") or ""),
             )
         )
@@ -591,3 +602,23 @@ async def download_file(
         filename=nas_file.name or os.path.basename(nas_file.path),
         media_type=nas_file.mime_type or "application/octet-stream",
     )
+
+
+# Qdrant 검색결과는 nas_files에 없으므로 경로 기반 다운로드를 별도 제공.
+_DOWNLOAD_ROOTS = ("/mnt/nas", "/mnt/nas-rnd", "/mnt/nas-rw")
+
+
+@router.get("/files/download")
+async def download_file_by_path(
+    path: str,
+    _user: User = Depends(get_current_user),
+) -> FileResponse:
+    """경로 기반 원본 다운로드(전 직원). 허용 루트(/mnt/nas, /mnt/nas-rnd) 검증."""
+    if not any(_is_path_within_root(path, root) for root in _DOWNLOAD_ROOTS):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="허용되지 않은 경로")
+    if not os.path.isfile(path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="원본 파일을 찾을 수 없습니다(NAS 마운트 확인)",
+        )
+    return FileResponse(path=path, filename=os.path.basename(path))

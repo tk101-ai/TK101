@@ -145,6 +145,8 @@ services:
     volumes:
       # 호스트 NAS SSHFS 마운트를 컨테이너에 read-only bind. 호스트 fstab은 ro 마운트 권장.
       - ${NAS_MOUNT_PATH:-/mnt/nas}:/mnt/nas:ro
+      # RND는 별도 NAS share(/mnt/nas-rnd) — 검색결과 다운로드용 ro bind.
+      - /mnt/nas-rnd:/mnt/nas-rnd:ro
       # multilingual-e5-large(~2.2GB) 캐시. 컨테이너 재시작 시 재다운로드 방지.
       - hf_cache:/root/.cache/huggingface
       # T5 양식 산출물 + 사용자 업로드 (NAS는 ro라 별도 volume 사용).

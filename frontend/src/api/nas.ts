@@ -77,8 +77,10 @@ export const getNasTopFolders = () =>
  * JWT Bearer 인증을 유지한 채 파일을 다운로드한다.
  * 새 탭/window.open은 Authorization 헤더를 못 붙이므로 axios blob으로 받아 처리.
  */
-export async function downloadNasFile(id: string, filename: string): Promise<void> {
-  const res = await api.get<Blob>(`/api/nas/files/${encodeURIComponent(id)}/download`, {
+export async function downloadNasFile(path: string, filename: string): Promise<void> {
+  // Qdrant 검색결과는 nas_files id가 없으므로 경로 기반 다운로드.
+  const res = await api.get<Blob>(`/api/nas/files/download`, {
+    params: { path },
     responseType: "blob",
   });
   const url = window.URL.createObjectURL(res.data);
