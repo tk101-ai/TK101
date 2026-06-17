@@ -88,8 +88,9 @@ services:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      # 컬렉션 데이터 영속화. 컨테이너 재기동/이미지 갱신에도 docs_text 보존.
-      - qdrant_storage:/qdrant/storage
+      # 기존 적재 데이터(docs_text, 73,995건)가 호스트 /home/ubuntu/qdrant_storage 에
+      # 있으므로 bind mount 로 그대로 사용(named volume 신설 시 데이터 유실 방지).
+      - /home/ubuntu/qdrant_storage:/qdrant/storage
 
   # --- Backend API (FastAPI) ---
   backend:
