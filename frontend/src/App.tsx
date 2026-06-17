@@ -6,6 +6,7 @@ import { useAuth } from "./hooks/useAuth";
 import AppLayout from "./components/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/Login";
+import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
 import Accounts from "./pages/Accounts";
@@ -76,6 +77,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={user ? <Navigate to="/" /> : <Login onLogin={checkAuth} />} />
+          <Route path="/register" element={user ? <Navigate to="/" /> : <Register />} />
           {user ? (
             <Route element={<AppLayout user={user} onLogout={logout} darkMode={darkMode} onToggleDark={() => setDarkMode((d) => !d)} />}>
               <Route path="/" element={<Dashboard />} />
