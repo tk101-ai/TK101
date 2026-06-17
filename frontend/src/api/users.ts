@@ -50,3 +50,6 @@ export const approveUser = (userId: string, data: ApproveRequest) =>
 
 export const rejectUser = (userId: string) =>
   api.post<User>(`/api/users/${userId}/reject`);
+
+export const deleteUser = (userId: string) =>
+  api.delete<void>(`/api/users/${userId}`);

@@ -2,6 +2,7 @@ from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -151,3 +152,32 @@ async def update_user(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: str,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """사용자 영구 삭제(관리자). 자기 자신은 삭제 불가.
+
+    user_departments·playground 등은 FK CASCADE/SET NULL 로 정리됨. 단
+    form_jobs·upload_logs(RESTRICT)가 남아 있으면 삭제가 막히므로, 그 경우
+    409 로 '비활성화 권장'을 안내한다(작업 이력 보존).
+    """
+    if str(current_user.id) == user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="자신의 계정은 삭제할 수 없습니다")
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다")
+    try:
+        await db.delete(user)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="작업·업로드 이력이 있어 삭제할 수 없습니다. 대신 '비활성화'를 사용하세요.",
+        )
+    return None
