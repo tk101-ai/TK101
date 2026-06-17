@@ -57,6 +57,7 @@ from app.services.nas_search.hybrid import (
 )
 from app.services.nas_search.indexer import build_filename_header
 from app.services.nas_search.query_embedder import embed_query as embed_query_vec
+from app.services.nas_search.romanize import has_hangul, romanize_hangul
 from app.services.nas_search.qdrant_search import (
     build_qdrant_filter,
     keyword_arm,
@@ -474,6 +475,11 @@ async def search_text(
 
     over_limit = body.limit * OVERFETCH_MULTIPLIER
     terms = tokenize_query(body.query)
+    # 한글 토큰은 로마자(RR)도 키워드로 추가 — 문서에 영문 표기된 고객사명 등을
+    # 한글 검색으로도 잡기 위함(예: "후이다" → "huida"). 키워드 arm은 OR 가산이라
+    # 추가 토큰이 매칭되면 그 문서가 상위로 올라온다.
+    romanized = [romanize_hangul(t) for t in terms if has_hangul(t)]
+    terms = terms + [r for r in romanized if r and r not in terms]
 
     try:
         order_v, by_v = await asyncio.to_thread(vector_arm, query_vec, qfilter, over_limit)
