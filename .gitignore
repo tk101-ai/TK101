@@ -56,3 +56,4 @@ tests/e2e/playwright/.cache/
 /nas-stub/*
 !/nas-stub/README.txt
 
+.dev.env

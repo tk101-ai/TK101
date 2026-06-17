@@ -63,15 +63,58 @@ DEPARTMENT_MODULES: dict[str, list[str]] = {
 }
 
 
-def get_user_modules(user: User) -> list[str]:
-    """Return module keys the user can access.
+# ── 부서→모듈 grant 캐시 (DB department_module_grants 를 메모리로) ─────────
+# get_user_modules 는 동기 함수로 매 요청 인가에 쓰이므로 DB 왕복 없이 캐시를
+# 읽는다. 기동 시(lifespan) load_grants_cache() 로 채우고, 관리자가 grant 를
+# 변경하면 다시 호출해 갱신. 캐시 미로딩 시 하드코딩 DEPARTMENT_MODULES 폴백.
+_GRANTS_CACHE: dict[str, set[str]] | None = None
 
-    role=admin grants every module regardless of department.
-    role=member uses department mapping; unknown department falls back to dashboard only.
-    """
+
+async def load_grants_cache() -> None:
+    """department_module_grants 테이블 → 메모리 캐시. 기동/grant 변경 시 호출."""
+    global _GRANTS_CACHE
+    from sqlalchemy import select
+
+    from app.database import async_session
+    from app.models.department_module_grant import DepartmentModuleGrant
+
+    async with async_session() as db:
+        rows = (await db.execute(select(DepartmentModuleGrant))).scalars().all()
+    cache: dict[str, set[str]] = {}
+    for r in rows:
+        cache.setdefault(r.department, set()).add(r.module)
+    _GRANTS_CACHE = cache
+
+
+def _modules_for_department(dept: str) -> set[str]:
+    if _GRANTS_CACHE is not None:
+        return set(_GRANTS_CACHE.get(dept, set()))
+    return set(DEPARTMENT_MODULES.get(dept, []))  # 캐시 로딩 전 폴백
+
+
+def _user_departments(user: User) -> set[str]:
+    """사용자의 전체 소속 부서(주 부서 + user_departments)."""
+    depts: set[str] = set()
+    if getattr(user, "department", None):
+        depts.add(user.department)
+    try:
+        for ud in (user.departments or []):  # lazy="selectin" → 이미 eager load
+            depts.add(ud.department)
+    except Exception:
+        pass  # detached 등 예외 시 주 부서만
+    return depts
+
+
+def get_user_modules(user: User) -> list[str]:
+    """접근 가능 모듈 키. admin=전체, 그 외=소속 부서들의 grant 합집합."""
     if user.role == UserRole.ADMIN.value:
         return list(ALL_MODULES)
-    return list(DEPARTMENT_MODULES.get(user.department, [Module.DASHBOARD.value]))
+    mods: set[str] = set()
+    for dept in _user_departments(user):
+        mods |= _modules_for_department(dept)
+    if not mods:
+        mods = {Module.DASHBOARD.value}
+    return sorted(mods)
 
 
 def user_has_module(user: User, module: str) -> bool:

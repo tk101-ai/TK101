@@ -62,6 +62,14 @@ def _should_start_send_worker() -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    # 부서→모듈 grant 캐시 로드(DB → 메모리). 인가가 이 캐시를 읽음.
+    from app.modules.registry import load_grants_cache
+
+    try:
+        await load_grants_cache()
+        logger.info("부서-모듈 grant 캐시 로드 완료")
+    except Exception:
+        logger.exception("grant 캐시 로드 실패 — 하드코딩 매핑으로 폴백")
     worker_task: asyncio.Task | None = None
     stop_event = asyncio.Event()
     if _should_start_send_worker():
