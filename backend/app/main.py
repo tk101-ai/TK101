@@ -26,6 +26,7 @@ from app.routers import (
     distribution_settlement,
     distribution_triggers,
     forms,
+    grants,
     matching,
     nas_search,
     playground,
@@ -62,6 +63,14 @@ def _should_start_send_worker() -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    # 부서→모듈 grant 캐시 로드(DB → 메모리). 인가가 이 캐시를 읽음.
+    from app.modules.registry import load_grants_cache
+
+    try:
+        await load_grants_cache()
+        logger.info("부서-모듈 grant 캐시 로드 완료")
+    except Exception:
+        logger.exception("grant 캐시 로드 실패 — 하드코딩 매핑으로 폴백")
     worker_task: asyncio.Task | None = None
     stop_event = asyncio.Event()
     if _should_start_send_worker():
@@ -92,6 +101,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(grants.router)
 app.include_router(accounts.router)
 app.include_router(transactions.router)
 # attachments 는 prefix=/api/transactions 공유. 경로별 매칭이므로 충돌 없음.

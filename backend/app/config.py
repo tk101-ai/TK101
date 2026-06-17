@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     cors_origins: str = "http://localhost:5173"
     google_youtube_api_key: str | None = None
+    # 셀프 회원가입 허용 이메일 도메인(콤마 구분). 이 도메인 외 가입 거부.
+    # 빈 문자열이면 셀프 가입 비활성(보수적 기본). 관리자가 정보 보고 승인하는 구조.
+    allowed_signup_domains: str = "tk101global.com"
     internal_api_token: str | None = None
 
     # T1 트랙: 서울시 글로벌 SNS — Meta(Facebook/Instagram) Graph API ----------

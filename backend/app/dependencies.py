@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
-from app.modules.constants import UserRole
+from app.modules.constants import UserRole, UserStatus
 from app.modules.registry import user_has_module
 from app.services.auth import decode_token
 
@@ -50,6 +50,9 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if user.status != UserStatus.ACTIVE.value:
+        # 발급된 토큰의 사후 무효화(관리자 거절/정지 즉시 효력).
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="비활성 계정")
     return user
 
 

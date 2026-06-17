@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from app.modules.constants import Department
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -9,6 +11,23 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class RegisterRequest(BaseModel):
+    """직원 셀프 회원가입. role 은 서버가 member 고정(권한상승 방지),
+    status 는 pending 으로 생성되어 관리자 승인 전 로그인 불가."""
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    name: str = Field(min_length=1, max_length=100)
+    department: Department
+
+    @field_validator("password")
+    @classmethod
+    def _no_whitespace(cls, v: str) -> str:
+        if v != v.strip() or any(ch.isspace() for ch in v):
+            raise ValueError("비밀번호에 공백을 포함할 수 없습니다")
+        return v
 
 
 class PasswordChangeRequest(BaseModel):

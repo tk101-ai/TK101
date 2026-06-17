@@ -1,5 +1,7 @@
 from app.models.base import Base
 from app.models.user import User
+from app.models.user_department import UserDepartment
+from app.models.department_module_grant import DepartmentModuleGrant
 from app.models.account import Account
 from app.models.transaction import Transaction
 from app.models.tax_invoice import TaxInvoice
@@ -36,6 +38,8 @@ from app.models.distribution import (
 __all__ = [
     "Base",
     "User",
+    "UserDepartment",
+    "DepartmentModuleGrant",
     "Account",
     "Transaction",
     "TaxInvoice",
