@@ -2,13 +2,21 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
+from app.modules.constants import UserRole, UserStatus
 from app.modules.registry import get_user_modules
-from app.schemas.auth import LoginRequest, PasswordChangeRequest, TokenResponse
-from app.schemas.user import UserMe
+from app.schemas.auth import (
+    LoginRequest,
+    PasswordChangeRequest,
+    RegisterRequest,
+    TokenResponse,
+)
+from app.schemas.user import UserMe, UserRead
 from app.services.auth import create_access_token, hash_password, verify_password
+from app.services.department_sync import set_user_departments
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -18,12 +26,53 @@ ACCESS_COOKIE_NAME = "access_token"
 ACCESS_COOKIE_MAX_AGE = 24 * 60 * 60
 
 
+@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    """직원 셀프 회원가입. 회사 이메일 도메인만 허용, role=member·status=pending 고정.
+    관리자 승인 전까지 로그인 불가(login 의 status 게이트)."""
+    domains = [d.strip().lower() for d in settings.allowed_signup_domains.split(",") if d.strip()]
+    email_domain = body.email.split("@")[-1].lower()
+    if not domains or email_domain not in domains:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="회사 이메일로만 가입할 수 있습니다",
+        )
+    existing = (
+        await db.execute(select(User).where(User.email == body.email))
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 가입된 이메일입니다")
+
+    user = User(
+        email=body.email,
+        hashed_password=hash_password(body.password),
+        name=body.name,
+        department=body.department.value,
+        role=UserRole.MEMBER.value,  # 서버 강제(권한상승 방지)
+        status=UserStatus.PENDING.value,
+        is_active=True,
+    )
+    db.add(user)
+    await db.flush()
+    await set_user_departments(db, user.id, [body.department.value])
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if user.status == UserStatus.PENDING.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="승인 대기 중인 계정입니다. 관리자 승인 후 로그인할 수 있습니다",
+        )
+    if user.status == UserStatus.REJECTED.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="가입이 거절된 계정입니다")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
     token = create_access_token({"sub": str(user.id)})
@@ -56,6 +105,8 @@ async def me(current_user: User = Depends(get_current_user)):
         department=current_user.department,
         role=current_user.role,
         is_active=current_user.is_active,
+        status=current_user.status,
+        departments=current_user.departments,
         created_at=current_user.created_at,
         modules=get_user_modules(current_user),
     )

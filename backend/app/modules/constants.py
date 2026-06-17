@@ -6,6 +6,22 @@ class UserRole(str, Enum):
     MEMBER = "member"
 
 
+class UserStatus(str, Enum):
+    """가입 승인 상태. 셀프 가입=pending, 관리자 승인=active, 거절=rejected.
+    is_active(관리자 사후 정지 토글)와는 별개 축."""
+
+    PENDING = "pending"
+    ACTIVE = "active"
+    REJECTED = "rejected"
+
+
+STATUS_LABELS: dict[str, str] = {
+    UserStatus.PENDING.value: "승인대기",
+    UserStatus.ACTIVE.value: "활성",
+    UserStatus.REJECTED.value: "거절",
+}
+
+
 class Department(str, Enum):
     MARKETING_1 = "marketing_1"
     MARKETING_2 = "marketing_2"
