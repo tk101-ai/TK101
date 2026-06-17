@@ -73,6 +73,24 @@ services:
       postgres:
         condition: service_healthy
 
+  # --- Qdrant (vector DB — NAS 검색 v2 단일 소스) ---
+  # NAS 검색 v2(feat/nas-qdrant)의 벡터 arm + 키워드 arm이 조회하는 docs_text
+  # 컬렉션을 보관한다. 인덱싱 파이프라인(/home/ubuntu/tk101-rag)이 RunPod GPU에서
+  # 임베딩해 적재하고, 백엔드는 같은 docker 네트워크(tk101_default)에서
+  # http://qdrant:6333 으로 읽기 조회만 한다.
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: tk101-qdrant
+    restart: unless-stopped
+    ports:
+      # 호스트/dev 검증용 노출. docker network 내부 컨테이너는 'qdrant'로 접근하므로
+      # 이 포트 매핑과 무관. 외부 노출이 불필요해지면 127.0.0.1 바인딩으로 축소 가능.
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      # 컬렉션 데이터 영속화. 컨테이너 재기동/이미지 갱신에도 docs_text 보존.
+      - qdrant_storage:/qdrant/storage
+
   # --- Backend API (FastAPI) ---
   backend:
     build: ./backend
@@ -86,6 +104,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tk101}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tk101}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      # NAS 검색 v2 — 같은 docker 네트워크의 qdrant 서비스. .env로 override 가능.
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173}
       GOOGLE_YOUTUBE_API_KEY: ${GOOGLE_YOUTUBE_API_KEY:-}
       # 마케팅 SNS — Meta(Facebook/Instagram) 게시물·댓글 수집 (Seoul Korea/seoulcity).
@@ -140,6 +160,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # qdrant는 healthcheck 없이 기동 순서만 보장(백엔드는 첫 쿼리 시 lazy 연결).
+      qdrant:
+        condition: service_started
 
   # --- Frontend (React) ---
   frontend:
@@ -177,6 +200,7 @@ volumes:
   n8n_data:
   webui_data:
   hf_cache:
+  qdrant_storage:
   form_filler_data:
   distribution_telethon_data:
   playground_media:

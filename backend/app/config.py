@@ -40,9 +40,9 @@ class Settings(BaseSettings):
     # 벡터 arm + 키워드 arm 양쪽의 단일 소스로 사용. 인덱싱 파이프라인
     # (/home/ubuntu/tk101-rag) 의 config.py 규약을 그대로 복제한다.
     #
-    # 컨테이너에서는 같은 docker 네트워크의 "http://qdrant:6333",
-    # 호스트 직접 실행 시 "http://localhost:6333". .env(QDRANT_URL)로 주입.
-    qdrant_url: str = "http://localhost:6333"
+    # 기본값은 컨테이너 내부용(같은 docker 네트워크의 qdrant 서비스).
+    # 호스트 직접 실행/dev 검증은 .env(QDRANT_URL=http://localhost:6333)로 override.
+    qdrant_url: str = "http://qdrant:6333"
     qdrant_collection_text: str = "docs_text"
     # 쿼리 임베딩 모델 — 인덱싱과 동일 (Qwen3-Embedding-4B, 2560-dim).
     # 백엔드 CPU(sentence-transformers)에서 기동 시 1회 로드(bf16, ~8GB).
