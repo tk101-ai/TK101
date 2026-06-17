@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Button, Form, Input, message, Modal, Popconfirm, Select, Switch, Table, Tag } from "antd";
-import { PlusOutlined, EditOutlined, CheckOutlined, CloseOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, CheckOutlined, CloseOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import {
@@ -9,6 +9,7 @@ import {
   updateUser,
   approveUser,
   rejectUser,
+  deleteUser,
   type User,
 } from "../api/users";
 import {
@@ -123,6 +124,19 @@ export default function Users() {
     }
   };
 
+  const handleDelete = async (record: User) => {
+    try {
+      await deleteUser(record.id);
+      message.success(`${record.name} 삭제됨`);
+      fetchData();
+    } catch (e: unknown) {
+      const detail =
+        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        "삭제 실패";
+      message.error(detail);
+    }
+  };
+
   const openEdit = (record: User) => {
     setTarget(record);
     editForm.setFieldsValue({
@@ -196,7 +210,19 @@ export default function Users() {
             </Popconfirm>
           </>
         ) : (
-          <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)} />
+          <>
+            <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)} />
+            <Popconfirm
+              title={`${record.name} 계정 삭제`}
+              description="영구 삭제되며 되돌릴 수 없습니다."
+              onConfirm={() => handleDelete(record)}
+              okText="삭제"
+              okButtonProps={{ danger: true }}
+              cancelText="취소"
+            >
+              <Button type="link" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+          </>
         ),
     },
   ];
