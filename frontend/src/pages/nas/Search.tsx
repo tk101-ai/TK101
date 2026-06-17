@@ -1,28 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Button, Empty, Input, List, Radio, Space, Spin, Tag, message } from "antd";
 import type { RadioChangeEvent } from "antd";
 import { PictureOutlined } from "@ant-design/icons";
 import {
-  getNasIndexStatus,
-  getNasStatus,
   getNasTopFolders,
-  runNasIndex,
   searchNasText,
-  type NasIndexStatus,
   type NasSearchHit,
   type NasSearchParams,
-  type NasStatus,
 } from "../../api/nas";
-import { useAuth } from "../../hooks/useAuth";
 import { fileIconType } from "./nasUtils";
-import NasStatusHeader from "./NasStatusHeader";
 import NasResultItem from "./NasResultItem";
 import NasFilterBar, {
   periodToMtimeFrom,
   type NasFilterValue,
 } from "./NasFilterBar";
 
-const POLL_INTERVAL_MS = 5000;
 // 검색 결과 페이지 크기. 백엔드 NasSearchRequest.limit 상한이 50이므로 그 안에서 단계적으로 늘린다.
 const SEARCH_PAGE_SIZE = 20;
 const SEARCH_LIMIT_MAX = 50;
@@ -44,11 +36,6 @@ const DEFAULT_FILTER: NasFilterValue = {
 type SearchPhase = "idle" | "searching" | "done";
 
 export default function NasSearch() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
-
-  const [status, setStatus] = useState<NasStatus | null>(null);
-  const [indexStatus, setIndexStatus] = useState<NasIndexStatus | null>(null);
   const [query, setQuery] = useState("");
   // submittedQuery는 실제 검색에 사용된 마지막 쿼리. 하이라이트/페이지네이션에 재사용.
   const [submittedQuery, setSubmittedQuery] = useState("");
@@ -57,74 +44,21 @@ export default function NasSearch() {
   const [limit, setLimit] = useState<number>(SEARCH_PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
   const [sort, setSort] = useState<SearchSort>("score");
-  const [runDisabled, setRunDisabled] = useState(false);
   const [folders, setFolders] = useState<string[]>([]);
   const [filter, setFilter] = useState<NasFilterValue>(DEFAULT_FILTER);
-
-  const pollRef = useRef<number | null>(null);
-
-  const stopPolling = useCallback(() => {
-    if (pollRef.current !== null) {
-      window.clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }, []);
-
-  const fetchStatus = useCallback(async () => {
-    try {
-      const res = await getNasStatus();
-      setStatus(res.data);
-    } catch {
-      message.error("NAS 상태 조회 실패");
-    }
-  }, []);
-
-  const fetchIndexStatus = useCallback(async () => {
-    try {
-      const res = await getNasIndexStatus();
-      setIndexStatus(res.data);
-      return res.data;
-    } catch {
-      return null;
-    }
-  }, []);
 
   const fetchTopFolders = useCallback(async () => {
     try {
       const res = await getNasTopFolders();
       setFolders(res.data.folders);
     } catch {
-      // 폴더 목록 조회 실패는 무시 — 검색은 계속 동작해야 함
       setFolders([]);
     }
   }, []);
 
-  const startPolling = useCallback(() => {
-    stopPolling();
-    pollRef.current = window.setInterval(async () => {
-      const data = await fetchIndexStatus();
-      if (data && !data.running) {
-        stopPolling();
-        fetchStatus();
-        if (data.last_error) {
-          message.warning(`인덱싱 종료 (오류 발생: ${data.errors}건)`);
-        } else {
-          message.success("인덱싱 완료");
-        }
-      }
-    }, POLL_INTERVAL_MS);
-  }, [fetchIndexStatus, fetchStatus, stopPolling]);
-
   useEffect(() => {
-    // 마운트 시 NAS 상태/인덱스/폴더 fetch + 실행 중이면 폴링 시작 (의도된 패턴).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void fetchStatus();
     void fetchTopFolders();
-    void fetchIndexStatus().then((data) => {
-      if (data?.running) startPolling();
-    });
-    return () => stopPolling();
-  }, [fetchStatus, fetchIndexStatus, fetchTopFolders, startPolling, stopPolling]);
+  }, [fetchTopFolders]);
 
   const buildSearchParams = useCallback(
     (q: string, lim: number): NasSearchParams => {
@@ -144,28 +78,6 @@ export default function NasSearch() {
     [filter],
   );
 
-  const handleRunIndex = async () => {
-    setRunDisabled(true);
-    try {
-      await runNasIndex();
-      message.success("인덱싱이 시작되었습니다");
-      await fetchIndexStatus();
-      startPolling();
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } }).response?.status;
-      if (status === 409) {
-        message.warning("이미 인덱싱이 진행 중입니다");
-        await fetchIndexStatus();
-        startPolling();
-      } else if (status === 403) {
-        message.error("권한이 없습니다");
-      } else {
-        message.error("인덱싱 시작 실패");
-      }
-    } finally {
-      setRunDisabled(false);
-    }
-  };
 
   const handleSearch = async (value: string) => {
     const trimmed = value.trim();
@@ -223,14 +135,6 @@ export default function NasSearch() {
 
   return (
     <div style={{ maxWidth: 1100 }}>
-      <NasStatusHeader
-        status={status}
-        indexStatus={indexStatus}
-        isAdmin={isAdmin}
-        onRunIndex={handleRunIndex}
-        runDisabled={runDisabled}
-      />
-
       <Input.Search
         size="large"
         allowClear

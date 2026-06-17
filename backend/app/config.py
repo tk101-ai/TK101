@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     nas_query_embed_dim: int = 2560
     # bf16 로드 여부. CPU 메모리 절약용. False면 fp32(정확하나 ~2배 메모리).
     nas_query_embed_bf16: bool = True
+    # 벡터-only 결과 최소 관련도(raw cosine). 이하면 노이즈로 보고 제외.
+    # 실측: 무관 쿼리 ~0.61, 관련 쿼리 ~0.70+. 0.65로 게이트(튜닝 가능).
+    nas_min_relevance: float = 0.65
     # 키워드 arm: Qdrant payload `text`에 풀텍스트 인덱스가 없으므로(인덱싱
     # 파이프라인 소관) substring AND-매칭을 위해 후보를 넉넉히 스캔한다.
     # 이 수만큼 scroll 후 토큰 substring으로 필터 → doc_id dedup.
