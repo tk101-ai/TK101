@@ -26,6 +26,7 @@ from app.routers import (
     distribution_settlement,
     distribution_triggers,
     forms,
+    grants,
     matching,
     nas_search,
     playground,
@@ -100,6 +101,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(grants.router)
 app.include_router(accounts.router)
 app.include_router(transactions.router)
 # attachments 는 prefix=/api/transactions 공유. 경로별 매칭이므로 충돌 없음.
