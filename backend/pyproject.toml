@@ -26,6 +26,8 @@ dependencies = [
     "python-pptx>=1.0",
     "sentence-transformers>=3.0",
     "numpy>=1.26",
+    # NAS 검색 v2 — Qdrant 단일 소스 (feat/nas-qdrant). 벡터+키워드 arm 모두 Qdrant.
+    "qdrant-client>=1.18",
     # NAS 자료 검색 v0.7.0 — 한글/엑셀 추출 -----------------------------------
     # olefile: HWP5 OLE 컨테이너에서 PrvText(미리보기 텍스트) 스트림 직접 추출.
     # pyhwp는 최신 Python 호환 이슈가 있어 채택하지 않고, PrvText만 사용 (검색용으로 충분).

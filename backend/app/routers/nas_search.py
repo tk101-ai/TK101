@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import operator
 import os
+import uuid
 from datetime import datetime, timezone
-from functools import reduce
 
 from fastapi import (
     APIRouter,
@@ -24,13 +23,14 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import case, delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import async_session, get_db
-from app.dependencies import require_admin, require_module
+from app.dependencies import get_current_user, require_admin, require_module
 from app.models.nas_file import NasFile, NasTextChunk
+from app.models.user import User
 from app.modules.constants import Module
 from app.schemas.nas_file import (
     NasIndexProgress,
@@ -49,14 +49,19 @@ from app.services.nas_search import (
     is_summarizing,
     run_indexing,
 )
-from app.services.nas_search.embedder import embed_passages, embed_query
+from app.services.nas_search.embedder import embed_passages
 from app.services.nas_search.hybrid import (
     DEFAULT_RRF_K as RRF_K,
-    like_escape,
     reciprocal_rank_fusion,
     tokenize_query,
 )
 from app.services.nas_search.indexer import build_filename_header
+from app.services.nas_search.query_embedder import embed_query as embed_query_vec
+from app.services.nas_search.qdrant_search import (
+    build_qdrant_filter,
+    keyword_arm,
+    vector_arm,
+)
 from app.services.nas_search.summarizer import summarize_document
 
 logger = logging.getLogger(__name__)
@@ -69,53 +74,10 @@ router = APIRouter(
 
 SNIPPET_CHARS = 200
 
-# file_kinds → mime_type(들) 매핑. v0.7.0부터 한글/엑셀 추가.
-# hwp는 HWP5(application/x-hwp)와 HWPX(application/vnd.hancom.hwpx) 두 MIME을 모두 매칭.
-# 단일 string 또는 tuple[str, ...] 모두 허용 (아래 _flatten_kind_mimes에서 평탄화).
-FILE_KIND_MIME_MAP: dict[str, str | tuple[str, ...]] = {
-    "pdf": "application/pdf",
-    "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "ppt": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "hwp": ("application/x-hwp", "application/vnd.hancom.hwpx"),
-    "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-}
-
-
-def _flatten_kind_mimes(kinds: list[str]) -> list[str]:
-    """file_kinds 리스트를 SQL IN 절에 들어갈 mime_type 평탄 리스트로 변환.
-
-    예: ["pdf", "hwp"] → ["application/pdf", "application/x-hwp", "application/vnd.hancom.hwpx"]
-    알 수 없는 kind는 무시.
-    """
-    out: list[str] = []
-    for kind in kinds:
-        mapped = FILE_KIND_MIME_MAP.get(kind)
-        if mapped is None:
-            continue
-        if isinstance(mapped, tuple):
-            out.extend(mapped)
-        else:
-            out.append(mapped)
-    return out
-
 
 def _mount_ok(path: str) -> bool:
     """NAS 마운트가 디렉토리이고 읽기 가능한지 확인."""
     return os.path.isdir(path) and os.access(path, os.R_OK)
-
-
-def _resolve_path_prefix(relative: str, root: str) -> str:
-    """상대 경로 prefix를 NAS root와 join 후 정규화.
-
-    path traversal(`..`, 절대경로 등)을 차단하기 위해 결과가 root 밖으로
-    벗어나면 ValueError를 발생시킨다. 반환값은 절대경로 prefix.
-    """
-    candidate = os.path.normpath(os.path.join(root, relative))
-    root_norm = os.path.normpath(root)
-    # commonpath는 다른 드라이브에서 ValueError를 던질 수 있다 → 그대로 위임.
-    if os.path.commonpath([candidate, root_norm]) != root_norm:
-        raise ValueError("경로가 NAS 루트 밖입니다")
-    return candidate
 
 
 @router.get("/status", response_model=NasStatus)
@@ -440,168 +402,115 @@ def _build_snippet(content: str) -> str:
 # 파일 그룹핑으로 손실되는 후보를 보정하기 위한 over-fetch 배수.
 OVERFETCH_MULTIPLIER = 5
 
-# 메타데이터 + 대표 청크 본문을 함께 select 하는 공통 컬럼들.
-# 두 검색 arm(벡터/키워드)이 동일하게 사용해 결과 병합 시 일관성을 보장한다.
-_FILE_COLUMNS = (
-    NasFile.id,
-    NasFile.path,
-    NasFile.name,
-    NasFile.file_type,
-    NasFile.mime_type,
-    NasFile.size_bytes,
-    NasFile.mtime,
-    NasTextChunk.content,
-)
+# Qdrant payload에는 nas_files의 mime_type/size/mtime/UUID가 없다. 응답 스키마는
+# 유지하되(프론트 계약 불변) Qdrant로 채울 수 있는 것만 채우고 나머지는 null.
+# - id: NasSearchHit.id는 UUID 필수라 doc_id(16hex)를 결정론적 UUID로 변환해 채움.
+# - name: payload엔 없으므로 path basename으로 채움.
+# - mime_type: source_type → mime 역매핑(가능한 것만), 없으면 null.
+# - size/mtime: Qdrant에 없어 null.
+_SOURCE_TYPE_TO_MIME: dict[str, str] = {
+    "pdf": "application/pdf",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "hwp": "application/x-hwp",
+    "hwpx": "application/vnd.hancom.hwpx",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
 
 
-def _base_filter_conditions(body: NasSearchRequest) -> list:
-    """검색 필터(파일종류/경로/수정일)를 WHERE 조건 리스트로 변환.
+def _doc_id_to_uuid(doc_id: str) -> uuid.UUID:
+    """Qdrant doc_id(임의 문자열)를 결정론적 UUID5로 변환(스키마 id 채움용).
 
-    두 arm이 동일 필터를 공유하도록 분리. path_prefix가 root를 벗어나면
-    ValueError를 던지며, caller가 HTTP 400으로 변환한다.
+    NasSearchHit.id는 UUID 필수. Qdrant엔 nas_files UUID가 없으므로 doc_id에서
+    안정적으로 파생한다(같은 문서는 항상 같은 UUID). 다운로드는 path 기반이라
+    이 UUID로 nas_files를 조회하지 않는다.
     """
-    conds: list = []
-    if body.file_kinds:
-        # hwp는 두 MIME(hwp + hwpx)으로 평탄화되므로 헬퍼 사용.
-        mimes = _flatten_kind_mimes(list(body.file_kinds))
-        if mimes:
-            conds.append(NasFile.mime_type.in_(mimes))
-    if body.path_prefix:
-        # ValueError는 caller(search_text)가 400으로 변환.
-        absolute_prefix = _resolve_path_prefix(body.path_prefix, settings.nas_mount_path)
-        conds.append(NasFile.path.startswith(absolute_prefix))
-    if body.mtime_from is not None:
-        conds.append(NasFile.mtime >= body.mtime_from)
-    if body.mtime_to is not None:
-        conds.append(NasFile.mtime <= body.mtime_to)
-    return conds
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"nas-doc:{doc_id}")
 
 
-def _collect_by_path(rows) -> tuple[list[str], dict[str, object]]:
-    """best-first로 정렬된 rows를 파일 경로 기준으로 그룹핑.
+def _resolve_dept_scope(user: User) -> list[str] | None:
+    """부서 스코핑 → Qdrant dept 라벨 리스트(또는 None=전체검색).
 
-    같은 파일의 첫 등장(=가장 점수 좋은 청크)만 대표로 남긴다.
-    Returns: (등장 순서 경로 리스트, 경로→대표 row).
+    - 기능 OFF(nas_dept_scoping_enabled=False) → None(전체).
+    - 전체검색 허용 role(admin 등) → None(전체).
+    - 사용자 부서가 DOC_DEPT_BY_USER_DEPT에 매핑되면 그 라벨들로 한정.
+    - 매핑 없으면 보수적으로 None(전체) — 기능을 막지 않기 위함.
     """
-    order: list[str] = []
-    by_path: dict[str, object] = {}
-    for row in rows:
-        if row.path in by_path:
-            continue
-        by_path[row.path] = row
-        order.append(row.path)
-    return order, by_path
-
-
-async def _vector_arm(
-    db: AsyncSession, query_vec, conds: list, over_limit: int
-) -> tuple[list[str], dict[str, object]]:
-    """의미검색 arm — 임베딩 cosine 거리 오름차순."""
-    distance = NasTextChunk.embedding.cosine_distance(query_vec.tolist()).label("distance")
-    stmt = (
-        select(*_FILE_COLUMNS, distance)
-        .join(NasTextChunk, NasTextChunk.file_id == NasFile.id)
-        .where(*conds)
-        .order_by(distance.asc())
-        .limit(over_limit)
-    )
-    rows = (await db.execute(stmt)).all()
-    return _collect_by_path(rows)
-
-
-async def _keyword_arm(
-    db: AsyncSession, terms: list[str], conds: list, over_limit: int
-) -> tuple[list[str], dict[str, object]]:
-    """정확검색 arm — pg_trgm ILIKE 토큰 매칭. 매칭 토큰 수 많을수록 상위.
-
-    각 토큰이 본문 또는 파일명에 부분일치하면 +1. 품번·금액·고유명사 같은
-    정확 토큰을 가장 많이 포함한 파일이 위로 온다. terms가 비면 빈 결과.
-    """
-    if not terms:
-        return [], {}
-
-    term_conditions = []
-    match_terms = []
-    for term in terms:
-        pattern = f"%{like_escape(term)}%"
-        cond = or_(
-            NasTextChunk.content.ilike(pattern, escape="\\"),
-            NasFile.name.ilike(pattern, escape="\\"),
-        )
-        term_conditions.append(cond)
-        match_terms.append(case((cond, 1), else_=0))
-
-    match_count = reduce(operator.add, match_terms).label("match_count")
-    any_match = or_(*term_conditions)
-
-    stmt = (
-        select(*_FILE_COLUMNS, match_count)
-        .join(NasTextChunk, NasTextChunk.file_id == NasFile.id)
-        .where(*conds, any_match)
-        .order_by(match_count.desc())
-        .limit(over_limit)
-    )
-    rows = (await db.execute(stmt)).all()
-    return _collect_by_path(rows)
+    if not settings.nas_dept_scoping_enabled:
+        return None
+    if (user.role or "") in settings.nas_full_search_role_set:
+        return None
+    labels = settings.DOC_DEPT_BY_USER_DEPT.get(user.department or "")
+    return labels or None
 
 
 @router.post("/search/text", response_model=NasSearchResponse)
 async def search_text(
     body: NasSearchRequest,
-    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> NasSearchResponse:
-    """하이브리드 검색 — 의미검색(벡터) + 정확검색(pg_trgm 키워드)을 RRF로 결합.
+    """하이브리드 검색 — 의미검색(벡터) + 정확검색(키워드)을 RRF로 결합.
 
-    - 벡터 arm: 임베딩 cosine 유사도. 의미·뉘앙스에 강함.
-    - 키워드 arm: 토큰 ILIKE 매칭. 품번·금액·모델명 등 정확 토큰에 강함.
-    두 순위를 RRF로 합쳐 파일 단위로 대표 청크 1개만 반환한다.
+    데이터 소스는 Qdrant docs_text 단일 소스. 두 arm 모두 Qdrant를 조회하고
+    결합 키는 doc_id다.
+    - 벡터 arm: Qwen3-Embedding-4B 쿼리 임베딩 → Qdrant cosine 유사도.
+    - 키워드 arm: payload text/path 토큰 substring 매칭(품번·고유명사 정확 매칭).
+    두 순위를 RRF로 합쳐 doc_id 단위로 대표 청크 1개만 반환한다.
     """
     try:
-        query_vec = await asyncio.to_thread(embed_query, body.query)
+        query_vec = await asyncio.to_thread(embed_query_vec, body.query)
     except Exception as exc:  # noqa: BLE001
         logger.exception("쿼리 임베딩 실패")
         raise HTTPException(status_code=500, detail=f"쿼리 임베딩 실패: {exc}")
 
-    try:
-        conds = _base_filter_conditions(body)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"잘못된 path_prefix: {exc}",
-        )
+    dept_labels = _resolve_dept_scope(user)
+    # 필터: file_kinds→source_type, path_prefix(부분일치), dept 스코핑.
+    # mtime은 Qdrant payload에 없어 매핑 불가(미결, 아래 후처리에서도 무시).
+    qfilter = build_qdrant_filter(
+        file_kinds=list(body.file_kinds) if body.file_kinds else None,
+        path_prefix=body.path_prefix or None,
+        dept_labels=dept_labels,
+    )
 
     over_limit = body.limit * OVERFETCH_MULTIPLIER
     terms = tokenize_query(body.query)
 
-    order_v, by_path_v = await _vector_arm(db, query_vec, conds, over_limit)
-    order_k, by_path_k = await _keyword_arm(db, terms, conds, over_limit)
+    try:
+        order_v, by_v = await asyncio.to_thread(vector_arm, query_vec, qfilter, over_limit)
+        order_k, by_k = await asyncio.to_thread(keyword_arm, terms, qfilter, over_limit)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Qdrant 검색 실패")
+        raise HTTPException(status_code=502, detail=f"Qdrant 검색 실패: {exc}")
 
-    # 두 순위를 RRF로 결합. 양쪽에 모두 등장한 파일이 자연스럽게 상위로.
+    # 두 순위를 RRF로 결합(키=doc_id). 양쪽에 모두 등장한 문서가 상위로.
     rrf_scores = reciprocal_rank_fusion([order_v, order_k], k=RRF_K)
-
-    ranked_paths = sorted(rrf_scores, key=lambda p: rrf_scores[p], reverse=True)
-    # RRF 원점수는 ~0.03 스케일이라 그대로 노출하면 UI가 전부 저점으로 표시된다.
-    # 배치 내 최고점 기준으로 0~1 정규화 → 프론트의 유사도 %/색 구간과 정합(최상위=1.0).
-    max_score = rrf_scores[ranked_paths[0]] if ranked_paths else 0.0
+    ranked = sorted(rrf_scores, key=lambda d: rrf_scores[d], reverse=True)
+    # RRF 원점수는 ~0.03 스케일 → 배치 최고점 기준 0~1 정규화(프론트 유사도 %/색 정합).
+    max_score = rrf_scores[ranked[0]] if ranked else 0.0
 
     hits: list[NasSearchHit] = []
-    for path in ranked_paths:
-        # 대표 청크는 키워드 매칭 청크 우선(쿼리 토큰을 직접 포함). 없으면 벡터 청크.
-        row = by_path_k.get(path) or by_path_v.get(path)
-        if row is None:
+    for doc_id in ranked:
+        # 대표 payload는 키워드 매칭 우선(쿼리 토큰 직접 포함), 없으면 벡터.
+        pl = by_k.get(doc_id) or by_v.get(doc_id)
+        if pl is None:
             continue
-        normalized = (rrf_scores[path] / max_score) if max_score else 0.0
+        path = pl.get("path") or ""
+        # path_prefix 정확 prefix 후처리(Qdrant MatchText는 부분일치라 보정).
+        if body.path_prefix and body.path_prefix not in path:
+            continue
+        source_type = pl.get("source_type")
+        normalized = (rrf_scores[doc_id] / max_score) if max_score else 0.0
         hits.append(
             NasSearchHit(
-                id=row.id,
-                path=row.path,
-                name=row.name,
-                file_type=row.file_type,
-                mime_type=row.mime_type,
-                size=row.size_bytes,
-                mtime=row.mtime,
+                id=_doc_id_to_uuid(doc_id),
+                path=path,
+                name=os.path.basename(path) if path else None,
+                file_type=pl.get("modality") or "document",
+                mime_type=_SOURCE_TYPE_TO_MIME.get(source_type or ""),
+                size=None,  # Qdrant payload에 없음
+                mtime=None,  # Qdrant payload에 없음
                 score=round(normalized, 4),
-                snippet=_build_snippet(row.content or ""),
+                snippet=_build_snippet(pl.get("text") or ""),
             )
         )
         if len(hits) >= body.limit:

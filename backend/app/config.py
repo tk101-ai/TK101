@@ -35,6 +35,53 @@ class Settings(BaseSettings):
     nas_index_chunk_size: int = 500
     nas_index_chunk_overlap: int = 50
 
+    # NAS 검색 v2 — Qdrant 단일 소스 (feat/nas-qdrant) ---------------------------
+    # 레거시 pgvector(nas_text_chunks.embedding) 대신 Qdrant docs_text 컬렉션을
+    # 벡터 arm + 키워드 arm 양쪽의 단일 소스로 사용. 인덱싱 파이프라인
+    # (/home/ubuntu/tk101-rag) 의 config.py 규약을 그대로 복제한다.
+    #
+    # 기본값은 컨테이너 내부용(같은 docker 네트워크의 qdrant 서비스).
+    # 호스트 직접 실행/dev 검증은 .env(QDRANT_URL=http://localhost:6333)로 override.
+    qdrant_url: str = "http://qdrant:6333"
+    qdrant_collection_text: str = "docs_text"
+    # 쿼리 임베딩 모델 — 인덱싱과 동일 (Qwen3-Embedding-4B, 2560-dim).
+    # 백엔드 CPU(sentence-transformers)에서 기동 시 1회 로드(bf16, ~8GB).
+    nas_query_embed_model: str = "Qwen/Qwen3-Embedding-4B"
+    nas_query_embed_dim: int = 2560
+    # bf16 로드 여부. CPU 메모리 절약용. False면 fp32(정확하나 ~2배 메모리).
+    nas_query_embed_bf16: bool = True
+    # 키워드 arm: Qdrant payload `text`에 풀텍스트 인덱스가 없으므로(인덱싱
+    # 파이프라인 소관) substring AND-매칭을 위해 후보를 넉넉히 스캔한다.
+    # 이 수만큼 scroll 후 토큰 substring으로 필터 → doc_id dedup.
+    nas_keyword_scan_limit: int = 4000
+
+    # 부서별 검색 스코핑 (선택 기능) ----------------------------------------------
+    # 켜면 일반 사용자는 본인 부서(Qdrant dept)로 한정, 전체검색 허용 역할은 무필터.
+    # 사용자 부서 enum(marketing_1/new_business/...)과 Qdrant 문서 dept 라벨
+    # (RND/신사업/마케팅본부/경영지원팀)이 다르므로 아래 매핑 dict로 변환한다.
+    # 매핑에 없는 사용자 부서는 보수적으로 전체검색(기능을 막지 않기 위함).
+    nas_dept_scoping_enabled: bool = False
+    # 전체검색이 허용되는 사용자 role 목록(쉼표구분). 기본 admin만.
+    nas_full_search_roles: str = "admin"
+
+    @property
+    def nas_full_search_role_set(self) -> set[str]:
+        return {r.strip() for r in self.nas_full_search_roles.split(",") if r.strip()}
+
+    # 사용자 부서 → Qdrant 문서 dept 라벨(들). 한 사용자 부서가 여러 doc dept를
+    # 볼 수 있으면 리스트로(MatchAny). Qdrant 실측 dept 라벨:
+    #   RND / 신사업 / 마케팅본부 / 경영지원팀
+    # 매핑이 없는(=None/누락) 부서는 전체검색으로 폴백한다.
+    DOC_DEPT_BY_USER_DEPT: dict[str, list[str]] = {
+        "marketing_1": ["마케팅본부"],
+        "marketing_2": ["마케팅본부"],
+        "new_business": ["신사업"],
+        "finance": ["경영지원팀"],
+        "new_media": ["마케팅본부"],
+        "design": ["마케팅본부"],
+        # admin 부서는 전체검색 역할로 처리되므로 매핑 불필요.
+    }
+
     # T5 트랙: 범용 문서 자동 작성기 (PRD T5_범용문서자동작성기) ---------------
     # Claude API. 시크릿은 환경 변수에서 주입(commit 절대 금지).
     anthropic_api_key: str | None = None

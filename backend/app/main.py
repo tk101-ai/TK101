@@ -60,6 +60,22 @@ def _should_start_send_worker() -> bool:
     return True
 
 
+async def _warmup_nas_query_embedder() -> None:
+    """NAS 검색 v2 쿼리 임베딩 모델(Qwen3-Embedding-4B, ~8GB bf16) 사전 로드.
+
+    첫 쿼리 지연(모델 로드 + 가중치 디스크 read) 흡수용. 모델은 동기 CPU 로드라
+    이벤트 루프를 막지 않도록 스레드에서 돌린다. 실패해도(메모리 부족·캐시 미스 등)
+    기동은 계속되며, 첫 쿼리 시 lazy load로 재시도된다.
+    """
+    from app.services.nas_search import query_embedder
+
+    try:
+        await asyncio.to_thread(query_embedder.warmup)
+        logger.info("NAS 쿼리 임베딩 모델 워밍업 완료")
+    except Exception:  # noqa: BLE001
+        logger.exception("NAS 쿼리 임베딩 모델 워밍업 실패 — 첫 쿼리 시 lazy load로 재시도")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
@@ -71,6 +87,8 @@ async def lifespan(app: FastAPI):
         logger.info("부서-모듈 grant 캐시 로드 완료")
     except Exception:
         logger.exception("grant 캐시 로드 실패 — 하드코딩 매핑으로 폴백")
+    # NAS 검색 v2 쿼리 임베딩 모델 워밍업(백그라운드 — 기동을 막지 않음).
+    warmup_task = asyncio.create_task(_warmup_nas_query_embedder())
     worker_task: asyncio.Task | None = None
     stop_event = asyncio.Event()
     if _should_start_send_worker():
@@ -79,6 +97,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if not warmup_task.done():
+            warmup_task.cancel()
+            try:
+                await warmup_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         if worker_task is not None:
             stop_event.set()
             worker_task.cancel()
