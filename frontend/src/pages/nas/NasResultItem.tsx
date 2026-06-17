@@ -19,8 +19,8 @@ interface NasResultItemProps {
 
 const SNIPPET_PREVIEW_CHARS = 140;
 
-function pickIcon(mimeType: string, fileType: string): ReactNode {
-  const kind = fileIconType(mimeType, fileType);
+function pickIcon(mimeType: string | null, fileType: string | null, name?: string | null): ReactNode {
+  const kind = fileIconType(mimeType, fileType, name);
   const baseStyle = { fontSize: 28 };
   switch (kind) {
     case "pdf":
@@ -118,9 +118,16 @@ export default function NasResultItem({ hit, highlight }: NasResultItemProps) {
       }
     >
       <List.Item.Meta
-        avatar={pickIcon(hit.mime_type, hit.file_type)}
+        avatar={pickIcon(hit.mime_type, hit.file_type, hit.name)}
         title={
-          <span style={{ fontSize: 15, fontWeight: 600, color: "#1677ff" }}>{hit.name}</span>
+          <span style={{ fontSize: 15, fontWeight: 600, color: "#1677ff" }}>
+            {hit.name}
+            {hit.dept ? (
+              <Tag color="cyan" style={{ marginLeft: 8, fontWeight: 400 }}>
+                {hit.dept}
+              </Tag>
+            ) : null}
+          </span>
         }
         description={
           <div>
@@ -163,11 +170,13 @@ export default function NasResultItem({ hit, highlight }: NasResultItemProps) {
                 )}
               </div>
             )}
-            <Space size={12} style={{ color: "#8c8c8c", fontSize: 12 }}>
-              <span>{formatFileSize(hit.size)}</span>
-              <span>·</span>
-              <span>수정일 {formatDate(hit.mtime)}</span>
-            </Space>
+            {(hit.size || hit.mtime) ? (
+              <Space size={12} style={{ color: "#8c8c8c", fontSize: 12 }}>
+                {hit.size ? <span>{formatFileSize(hit.size)}</span> : null}
+                {hit.size && hit.mtime ? <span>·</span> : null}
+                {hit.mtime ? <span>수정일 {formatDate(hit.mtime)}</span> : null}
+              </Space>
+            ) : null}
           </div>
         }
       />

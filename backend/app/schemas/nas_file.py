@@ -67,6 +67,7 @@ class NasFileInfo(BaseModel):
 class NasSearchHit(NasFileInfo):
     """파일별 가장 유사도 높은 청크 1개를 대표로 묶어 반환."""
 
+    dept: str | None = None  # 부서(신사업/RND/마케팅 등) — 출처 표시용
     score: float
     snippet: str
 
