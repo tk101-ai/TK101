@@ -82,16 +82,19 @@ class Settings(BaseSettings):
         return {r.strip() for r in self.nas_full_search_roles.split(",") if r.strip()}
 
     # 사용자 부서 → Qdrant 문서 dept 라벨(들). 한 사용자 부서가 여러 doc dept를
-    # 볼 수 있으면 리스트로(MatchAny). Qdrant 실측 dept 라벨:
-    #   RND / 신사업 / 마케팅본부 / 경영지원팀
+    # 볼 수 있으면 리스트로(MatchAny).
+    # ⚠️ Qdrant 실측 dept 라벨 분포(2026-06-18): 마케팅(≈609k) / RND / 신사업 /
+    #    경영지원팀 / 마케팅본부(≈410). 마케팅 코퍼스의 대부분은 '마케팅' 라벨이고
+    #    '마케팅본부'는 극소수다. 과거 매핑이 '마케팅본부'만 가리켜, 스코핑을 켜면
+    #    마케팅 사용자가 정작 '마케팅' 라벨 문서를 못 보는 문제가 있었다 → 둘 다 포함.
     # 매핑이 없는(=None/누락) 부서는 전체검색으로 폴백한다.
     DOC_DEPT_BY_USER_DEPT: dict[str, list[str]] = {
-        "marketing_1": ["마케팅본부"],
-        "marketing_2": ["마케팅본부"],
+        "marketing_1": ["마케팅", "마케팅본부"],
+        "marketing_2": ["마케팅", "마케팅본부"],
         "new_business": ["신사업"],
         "finance": ["경영지원팀"],
-        "new_media": ["마케팅본부"],
-        "design": ["마케팅본부"],
+        "new_media": ["마케팅", "마케팅본부"],
+        "design": ["마케팅", "마케팅본부"],
         # admin 부서는 전체검색 역할로 처리되므로 매핑 불필요.
     }
 
