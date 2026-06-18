@@ -8,5 +8,6 @@
 """
 from app.services.docgen.docx_builder import build_docx
 from app.services.docgen.generator import generate_document, render_markdown
+from app.services.docgen.pptx_builder import build_pptx
 
-__all__ = ["generate_document", "render_markdown", "build_docx"]
+__all__ = ["generate_document", "render_markdown", "build_docx", "build_pptx"]

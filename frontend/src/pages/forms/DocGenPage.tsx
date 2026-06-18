@@ -14,6 +14,7 @@ import {
 import { DownloadOutlined, FileSearchOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import {
   downloadGeneratedDocx,
+  downloadGeneratedPptx,
   generateDocument,
   type DocGenResponse,
   type DocType,
@@ -57,6 +58,15 @@ export default function DocGenPage() {
       await downloadGeneratedDocx(result.title, result.sections);
     } catch {
       message.error("docx 다운로드 실패");
+    }
+  };
+
+  const handleDownloadPptx = async () => {
+    if (!result) return;
+    try {
+      await downloadGeneratedPptx(result.title, result.sections);
+    } catch {
+      message.error("pptx 다운로드 실패");
     }
   };
 
@@ -112,9 +122,14 @@ export default function DocGenPage() {
         <Card
           title={<Title level={5} style={{ margin: 0 }}>{result.title}</Title>}
           extra={
-            <Button icon={<DownloadOutlined />} onClick={handleDownload}>
-              .docx 다운로드
-            </Button>
+            <Space>
+              <Button icon={<DownloadOutlined />} onClick={handleDownload}>
+                .docx 다운로드
+              </Button>
+              <Button icon={<DownloadOutlined />} onClick={handleDownloadPptx}>
+                PPT 다운로드
+              </Button>
+            </Space>
           }
         >
           {result.sources.length > 0 && (
