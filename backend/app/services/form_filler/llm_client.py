@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.config import settings
+from app.services.llm.pricing import ANTHROPIC_TEXT_PRICING, estimate_anthropic_cost
 
 logger = logging.getLogger(__name__)
 
@@ -34,24 +35,17 @@ class LLMResponse:
     cost_usd: float
 
 
-# 모델별 단가 (USD/1M tokens). PRD NFR-02 가정.
-_MODEL_PRICING: dict[str, tuple[float, float]] = {
-    # Sonnet 4.6: input $3.00, output $15.00
-    "claude-sonnet-4-6": (3.00, 15.00),
-    "claude-sonnet-4-5": (3.00, 15.00),  # 호환
-    # Haiku 4.5: input $1.00, output $5.00
-    "claude-haiku-4-5-20251001": (1.00, 5.00),
-    "claude-haiku-4-5": (1.00, 5.00),  # 호환
-}
+# 모델별 단가 (USD/1M tokens)는 app.services.llm.pricing 으로 단일 소스화됨 (M-7).
+# 하위호환 별칭 — 기존 호출부/테스트가 이 이름을 참조할 수 있어 그대로 노출.
+_MODEL_PRICING = ANTHROPIC_TEXT_PRICING
 
 
 def _estimate_cost(model: str, input_tok: int, output_tok: int, cache_read_tok: int) -> float:
-    """간이 비용 추정 — cache read는 input 단가의 10% 가정 (Anthropic 정책)."""
-    in_price, out_price = _MODEL_PRICING.get(model, (3.00, 15.00))
-    cost = (input_tok / 1_000_000) * in_price
-    cost += (output_tok / 1_000_000) * out_price
-    cost += (cache_read_tok / 1_000_000) * in_price * 0.1
-    return round(cost, 6)
+    """간이 비용 추정 — cache read는 input 단가의 10% 가정 (Anthropic 정책).
+
+    공통 모듈(app.services.llm.pricing.estimate_anthropic_cost)에 위임. 시그니처/반환 형태 유지.
+    """
+    return estimate_anthropic_cost(model, input_tok, output_tok, cache_read_tok)
 
 
 def _build_anthropic_client() -> Any:
