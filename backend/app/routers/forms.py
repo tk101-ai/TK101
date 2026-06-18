@@ -198,6 +198,10 @@ class NasSourceAttachRequest(BaseModel):
         default=None,
         description="제공 시 의미 검색으로 chunk_ids 자동 채움. limit는 limit 인자 사용.",
     )
+    auto_query_from_template: bool = Field(
+        default=False,
+        description="True면 auto_query 미지정 시 양식 변수 라벨로 쿼리를 자동 생성해 검색(B2).",
+    )
     limit: int = Field(default=20, ge=1, le=50)
 
 
@@ -662,10 +666,18 @@ async def attach_nas_sources(
     job = await _fetch_job_or_404(db, job_id, user)
 
     chunk_ids: list[str] = [str(cid) for cid in body.nas_chunk_ids]
-    if body.auto_query:
+    # 검색 쿼리: 명시 auto_query 우선, 없으면 양식 변수로 자동 생성(B2).
+    search_query = body.auto_query
+    if not search_query and body.auto_query_from_template and job.template_id:
+        template = await db.get(FormTemplate, job.template_id)
+        if template is not None:
+            search_query = nas_bridge.build_query_from_variables(
+                template.variables, getattr(template, "name", None)
+            )
+    if search_query:
         try:
             hits = await nas_bridge.search_relevant_chunks(
-                db, query=body.auto_query, limit=body.limit
+                db, query=search_query, limit=body.limit
             )
         except RuntimeError as exc:
             raise HTTPException(
