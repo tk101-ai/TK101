@@ -20,6 +20,7 @@ import {
   FileSearchOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SyncOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import {
@@ -31,6 +32,7 @@ import {
   type DocGenResponse,
   type DocReviewResponse,
   type DocSection,
+  type DocSectionReview,
   type DocType,
 } from "../../api/docgen";
 
@@ -55,6 +57,9 @@ export default function DocGenPage() {
   const [regenIdx, setRegenIdx] = useState<number | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [review, setReview] = useState<DocReviewResponse | null>(null);
+  // 검수 이슈 기반 자동 보강(원클릭) 진행 상태.
+  const [autoFixHeading, setAutoFixHeading] = useState<string | null>(null);
+  const [autoFixingAll, setAutoFixingAll] = useState(false);
 
   const handleGenerate = async () => {
     const t = topic.trim();
@@ -105,6 +110,84 @@ export default function DocGenPage() {
       message.error("섹션 재생성 실패");
     } finally {
       setRegenIdx(null);
+    }
+  };
+
+  // 검수 결과의 issues + suggestions 를 재생성용 feedback 문자열로 합친다.
+  const buildReviewFeedback = (r: DocSectionReview): string => {
+    const lines = [
+      ...(r.grounded ? [] : ["근거가 불충분합니다. 참고 자료에 기반해 사실을 보강하세요."]),
+      ...r.issues.map((iss) => `문제: ${iss}`),
+      ...r.suggestions.map((sg) => `개선: ${sg}`),
+    ];
+    return lines.join("\n");
+  };
+
+  // 검수 항목 heading 을 현재 섹션 배열의 인덱스로 매핑(편집으로 못 찾으면 -1).
+  const findSectionIndex = (heading: string): number =>
+    sections.findIndex((s) => s.heading.trim() === heading.trim());
+
+  // 한 섹션을 검수 피드백 기준으로 재생성하고, 해당 섹션의 검수 표시는 제거(재검증 필요).
+  const regenerateFromReview = async (r: DocSectionReview): Promise<boolean> => {
+    const idx = findSectionIndex(r.heading);
+    if (idx < 0) {
+      message.warning(`"${r.heading}" 섹션을 찾지 못했습니다(제목이 바뀐 듯). 건너뜁니다.`);
+      return false;
+    }
+    const res = await regenerateSection({
+      topic: topic.trim(),
+      doc_type: docType,
+      heading: sections[idx].heading,
+      current_body: sections[idx].body,
+      feedback: buildReviewFeedback(r),
+      use_nas: useNas,
+    });
+    updateSection(idx, res.section);
+    // 재생성된 섹션의 검수 결과는 더 이상 유효하지 않으므로 목록에서 제거.
+    setReview((prev) =>
+      prev
+        ? { ...prev, section_reviews: prev.section_reviews.filter((sr) => sr !== r) }
+        : prev,
+    );
+    return true;
+  };
+
+  // 단일 섹션 "이 이슈 반영해 재생성".
+  const handleAutoFixSection = async (r: DocSectionReview) => {
+    setAutoFixHeading(r.heading);
+    try {
+      const ok = await regenerateFromReview(r);
+      if (ok) message.success(`"${r.heading}" 이슈 반영 재생성 완료`);
+    } catch {
+      message.error("이슈 반영 재생성 실패");
+    } finally {
+      setAutoFixHeading(null);
+    }
+  };
+
+  // "지적된 섹션 모두 자동 보강" — 이슈 있는 섹션들을 순차 재생성.
+  const handleAutoFixAll = async () => {
+    if (!review) return;
+    const targets = review.section_reviews.filter((r) => !r.grounded || r.issues.length > 0);
+    if (targets.length === 0) return;
+    setAutoFixingAll(true);
+    let done = 0;
+    let skipped = 0;
+    try {
+      for (const r of targets) {
+        try {
+          const ok = await regenerateFromReview(r);
+          if (ok) done += 1;
+          else skipped += 1;
+        } catch {
+          skipped += 1;
+        }
+      }
+      message.success(
+        `자동 보강 완료 — ${done}개 재생성${skipped > 0 ? `, ${skipped}개 건너뜀` : ""}`,
+      );
+    } finally {
+      setAutoFixingAll(false);
     }
   };
 
@@ -231,22 +314,52 @@ export default function DocGenPage() {
                 <div>
                   <div style={{ marginBottom: 8 }}>{review.summary}</div>
                   {review.section_reviews.some((r) => !r.grounded || r.issues.length > 0) && (
-                    <List
-                      size="small"
-                      dataSource={review.section_reviews.filter((r) => !r.grounded || r.issues.length > 0)}
-                      renderItem={(r) => (
-                        <List.Item style={{ display: "block", paddingLeft: 0 }}>
-                          <Text strong>{r.heading}</Text>{" "}
-                          {!r.grounded && <Tag color="red">근거 불충분</Tag>}
-                          {r.issues.map((iss, k) => (
-                            <div key={k} style={{ fontSize: 12, color: "#cf1322" }}>· {iss}</div>
-                          ))}
-                          {r.suggestions.map((sg, k) => (
-                            <div key={k} style={{ fontSize: 12, color: "#8c8c8c" }}>→ {sg}</div>
-                          ))}
-                        </List.Item>
-                      )}
-                    />
+                    <>
+                      <Button
+                        size="small"
+                        type="primary"
+                        ghost
+                        icon={<SyncOutlined />}
+                        loading={autoFixingAll}
+                        disabled={autoFixHeading !== null}
+                        onClick={handleAutoFixAll}
+                        style={{ marginBottom: 8 }}
+                      >
+                        지적된 섹션 모두 자동 보강
+                      </Button>
+                      <List
+                        size="small"
+                        dataSource={review.section_reviews.filter((r) => !r.grounded || r.issues.length > 0)}
+                        renderItem={(r) => (
+                          <List.Item style={{ display: "block", paddingLeft: 0 }}>
+                            <Space align="center" wrap style={{ marginBottom: 2 }}>
+                              <Text strong>{r.heading}</Text>
+                              {!r.grounded && <Tag color="red">근거 불충분</Tag>}
+                              {findSectionIndex(r.heading) < 0 && <Tag>섹션 없음</Tag>}
+                              <Button
+                                size="small"
+                                icon={<SyncOutlined />}
+                                loading={autoFixHeading === r.heading}
+                                disabled={
+                                  autoFixingAll ||
+                                  (autoFixHeading !== null && autoFixHeading !== r.heading) ||
+                                  findSectionIndex(r.heading) < 0
+                                }
+                                onClick={() => handleAutoFixSection(r)}
+                              >
+                                이 이슈 반영해 재생성
+                              </Button>
+                            </Space>
+                            {r.issues.map((iss, k) => (
+                              <div key={k} style={{ fontSize: 12, color: "#cf1322" }}>· {iss}</div>
+                            ))}
+                            {r.suggestions.map((sg, k) => (
+                              <div key={k} style={{ fontSize: 12, color: "#8c8c8c" }}>→ {sg}</div>
+                            ))}
+                          </List.Item>
+                        )}
+                      />
+                    </>
                   )}
                   {review.missing.length > 0 && (
                     <div style={{ marginTop: 8 }}>
