@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.logging_setup import setup_logging
 from app.services.distribution.send_worker import run_send_worker
+from app.services.playground.media_cleanup import run_media_cleanup_loop
 from app.routers import (
     accounts,
     attachments,
@@ -95,6 +96,15 @@ async def lifespan(app: FastAPI):
     if _should_start_send_worker():
         worker_task = asyncio.create_task(run_send_worker(stop_event))
         logger.info("distribution 예약 송신 워커 기동")
+    # Playground 미디어 보존기간 정리 — 기본 OFF(비가역 하드삭제라 명시적 opt-in).
+    # 켜면 하루 1회 + 기동 직후 1회 자동 실행. 끄면 admin 수동 엔드포인트만 사용.
+    media_cleanup_stop = asyncio.Event()
+    media_cleanup_task = None
+    if settings.playground_media_autocleanup_enabled:
+        media_cleanup_task = asyncio.create_task(run_media_cleanup_loop(media_cleanup_stop))
+        logger.info("playground 미디어 자동정리 태스크 기동(보존 %d일)", settings.playground_media_retention_days)
+    else:
+        logger.info("playground 미디어 자동정리 비활성(playground_media_autocleanup_enabled=False) — 수동 정리만")
     try:
         yield
     finally:
@@ -112,6 +122,14 @@ async def lifespan(app: FastAPI):
             except asyncio.CancelledError:
                 pass
             logger.info("distribution 예약 송신 워커 정지 완료")
+        media_cleanup_stop.set()
+        if media_cleanup_task is not None:
+            media_cleanup_task.cancel()
+            try:
+                await media_cleanup_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        logger.info("playground 미디어 보존기간 정리 태스크 정지 완료")
 
 
 app = FastAPI(title="TK101 AI Backend", version="0.1.0", lifespan=lifespan)
