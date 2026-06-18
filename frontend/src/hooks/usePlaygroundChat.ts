@@ -34,6 +34,8 @@ export interface ChatMessage {
   metrics: ChatMessageMetrics;
   streaming: boolean;
   error?: string | null;
+  /** NAS RAG 사용 시 답변에 참고된 회사 문서 출처 경로 목록. */
+  sources?: string[];
 }
 
 export interface CumulativeUsage {
@@ -77,6 +79,8 @@ export interface UsePlaygroundChatArgs {
   model: string;
   systemPrompt: string;
   temperature: number;
+  /** true 면 채팅 호출 시 회사 NAS 문서(RAG)를 참고하도록 백엔드에 요청. */
+  useNasRag?: boolean;
 }
 
 export function usePlaygroundChat(args: UsePlaygroundChatArgs) {
@@ -158,6 +162,7 @@ export function usePlaygroundChat(args: UsePlaygroundChatArgs) {
           system_prompt: args.systemPrompt || null,
           temperature: args.temperature,
           attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
+          use_nas_rag: args.useNasRag || undefined,
         },
         {
           signal: controller.signal,
@@ -192,6 +197,11 @@ export function usePlaygroundChat(args: UsePlaygroundChatArgs) {
                 totalTokens: prev.totalTokens + totalN,
                 cached: prev.cached + cachedN,
                 reasoning: prev.reasoning + reasoningN,
+              }));
+            } else if (chunk.type === "sources") {
+              updateAssistant(assistantId, (m) => ({
+                ...m,
+                sources: chunk.sources,
               }));
             } else if (chunk.type === "done") {
               updateAssistant(assistantId, (m) => ({ ...m, streaming: false }));
@@ -229,6 +239,7 @@ export function usePlaygroundChat(args: UsePlaygroundChatArgs) {
       args.model,
       args.systemPrompt,
       args.temperature,
+      args.useNasRag,
       updateAssistant,
     ],
   );

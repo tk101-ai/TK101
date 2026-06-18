@@ -60,6 +60,9 @@ class PlaygroundChatRequest(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=1.0)
     # 2026-05-20: 채팅 입력에 첨부할 파일 ID 목록. 업로드는 별도 endpoint.
     attachment_ids: list[uuid.UUID] = Field(default_factory=list)
+    # 2026-06-18: NAS RAG. True 면 답변 전에 회사 NAS 문서(Qdrant 코퍼스)에서 관련
+    # 청크를 검색해 system 컨텍스트로 주입한다. 검색 실패/0건은 일반 채팅으로 진행.
+    use_nas_rag: bool = False
 
 
 # ---------------------------------------------------------------------------

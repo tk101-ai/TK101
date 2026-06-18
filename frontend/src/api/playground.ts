@@ -87,6 +87,8 @@ export type PlaygroundChunk =
       latency_ms?: number;
       model?: string;
     }
+  /** NAS RAG 사용 시 답변에 참고된 회사 문서 출처 경로 목록. */
+  | { type: "sources"; sources: string[] }
   | { type: "done"; message_id?: string }
   | { type: "error"; message: string };
 
@@ -131,6 +133,12 @@ function normalizeChunk(raw: Record<string, unknown>): PlaygroundChunk {
       latency_ms: num("latency_ms"),
       model: typeof raw.model === "string" ? raw.model : undefined,
     };
+  }
+  if (t === "sources") {
+    const list = Array.isArray(raw.sources)
+      ? raw.sources.filter((s): s is string => typeof s === "string")
+      : [];
+    return { type: "sources", sources: list };
   }
   if (t === "done") {
     return {
@@ -241,6 +249,8 @@ export interface StreamChatBody {
   temperature?: number;
   /** 2026-05-20: 이번 호출에 결합할 첨부 파일 ID 목록. */
   attachment_ids?: string[];
+  /** 2026-06-18: true 면 회사 NAS 문서(RAG)를 검색해 컨텍스트로 주입. */
+  use_nas_rag?: boolean;
 }
 
 export interface StreamChatHandlers {

@@ -1,8 +1,15 @@
 import { useEffect, useRef } from "react";
-import { Alert, Empty, Spin, Tag, Typography } from "antd";
+import { Alert, Empty, Spin, Tag, Tooltip, Typography } from "antd";
+import { FileTextOutlined } from "@ant-design/icons";
 import type { ChatMessage } from "../../hooks/usePlaygroundChat";
 
 const { Text } = Typography;
+
+/** 전체 NAS 경로에서 표시용 파일명만 추출 (전체 경로는 tooltip 으로). */
+function baseName(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || path;
+}
 
 interface ChatStreamProps {
   messages: ChatMessage[];
@@ -138,6 +145,30 @@ export default function ChatStream({ messages, sending }: ChatStreamProps) {
                 </Text>
               ) : null}
             </div>
+            {!isUser && m.sources && m.sources.length > 0 ? (
+              <div
+                style={{
+                  marginTop: 4,
+                  maxWidth: "78%",
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <Text style={{ fontSize: 11, color: "rgba(0,0,0,0.45)" }}>
+                  <FileTextOutlined style={{ marginRight: 4 }} />
+                  회사 문서 참고:
+                </Text>
+                {m.sources.map((s) => (
+                  <Tooltip key={s} title={s}>
+                    <Tag style={{ fontSize: 10, padding: "0 6px", margin: 0 }}>
+                      {baseName(s)}
+                    </Tag>
+                  </Tooltip>
+                ))}
+              </div>
+            ) : null}
           </div>
         );
       })}
