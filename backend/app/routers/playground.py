@@ -41,7 +41,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_admin, require_module
+from app.modules.constants import Module
 from app.models.playground import (
     PlaygroundAttachment,
     PlaygroundMedia,
@@ -115,7 +116,13 @@ from app.services.playground.usage_check import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/playground", tags=["playground"])
+# 모듈 게이트: 인증 사용자라도 playground 모듈 grant 가 있어야 접근(다른 라우터와 일관).
+# admin 전용 통계/세션/로그 엔드포인트는 내부에서 require_admin 으로 추가 보호.
+router = APIRouter(
+    prefix="/api/playground",
+    tags=["playground"],
+    dependencies=[Depends(require_module(Module.PLAYGROUND.value))],
+)
 
 
 # ===========================================================================
