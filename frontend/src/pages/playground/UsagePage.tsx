@@ -6,6 +6,7 @@ import {
   Form,
   InputNumber,
   Modal,
+  Progress,
   Statistic,
   Table,
   Tag,
@@ -19,7 +20,9 @@ import {
   adminGetUserQuotas,
   adminUpdateUserQuota,
   getAdminUsage,
+  getMyQuota,
   type PlaygroundAdminUserQuota,
+  type PlaygroundQuotaInfo,
   type PlaygroundUsageByModel,
   type PlaygroundUsageByUser,
   type PlaygroundUsageReport,
@@ -34,10 +37,33 @@ const KIND_COLOR: Record<string, string> = {
   video: "purple",
 };
 
+function num(v: number | string | null | undefined): number {
+  if (v === null || v === undefined) return 0;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export default function UsagePage() {
   const [report, setReport] = useState<PlaygroundUsageReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [range, setRange] = useState<[string | null, string | null]>([null, null]);
+
+  // 본인 이번 달 한도/사용량/잔여 (모든 사용자 공통 — /me/quota).
+  const [myQuota, setMyQuota] = useState<PlaygroundQuotaInfo | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await getMyQuota();
+        if (!cancelled) setMyQuota(data);
+      } catch {
+        if (!cancelled) setMyQuota(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -241,7 +267,59 @@ export default function UsagePage() {
       </div>
 
       <Space direction="vertical" size={16} style={{ width: "100%" }}>
-        <Card size="small">
+        {myQuota ? (
+          <Card size="small" title="내 사용량 (이번 달)">
+            <Space size="large" wrap align="center">
+              <Statistic
+                title="월 한도"
+                value={num(myQuota.monthly_quota_usd)}
+                precision={2}
+                prefix="$"
+              />
+              <Statistic
+                title="사용"
+                value={num(myQuota.current_usage_usd)}
+                precision={4}
+                prefix="$"
+              />
+              <Statistic
+                title="잔여"
+                value={num(myQuota.remaining_usd)}
+                precision={4}
+                prefix="$"
+                valueStyle={{
+                  color:
+                    num(myQuota.remaining_usd) <= 0 ? "#ff4d4f" : undefined,
+                }}
+              />
+              <div style={{ minWidth: 200 }}>
+                <Progress
+                  percent={
+                    num(myQuota.monthly_quota_usd) > 0
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (num(myQuota.current_usage_usd) /
+                              num(myQuota.monthly_quota_usd)) *
+                              100,
+                          ),
+                        )
+                      : 0
+                  }
+                  status={
+                    num(myQuota.remaining_usd) <= 0 ? "exception" : "normal"
+                  }
+                />
+                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                  {myQuota.period_start?.slice(0, 10)} ~{" "}
+                  {myQuota.period_end?.slice(0, 10)}
+                </Typography.Text>
+              </div>
+            </Space>
+          </Card>
+        ) : null}
+
+        <Card size="small" title="전체 사용량 (admin)">
           <Space size="large" wrap>
             <Statistic
               title="총 비용 (USD)"
