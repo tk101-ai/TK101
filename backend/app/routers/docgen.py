@@ -23,9 +23,12 @@ from app.schemas.docgen import (
     DocGenRequest,
     DocGenResponse,
     DocRenderRequest,
+    DocReviewRequest,
+    DocReviewResponse,
     DocSection,
     DocSectionRegenRequest,
     DocSectionRegenResponse,
+    DocSectionReview,
     DocSourceRef,
 )
 from app.services.docgen import (
@@ -34,6 +37,7 @@ from app.services.docgen import (
     generate_document,
     regenerate_section,
     render_markdown,
+    review_document,
 )
 from app.services.form_filler import nas_bridge
 
@@ -132,6 +136,42 @@ async def regenerate_section_endpoint(
         ) from exc
     return DocSectionRegenResponse(
         section=DocSection(heading=section["heading"], body=section["body"]),
+        cost_usd=cost,
+        model=model,
+    )
+
+
+@router.post("/review", response_model=DocReviewResponse)
+async def review(
+    body: DocReviewRequest,
+    user: User = Depends(get_current_user),
+) -> DocReviewResponse:
+    """생성 초안 품질검증(LLM-as-judge) — 근거성/요구충족/완성도 평가."""
+    chunks = []
+    if body.use_nas and body.limit > 0:
+        try:
+            chunks = await nas_bridge.search_relevant_chunks(query=body.topic, limit=body.limit)
+        except RuntimeError as exc:
+            logger.warning("review NAS 검색 실패 — 자료 없이 진행: %s", exc)
+            chunks = []
+    sections = [{"heading": s.heading, "body": s.body} for s in body.sections]
+    try:
+        result, cost, model = await asyncio.to_thread(
+            review_document, body.topic, body.doc_type, body.title, sections, chunks
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("문서 검수 실패")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"문서 검수 실패: {exc}",
+        ) from exc
+    return DocReviewResponse(
+        overall_score=result["overall_score"],
+        summary=result["summary"],
+        section_reviews=[DocSectionReview(**r) for r in result["section_reviews"]],
+        missing=result["missing"],
         cost_usd=cost,
         model=model,
     )

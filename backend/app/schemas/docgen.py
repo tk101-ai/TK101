@@ -57,3 +57,30 @@ class DocSectionRegenResponse(BaseModel):
     section: DocSection
     cost_usd: float
     model: str
+
+
+class DocReviewRequest(BaseModel):
+    """생성 초안 품질검증(LLM-as-judge) 요청."""
+
+    topic: str = Field(min_length=2, max_length=4000)
+    doc_type: DocType = "일반"
+    title: str = Field(min_length=1, max_length=200)
+    sections: list[DocSection] = Field(min_length=1)
+    use_nas: bool = True
+    limit: int = Field(default=8, ge=0, le=20)
+
+
+class DocSectionReview(BaseModel):
+    heading: str
+    grounded: bool = True
+    issues: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+
+
+class DocReviewResponse(BaseModel):
+    overall_score: int
+    summary: str
+    section_reviews: list[DocSectionReview] = Field(default_factory=list)
+    missing: list[str] = Field(default_factory=list)
+    cost_usd: float
+    model: str
