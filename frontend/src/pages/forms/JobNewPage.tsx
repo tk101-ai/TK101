@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   Empty,
+  Input,
   List,
   message,
   Space,
@@ -10,7 +11,12 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { CloudUploadOutlined, FileSearchOutlined, PlusOutlined } from "@ant-design/icons";
+import {
+  CloudUploadOutlined,
+  FileSearchOutlined,
+  PlusOutlined,
+  ThunderboltOutlined,
+} from "@ant-design/icons";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   addNasSourcesToJob,
@@ -20,6 +26,7 @@ import {
   type FormDataSource,
   type FormJobDetail,
 } from "../../api/forms";
+import type { NasSearchHit } from "../../api/nas";
 import SourcePicker from "../../components/forms/SourcePicker";
 
 const { Text, Paragraph } = Typography;
@@ -35,6 +42,7 @@ export default function JobNewPage() {
   const [loading, setLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [autoQuery, setAutoQuery] = useState("");
 
   const refresh = async () => {
     try {
@@ -54,17 +62,41 @@ export default function JobNewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const handlePickNas = async (hits: { id: string; name: string }[]) => {
+  const handlePickNas = async (hits: NasSearchHit[]) => {
     setBusy(true);
     try {
-      await addNasSourcesToJob(
-        id,
-        hits.map((h) => h.id),
-      );
+      // 검색결과 hit.id 는 doc_id→UUID 인코딩이라 조회 키로 못 쓴다. 안정적인 path 로 선택.
+      await addNasSourcesToJob(id, { nasPaths: hits.map((h) => h.path) });
       message.success(`NAS 자료 ${hits.length}개 추가`);
       await refresh();
     } catch {
       message.error("NAS 자료 추가 실패");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // AI 자동 자료 수집: 직접 입력한 쿼리 또는 양식 변수 기반 자동 쿼리로 NAS 검색.
+  const handleAutoCollect = async (fromTemplate: boolean) => {
+    const q = autoQuery.trim();
+    if (!fromTemplate && !q) {
+      message.warning("검색어를 입력하거나 ‘양식 기반 자동 검색’을 사용하세요");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await addNasSourcesToJob(id, {
+        autoQuery: fromTemplate ? undefined : q,
+        autoQueryFromTemplate: fromTemplate,
+      });
+      if (res.total === 0) {
+        message.info("관련 NAS 자료를 찾지 못했습니다");
+      } else {
+        message.success(`NAS 자료 ${res.total}건 자동 수집`);
+      }
+      await refresh();
+    } catch {
+      message.error("자동 자료 수집 실패");
     } finally {
       setBusy(false);
     }
@@ -130,6 +162,50 @@ export default function JobNewPage() {
           양식 「{detail.template.name}」 · 변수 {detail.template.variables.length}개
         </Text>
       </div>
+
+      <Card
+        size="small"
+        style={{ marginBottom: 16 }}
+        title={
+          <Space>
+            <ThunderboltOutlined />
+            <span>AI 자동 자료 수집 (NAS)</span>
+          </Space>
+        }
+      >
+        <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+          회사 NAS 문서(벡터검색)에서 관련 자료를 자동으로 찾아 추가합니다. 주제를 입력하거나,
+          이 양식 변수 기반으로 자동 검색하세요.
+        </Paragraph>
+        <Space.Compact style={{ width: "100%" }}>
+          <Input
+            placeholder="예: 신세계백화점 SNS 운영 보고서"
+            value={autoQuery}
+            onChange={(e) => setAutoQuery(e.target.value)}
+            onPressEnter={() => handleAutoCollect(false)}
+            disabled={busy}
+            allowClear
+          />
+          <Button
+            type="primary"
+            icon={<FileSearchOutlined />}
+            onClick={() => handleAutoCollect(false)}
+            loading={busy}
+          >
+            검색해서 추가
+          </Button>
+        </Space.Compact>
+        <Button
+          type="link"
+          size="small"
+          icon={<ThunderboltOutlined />}
+          onClick={() => handleAutoCollect(true)}
+          disabled={busy}
+          style={{ paddingLeft: 0, marginTop: 4 }}
+        >
+          양식 변수 기반 자동 검색
+        </Button>
+      </Card>
 
       <Card
         title={

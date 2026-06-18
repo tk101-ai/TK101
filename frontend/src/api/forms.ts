@@ -412,30 +412,59 @@ export async function uploadJobSource(
   return res.data;
 }
 
+export interface AddNasSourcesOptions {
+  /** NAS 검색결과에서 파일 단위로 선택한 경로들(수동 선택). */
+  nasPaths?: string[];
+  /** 의미 검색 쿼리(자동 자료 수집). */
+  autoQuery?: string;
+  /** auto_query 미지정 시 양식 변수로 쿼리 자동 생성. */
+  autoQueryFromTemplate?: boolean;
+  /** 검색 시 가져올 청크 수. */
+  limit?: number;
+}
+
+export interface AddNasSourcesResult {
+  attached: { source_id: string; file_path: string; chunk_index: number }[];
+  total: number;
+}
+
 export async function addNasSourcesToJob(
   jobId: string,
-  nasFileIds: string[],
-): Promise<FormDataSource[]> {
+  opts: AddNasSourcesOptions,
+): Promise<AddNasSourcesResult> {
   if (MOCK_ENABLED) {
-    const created: FormDataSource[] = nasFileIds.map((fid) => ({
+    const n = opts.nasPaths?.length ?? (opts.autoQuery || opts.autoQueryFromTemplate ? 3 : 0);
+    const created: FormDataSource[] = Array.from({ length: n }, (_, i) => ({
       id: mockId("src"),
       job_id: jobId,
       kind: "nas_file" as const,
-      nas_file_id: fid,
-      upload_path: null,
+      nas_file_id: null,
+      upload_path: opts.nasPaths?.[i] ?? `자동검색 결과 ${i + 1}`,
       nas_chunk_ids: [],
       extracted_text: null,
-      display_name: `NAS 파일 ${fid.slice(0, 6)}`,
+      display_name: opts.nasPaths?.[i] ?? `자동검색 결과 ${i + 1}`,
       created_at: nowIso(),
     }));
     const arr = mockStore.sources.get(jobId) ?? [];
     arr.push(...created);
     mockStore.sources.set(jobId, arr);
-    return created;
+    return {
+      attached: created.map((s) => ({
+        source_id: s.id,
+        file_path: s.upload_path ?? "",
+        chunk_index: 0,
+      })),
+      total: created.length,
+    };
   }
-  const res = await api.post<FormDataSource[]>(
+  const res = await api.post<AddNasSourcesResult>(
     `/api/forms/jobs/${jobId}/sources/nas`,
-    { nas_file_ids: nasFileIds },
+    {
+      nas_paths: opts.nasPaths ?? [],
+      auto_query: opts.autoQuery ?? null,
+      auto_query_from_template: opts.autoQueryFromTemplate ?? false,
+      limit: opts.limit ?? 20,
+    },
   );
   return res.data;
 }
