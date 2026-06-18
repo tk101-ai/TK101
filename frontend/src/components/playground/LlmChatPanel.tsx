@@ -6,8 +6,12 @@ import {
   useState,
   type DragEvent,
 } from "react";
-import { Button, Card, Slider, Tooltip, Typography, message } from "antd";
-import { BugOutlined, CloudUploadOutlined } from "@ant-design/icons";
+import { Button, Card, Slider, Switch, Tooltip, Typography, message } from "antd";
+import {
+  BugOutlined,
+  CloudUploadOutlined,
+  DatabaseOutlined,
+} from "@ant-design/icons";
 import type {
   PlaygroundProvider,
   PlaygroundProviderKey,
@@ -53,6 +57,8 @@ export default function LlmChatPanel() {
   const [modelId, setModelId] = useState<string>(DEFAULT_MODEL_ID);
   const [systemPrompt, setSystemPrompt] = useState<string>("");
   const [temperature, setTemperature] = useState<number>(0.7);
+  // 회사 NAS 문서 참고 (RAG) 토글.
+  const [useNasRag, setUseNasRag] = useState<boolean>(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +98,7 @@ export default function LlmChatPanel() {
     model: modelId,
     systemPrompt,
     temperature,
+    useNasRag,
   });
 
   // 첨부 상태는 hook 으로 분리 — ChatInputBar + 채팅 카드 drop zone 이 공유.
@@ -262,6 +269,33 @@ export default function LlmChatPanel() {
             value={temperature}
             onChange={(v) => setTemperature(Array.isArray(v) ? v[0] : v)}
             tooltip={{ formatter: (v) => (typeof v === "number" ? v.toFixed(2) : "") }}
+          />
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            padding: "8px 10px",
+            borderRadius: 8,
+            border: "1px solid rgba(0,0,0,0.08)",
+            background: useNasRag ? "rgba(22,119,255,0.06)" : "rgba(0,0,0,0.02)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+            <DatabaseOutlined
+              style={{ fontSize: 14, color: useNasRag ? "#1677ff" : "rgba(0,0,0,0.45)" }}
+            />
+            <Tooltip title="답변 전에 회사 NAS 문서(Qdrant 코퍼스)에서 관련 자료를 검색해 컨텍스트로 주입합니다">
+              <Text style={{ fontSize: 12, fontWeight: 600 }}>회사 문서 참고 (NAS)</Text>
+            </Tooltip>
+          </div>
+          <Switch
+            size="small"
+            checked={useNasRag}
+            onChange={setUseNasRag}
           />
         </div>
 

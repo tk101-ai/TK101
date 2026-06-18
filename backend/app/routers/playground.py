@@ -89,6 +89,11 @@ from app.services.playground.attachments import (
     supports_vision,
 )
 from app.services.playground.media_downloader import download_media
+from app.services.playground.nas_rag import (
+    build_context_block,
+    search_rag_context,
+    source_paths,
+)
 from app.services.playground.pricing import (
     calc_image_cost,
     calc_text_cost,
@@ -551,12 +556,31 @@ async def chat_endpoint(
         else:
             api_messages.append({"role": m.role, "content": m.content})
 
+    # NAS RAG — 토글이 켜져 있으면 마지막 사용자 메시지로 회사 문서를 검색해
+    # system 컨텍스트로 주입. 검색 실패/0건은 일반 채팅으로 graceful 진행.
+    base_system_prompt = session.system_prompt or body.system_prompt
+    effective_system_prompt = base_system_prompt
+    rag_sources: list[str] = []
+    if body.use_nas_rag:
+        rag_hits = await search_rag_context(body.message)
+        if rag_hits:
+            rag_sources = source_paths(rag_hits)
+            context_block = build_context_block(rag_hits)
+            # 컨텍스트를 system prompt 앞에 주입 (기존 system prompt 는 뒤에 보존).
+            effective_system_prompt = (
+                f"{context_block}\n\n{base_system_prompt}"
+                if base_system_prompt
+                else context_block
+            )
+
     raw_request = mask_request_payload(
         {
             "model": body.model,
             "temperature": body.temperature,
             "system_prompt": body.system_prompt,
             "message_count": len(api_messages),
+            "use_nas_rag": body.use_nas_rag,
+            "nas_sources": rag_sources,
             "headers": {"Authorization": "***masked***"},
         }
     )
@@ -573,11 +597,21 @@ async def chat_endpoint(
         buffer: list[str] = []
         usage: dict[str, int] = {}
         start = time.perf_counter()
+        # RAG 출처를 먼저 흘려보내 프론트가 메시지 하단에 표시할 수 있게 한다.
+        if rag_sources:
+            yield (
+                "data: "
+                + json.dumps(
+                    {"type": "sources", "sources": rag_sources},
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            )
         try:
             async for chunk in stream_chat(
                 messages=api_messages,
                 model=body.model,
-                system_prompt=session.system_prompt or body.system_prompt,
+                system_prompt=effective_system_prompt,
                 temperature=float(session.temperature)
                 if session.temperature is not None
                 else body.temperature,
