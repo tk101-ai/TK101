@@ -680,25 +680,28 @@ async def attach_nas_sources(
     job = await _fetch_job_or_404(db, job_id, user)
 
     chunk_ids: list[str] = [str(cid) for cid in body.nas_chunk_ids]
-    # 검색 쿼리: 명시 auto_query 우선, 없으면 양식 변수로 자동 생성(B2).
-    search_query = body.auto_query
-    if not search_query and body.auto_query_from_template and job.template_id:
-        template = await db.get(FormTemplate, job.template_id)
-        if template is not None:
-            search_query = nas_bridge.build_query_from_variables(
-                template.variables, getattr(template, "name", None)
-            )
-    if search_query:
-        try:
+    try:
+        if body.auto_query:
+            # 명시 쿼리: 단일 의미검색.
             hits = await nas_bridge.search_relevant_chunks(
-                db, query=search_query, limit=body.limit
+                db, query=body.auto_query, limit=body.limit
             )
-        except RuntimeError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=str(exc),
-            ) from exc
-        chunk_ids.extend(h.chunk_id for h in hits)
+            chunk_ids.extend(h.chunk_id for h in hits)
+        elif body.auto_query_from_template and job.template_id:
+            # 양식 변수 기반: 변수별 병렬 검색으로 자료 커버리지 향상.
+            template = await db.get(FormTemplate, job.template_id)
+            if template is not None and template.variables:
+                hits = await nas_bridge.search_per_variable(
+                    db,
+                    variables=template.variables,
+                    template_name=getattr(template, "name", None),
+                )
+                chunk_ids.extend(h.chunk_id for h in hits)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
 
     file_chunks: list[nas_bridge.NasChunkHit] = []
     if body.nas_file_ids:
