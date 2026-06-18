@@ -60,3 +60,26 @@ export async function downloadGeneratedDocx(
   a.remove();
   window.URL.revokeObjectURL(url);
 }
+
+/** 초안(수정 가능)을 .pptx 로 렌더해 브라우저 다운로드. */
+export async function downloadGeneratedPptx(
+  title: string,
+  sections: DocSection[],
+): Promise<void> {
+  const res = await api.post(
+    "/api/docgen/render_pptx",
+    { title, sections },
+    { responseType: "blob" },
+  );
+  const blob = new Blob([res.data], {
+    type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${title || "문서"}.pptx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
