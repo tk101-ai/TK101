@@ -55,6 +55,8 @@ interface ActiveTask {
   outputUrl: string | null;
   errorMessage: string | null;
   costUsd: number | null;
+  // 생성 시각 (ISO). DB 복원 시 created_at, 신규 요청 시 클라이언트 now.
+  createdAt: string;
 }
 
 function itemToTask(item: PlaygroundMediaItem): ActiveTask {
@@ -68,7 +70,59 @@ function itemToTask(item: PlaygroundMediaItem): ActiveTask {
     outputUrl: item.file_path ? mediaFileUrl(item.id) : item.url,
     errorMessage: item.error_message,
     costUsd: item.cost_usd,
+    createdAt: item.created_at,
   };
+}
+
+/** 로컬 타임존 기준 YYYY-MM-DD 문자열. */
+function toDateKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** dateKey(YYYY-MM-DD) → "오늘 / 어제 / YYYY-MM-DD" 헤더 라벨. */
+function dateGroupLabel(dateKey: string): string {
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (dateKey === toDateKey(today)) return "오늘";
+  if (dateKey === toDateKey(yesterday)) return "어제";
+  return dateKey;
+}
+
+interface DateGroup {
+  dateKey: string;
+  label: string;
+  tasks: ActiveTask[];
+}
+
+/**
+ * task 목록을 생성 날짜(로컬 타임존)별로 그룹핑. 최신 날짜가 먼저, 각 그룹 내에서도
+ * 입력 순서(최신순)를 유지한다. createdAt 파싱 실패 항목은 "오늘" 그룹에 둔다.
+ */
+function groupTasksByDate(tasks: ActiveTask[]): DateGroup[] {
+  const todayKey = toDateKey(new Date());
+  const order: string[] = [];
+  const buckets = new Map<string, ActiveTask[]>();
+  for (const t of tasks) {
+    const parsed = t.createdAt ? new Date(t.createdAt) : null;
+    const key =
+      parsed && !Number.isNaN(parsed.getTime()) ? toDateKey(parsed) : todayKey;
+    if (!buckets.has(key)) {
+      buckets.set(key, []);
+      order.push(key);
+    }
+    buckets.get(key)!.push(t);
+  }
+  // 최신 날짜 우선 정렬.
+  order.sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+  return order.map((dateKey) => ({
+    dateKey,
+    label: dateGroupLabel(dateKey),
+    tasks: buckets.get(dateKey)!,
+  }));
 }
 
 const POLL_INTERVAL_MS = 3000;
@@ -168,6 +222,9 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
 
   const defaultModelKey = useMemo(() => models[0]?.key, [models]);
 
+  // 결과물을 생성 날짜별로 그룹핑 (오늘 / 어제 / YYYY-MM-DD 섹션).
+  const dateGroups = useMemo(() => groupTasksByDate(tasks), [tasks]);
+
   const startPolling = (taskId: string) => {
     const startedAt = Date.now();
     const poll = async () => {
@@ -259,6 +316,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
           outputUrl: null,
           errorMessage: null,
           costUsd: null,
+          createdAt: new Date().toISOString(),
         },
         ...prev,
       ]);
@@ -444,15 +502,48 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
             description="왼쪽 폼에서 프롬프트를 입력하고 생성 버튼을 누르세요. 결과는 텐센트 임시 스토리지 URL로 반환되며, 페이지를 새로고침하면 진행 중 작업 목록은 사라집니다 (뼈대 단계)."
           />
         ) : (
-          <Space direction="vertical" size={12} style={{ width: "100%" }}>
-            {tasks.map((t) => (
-              <TaskCard
-                key={t.taskId}
-                task={t}
-                onConvertToVideo={
-                  kind === "image" ? () => setI2vTarget(t) : undefined
-                }
-              />
+          <Space direction="vertical" size={20} style={{ width: "100%" }}>
+            {dateGroups.map((group) => (
+              <div key={group.dateKey}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: 10,
+                  }}
+                >
+                  <Text
+                    strong
+                    style={{
+                      fontSize: 12,
+                      letterSpacing: "0.04em",
+                      color: "rgba(0,0,0,0.65)",
+                    }}
+                  >
+                    {group.label}
+                  </Text>
+                  <Tag style={{ margin: 0 }}>{group.tasks.length}</Tag>
+                  <div
+                    style={{
+                      flex: 1,
+                      height: 1,
+                      background: "rgba(0,0,0,0.06)",
+                    }}
+                  />
+                </div>
+                <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                  {group.tasks.map((t) => (
+                    <TaskCard
+                      key={t.taskId}
+                      task={t}
+                      onConvertToVideo={
+                        kind === "image" ? () => setI2vTarget(t) : undefined
+                      }
+                    />
+                  ))}
+                </Space>
+              </div>
             ))}
           </Space>
         )}
