@@ -403,6 +403,26 @@ def _build_snippet(content: str) -> str:
 # 파일 그룹핑으로 손실되는 후보를 보정하기 위한 over-fetch 배수.
 OVERFETCH_MULTIPLIER = 5
 
+# 키워드 매칭을 '고신뢰(0.85, 관련도 게이트 면제)'로 인정하는 최소 매칭 토큰 수.
+# 다토큰 질의에서 흔한 토큰(시간/이벤트/정리 등) 1개만 substring 매칭돼도
+# 0.85로 게이트를 우회하던 노이즈를 막는다(단일어 질의는 1로 완화 — 품번·엔티티
+# 정확검색 보존). 질의 토큰 수와 min 으로 결합해 적용.
+KW_STRONG_MIN_MATCH = 2
+
+
+def _keyword_is_strong(pl_k: dict, min_match: int) -> bool:
+    """키워드 매칭이 0.85 고신뢰를 받을 만큼 '강한가'.
+
+    - 매칭 토큰 수 >= min_match 면 강함(다토큰 질의는 여러 어절이 실제로 등장).
+    - 또는 매칭 토큰 중 '구체적'(숫자 포함=품번/날짜, 또는 5자 이상 고유어)이
+      하나라도 있으면 강함(단일 품번·고객사명 정확검색 보존).
+    약매칭(흔한 토큰 1개)은 벡터 관련도 게이트로 강등 → 노이즈 차단.
+    """
+    matched = pl_k.get("_matched_tokens") or []
+    if len(matched) >= min_match:
+        return True
+    return any(any(c.isdigit() for c in t) or len(t) >= 5 for t in matched)
+
 # Qdrant payload에는 nas_files의 mime_type/size/mtime/UUID가 없다. 응답 스키마는
 # 유지하되(프론트 계약 불변) Qdrant로 채울 수 있는 것만 채우고 나머지는 null.
 # - id: NasSearchHit.id는 UUID 필수라 doc_id(16hex)를 결정론적 UUID로 변환해 채움.
@@ -474,12 +494,14 @@ async def search_text(
     )
 
     over_limit = body.limit * OVERFETCH_MULTIPLIER
-    terms = tokenize_query(body.query)
+    base_terms = tokenize_query(body.query)
     # 한글 토큰은 로마자(RR)도 키워드로 추가 — 문서에 영문 표기된 고객사명 등을
     # 한글 검색으로도 잡기 위함(예: "후이다" → "huida"). 키워드 arm은 OR 가산이라
     # 추가 토큰이 매칭되면 그 문서가 상위로 올라온다.
-    romanized = [romanize_hangul(t) for t in terms if has_hangul(t)]
-    terms = terms + [r for r in romanized if r and r not in terms]
+    romanized = [romanize_hangul(t) for t in base_terms if has_hangul(t)]
+    terms = base_terms + [r for r in romanized if r and r not in base_terms]
+    # 키워드 '고신뢰' 인정 최소 매칭 수 — 질의어 수와 결합(단일어 질의는 1).
+    kw_min_match = min(KW_STRONG_MIN_MATCH, max(1, len(base_terms)))
 
     try:
         order_v, by_v = await asyncio.to_thread(vector_arm, query_vec, qfilter, over_limit)
@@ -509,12 +531,14 @@ async def search_text(
         if body.path_prefix and body.path_prefix not in path:
             continue
         vec_score = (pl_v or {}).get("_score")
-        is_keyword = pl_k is not None
-        if is_keyword:
+        # 키워드 '강매칭'만 0.85 고신뢰(게이트 면제). 흔한 토큰 1개만 걸린
+        # 약매칭은 벡터 관련도 게이트로 강등해 노이즈 우회를 막는다.
+        strong_kw = pl_k is not None and _keyword_is_strong(pl_k, kw_min_match)
+        if strong_kw:
             confidence = max(0.85, float(vec_score or 0.0))  # 직접 포함 → 높게
         else:
             if vec_score is None or float(vec_score) < min_rel:
-                continue  # 벡터-only 노이즈 제외
+                continue  # 벡터-only(또는 키워드 약매칭) 노이즈 제외
             confidence = float(vec_score)
         source_type = pl.get("source_type")
         hits.append(
