@@ -97,6 +97,23 @@ async def get_status(db: AsyncSession = Depends(get_db)) -> NasStatus:
     )
 
 
+def _indexing_disabled() -> None:
+    """인앱 인덱싱/backfill 비활성(deprecated).
+
+    이 경로들은 레거시 e5(1024-dim)→pgvector(nas_text_chunks)에 적재하는데, 현재 검색은
+    Qwen3(2560-dim)→Qdrant docs_text 단일 소스라 **여기서 만든 임베딩은 검색에 보이지 않는다**
+    (죽은 데이터 + backfill_summaries는 Haiku 비용까지 발생). 실제 적재는 외부 파이프라인
+    /home/ubuntu/tk101-rag 가 담당. 프론트 인덱싱 UI도 제거됨. 혼선·비용 방지를 위해 비활성.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "인앱 인덱싱/backfill 은 비활성화되었습니다(레거시 e5/pgvector — 검색 미반영). "
+            "임베딩 적재는 tk101-rag 파이프라인(Qwen3/Qdrant)을 사용하세요."
+        ),
+    )
+
+
 @router.post(
     "/index/run",
     response_model=NasIndexRunResponse,
@@ -107,10 +124,8 @@ async def start_indexing(
     background_tasks: BackgroundTasks,
     body: NasIndexRunRequest = NasIndexRunRequest(),
 ) -> NasIndexRunResponse:
-    """백그라운드 인덱싱 시작. 진행 중이면 409.
-
-    body는 옵션(빈 요청 허용). full_rescan=True면 file_hash 무관 전체 재인덱싱.
-    """
+    """[deprecated/410] 레거시 e5/pgvector 인덱싱 — 검색 미반영이라 비활성."""
+    _indexing_disabled()
     if is_indexing():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -151,8 +166,9 @@ async def start_filename_backfill(
 
     본문 인덱싱은 건드리지 않고 파일명+상대경로 단일 청크만 처리.
     이미 존재하는 chunk_index=-1은 새 임베딩으로 덮어쓰기 (idempotent).
-    분당 약 100~200개 처리 예상 (12,050개 → 1~2시간).
+    [deprecated/410] 레거시 e5/pgvector — 검색 미반영이라 비활성.
     """
+    _indexing_disabled()
     if is_indexing():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -262,8 +278,9 @@ async def start_summary_backfill(
     본문/파일명 청크와 함께 cosine 매칭되도록 임베딩 저장.
 
     비용 추산: 12K 파일 × Haiku 4.5 ≈ $15~20.
-    본 인덱싱과 별도 진행률(SUMMARY_PROGRESS) 사용 → 동시 실행 가능.
+    [deprecated/410] 레거시 e5/pgvector — 검색 미반영인데 Haiku 비용만 발생해 비활성.
     """
+    _indexing_disabled()
     if is_summarizing():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
