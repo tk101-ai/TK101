@@ -69,11 +69,19 @@ async def generate(
             detail=f"문서 생성 실패: {exc}",
         ) from exc
 
+    # 출처는 LLM이 실제 인용한 자료(used_sources)만 노출한다. used_sources 가 비면
+    # (모델 미반환 등) 검색된 전체 청크로 폴백. 인용 안 한 자료를 출처로 표기하던 문제 수정.
+    cited = {p for p in doc.used_sources}
+    src_chunks = [c for c in chunks if c.file_path in cited] if cited else chunks
+    # path 중복 제거(파일당 최고 점수 1건).
+    by_path: dict[str, float] = {}
+    for c in src_chunks:
+        by_path[c.file_path] = max(by_path.get(c.file_path, 0.0), float(c.score))
     return DocGenResponse(
         title=doc.title,
         sections=[DocSection(heading=s["heading"], body=s["body"]) for s in doc.sections],
         markdown=render_markdown(doc.title, doc.sections),
-        sources=[DocSourceRef(path=c.file_path, score=round(c.score, 4)) for c in chunks],
+        sources=[DocSourceRef(path=p, score=round(s, 4)) for p, s in by_path.items()],
         cost_usd=doc.cost_usd,
         model=doc.model,
     )
