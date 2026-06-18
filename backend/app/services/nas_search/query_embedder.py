@@ -91,6 +91,23 @@ def embed_query(text: str) -> list[float]:
     return out
 
 
+def embed_queries(texts: list[str]) -> list[list[float]]:
+    """여러 쿼리를 한 번에 임베딩(배치). embed_query 와 동일 규약(prefix+normalize).
+
+    변수별 병렬 검색처럼 N개 쿼리를 임베딩할 때, 단건 N회보다 1회 배치가 훨씬 빠르다.
+    """
+    if not texts:
+        return []
+    model = _get_model()
+    vecs = model.encode(
+        [settings.nas_query_instruct + t for t in texts],
+        normalize_embeddings=True,
+        convert_to_numpy=True,
+        show_progress_bar=False,
+    )
+    return [v.tolist() for v in vecs]
+
+
 def warmup() -> None:
     """기동 시 모델 미리 로드(첫 쿼리 지연 제거용). lifespan에서 호출 권장."""
     _get_model()

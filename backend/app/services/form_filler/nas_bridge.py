@@ -25,7 +25,7 @@ from qdrant_client import models as qm
 
 from app.config import settings
 from app.services.nas_search.qdrant_search import get_client
-from app.services.nas_search.query_embedder import embed_query
+from app.services.nas_search.query_embedder import embed_queries, embed_query
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +130,86 @@ async def search_relevant_chunks(
         raise RuntimeError(f"NAS 검색 실패: {exc}") from exc
 
     return [_hit_from_point(p, score=float(getattr(p, "score", 0.0) or 0.0)) for p in points]
+
+
+def _variable_queries(variables, template_name, max_vars):
+    """변수 라벨(+양식명)로 변수별 검색 쿼리 목록 생성(중복 라벨 제거)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    prefix = f"{template_name} " if template_name else ""
+    for v in variables or []:
+        label = str((v.get("label") or v.get("key") or "")).strip()
+        if not label or label.lower() in seen:
+            continue
+        seen.add(label.lower())
+        out.append(f"{prefix}{label}".strip())
+        if len(out) >= max_vars:
+            break
+    return out
+
+
+async def search_per_variable(
+    db=None,  # noqa: ANN001 (호환 유지용)
+    *,
+    variables: list[dict],
+    template_name: str | None = None,
+    per_var_limit: int = 3,
+    max_vars: int = 12,
+    dept_labels: list[str] | None = None,
+) -> list[NasChunkHit]:
+    """양식 변수별로 NAS 의미검색을 **병렬**로 돌려 자료 커버리지를 높인다(B 변수별 검색).
+
+    단일 통합쿼리보다 각 변수(캠페인명/기간/예산 등)에 맞는 청크를 더 잘 잡는다.
+    쿼리는 한 번에 배치 임베딩(embed_queries)하고, Qdrant 조회는 동시 실행한 뒤
+    point id 기준 중복 제거(최고 점수 보존).
+    """
+    queries = _variable_queries(variables, template_name, max_vars)
+    if not queries:
+        return []
+    try:
+        vecs = await asyncio.to_thread(embed_queries, queries)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("변수별 쿼리 임베딩 실패")
+        raise RuntimeError(f"변수별 NAS 검색 임베딩 실패: {exc}") from exc
+
+    qfilter = None
+    if dept_labels:
+        qfilter = qm.Filter(
+            must=[qm.FieldCondition(key="dept", match=qm.MatchAny(any=list(dept_labels)))]
+        )
+
+    def _one(vec):
+        return (
+            get_client()
+            .query_points(
+                collection_name=settings.qdrant_collection_text,
+                query=vec,
+                query_filter=qfilter,
+                limit=per_var_limit,
+                with_payload=True,
+            )
+            .points
+        )
+
+    try:
+        results = await asyncio.gather(
+            *[asyncio.to_thread(_one, v) for v in vecs], return_exceptions=True
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("변수별 Qdrant 검색 실패")
+        raise RuntimeError(f"변수별 NAS 검색 실패: {exc}") from exc
+
+    best: dict[str, NasChunkHit] = {}
+    for res in results:
+        if isinstance(res, Exception):
+            logger.warning("변수별 검색 일부 실패(건너뜀): %s", res)
+            continue
+        for p in res:
+            hit = _hit_from_point(p, score=float(getattr(p, "score", 0.0) or 0.0))
+            cur = best.get(hit.chunk_id)
+            if cur is None or hit.score > cur.score:
+                best[hit.chunk_id] = hit
+    return sorted(best.values(), key=lambda h: h.score, reverse=True)
 
 
 async def fetch_chunks_by_ids(
