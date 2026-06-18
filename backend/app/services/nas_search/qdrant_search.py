@@ -203,7 +203,7 @@ def keyword_arm(
     candidates = _scroll_candidates(qfilter, scan_limit)
     lowered = [t.lower() for t in tokens]
 
-    scored: list[tuple[int, dict, str]] = []
+    scored: list[tuple[int, list[str], dict, str]] = []
     seen: set[str] = set()
     for p in candidates:
         pl = _payload_of(p)
@@ -211,14 +211,14 @@ def keyword_arm(
         if not key:
             continue
         haystack = f"{pl.get('text', '')}\n{pl.get('path', '')}".lower()
-        match_count = sum(1 for t in lowered if t in haystack)
-        if match_count == 0:
+        matched = [t for t in lowered if t in haystack]
+        if not matched:
             continue
-        # 같은 doc_id는 최고 match_count 청크만 대표로.
+        # 같은 doc_id는 첫 등장(=scroll 상위 청크)만 대표로.
         if key in seen:
             continue
         seen.add(key)
-        scored.append((match_count, pl, key))
+        scored.append((len(matched), matched, pl, key))
 
     # 매칭 토큰 수 내림차순. 동점은 안정 정렬(scroll 순서 유지).
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -226,8 +226,11 @@ def keyword_arm(
 
     order: list[str] = []
     by_doc: dict[str, dict] = {}
-    for match_count, pl, key in scored:
+    for match_count, matched, pl, key in scored:
         pl["_match_count"] = match_count
+        # 어떤 토큰이 걸렸는지 보존 → 라우터가 약매칭(흔한 토큰 1개)을
+        # 0.85 고신뢰에서 제외하는 데 사용(노이즈 게이트 우회 방지).
+        pl["_matched_tokens"] = matched
         by_doc[key] = pl
         order.append(key)
     return order, by_doc

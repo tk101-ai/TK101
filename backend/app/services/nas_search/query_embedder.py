@@ -2,18 +2,18 @@
 
 인덱싱 파이프라인(/home/ubuntu/tk101-rag)은 문서(passage)를 vLLM에서
 **raw 텍스트**(prefix 없음)로 임베딩해 Qdrant docs_text(2560-dim, cosine)에
-적재한다. 코사인 정합을 위해 백엔드 쿼리 임베딩도 **동일 규약**으로 맞춘다:
-prefix 없는 raw 텍스트를 그대로 인코딩한다.
+적재한다. Qwen3-Embedding은 query/passage 비대칭 사용이 정석이므로, 문서는
+raw 그대로 두고 **쿼리에만** instruction 프리픽스를 붙여 인코딩한다(아래 참조).
 
 운영 메모:
 - sentence-transformers로 백엔드 CPU에서 추론. 기동 시 1회 로드(싱글톤).
   bf16 권장(~8GB). 실측 ~0.8s/쿼리 허용.
 - embedder.py(multilingual-e5)의 lazy-load 싱글톤 패턴을 복제했다.
-- (잠재적 품질 개선) Qwen3는 query에 instruct prefix
-    "Instruct: Given a web search query, retrieve relevant passages ...\nQuery: "
-  를 붙이면 retrieval 품질이 오를 수 있다. 다만 인덱싱(retriever.py)이 prefix
-  없이 raw로 임베딩하므로, 1차 구현은 retriever.py와 **동일하게 prefix 없이** 간다.
-  prefix 도입은 문서·쿼리 양쪽 동시 변경이 필요해 통합 단계 과제로 남긴다.
+- 쿼리 instruction 프리픽스(settings.nas_query_instruct)를 쿼리에만 붙인다.
+  Qwen3-Embedding은 비대칭 학습(query=instruct, passage=raw)이라 이것이 정석이며,
+  문서는 prefix 없이 적재된 그대로 두면 된다(재인덱싱 불필요). 실측상 관련 매칭은
+  올리고 도메인-무관 노이즈는 떨어뜨려 nas_min_relevance 게이트의 분리도를 높인다.
+  프리픽스를 끄려면 nas_query_instruct를 빈 문자열로 두면 과거 raw 동작이 된다.
 """
 from __future__ import annotations
 
@@ -70,13 +70,14 @@ def _get_model() -> "SentenceTransformer":
 def embed_query(text: str) -> list[float]:
     """단일 쿼리 → 2560-dim 임베딩(list[float]).
 
-    인덱싱과 동일하게 prefix 없는 raw 텍스트를 인코딩하고 cosine 정합을 위해
+    Qwen3 권장대로 쿼리에 instruction 프리픽스(settings.nas_query_instruct)를
+    붙여 인코딩한다(문서는 raw로 적재됨 — 비대칭 사용). cosine 정합을 위해
     normalize한다(Qdrant 컬렉션 distance=Cosine). 차원이 기대와 다르면 즉시
     에러(스키마 불일치 조기 발견 — embed.py 규약 동일).
     """
     model = _get_model()
     vec = model.encode(
-        text,
+        settings.nas_query_instruct + text,
         normalize_embeddings=True,
         convert_to_numpy=True,
         show_progress_bar=False,

@@ -50,9 +50,19 @@ class Settings(BaseSettings):
     nas_query_embed_dim: int = 2560
     # bf16 로드 여부. CPU 메모리 절약용. False면 fp32(정확하나 ~2배 메모리).
     nas_query_embed_bf16: bool = True
+    # Qwen3-Embedding 쿼리 instruction 프리픽스 — 쿼리에만 붙인다(문서는 raw).
+    # Qwen3는 비대칭 학습(query=instruct, passage=raw)이라 이게 정석이며,
+    # 재인덱싱 불필요. 실측상 관련 매칭은 올리고 도메인-무관 노이즈는 떨어뜨려
+    # 분리도를 개선한다. 빈 문자열이면 프리픽스 비활성(과거 raw 동작).
+    nas_query_instruct: str = (
+        "Instruct: Given a web search query, retrieve relevant passages "
+        "that answer the query\nQuery: "
+    )
     # 벡터-only 결과 최소 관련도(raw cosine). 이하면 노이즈로 보고 제외.
-    # 실측: 무관 쿼리 ~0.61, 관련 쿼리 ~0.70+. 0.65로 게이트(튜닝 가능).
-    nas_min_relevance: float = 0.65
+    # 실측(로컬 ST Qwen3, instruct 프리픽스 적용): 관련 매칭 floor ~0.51,
+    # 도메인-무관 노이즈 대부분 ~0.32–0.46. 0.50으로 게이트(튜닝 가능).
+    # 과거 0.65는 prefix 없는 symmetric 임베딩 기준이라 의미검색을 과차단했음.
+    nas_min_relevance: float = 0.50
     # 키워드 arm: Qdrant payload `text`에 풀텍스트 인덱스가 없으므로(인덱싱
     # 파이프라인 소관) substring AND-매칭을 위해 후보를 넉넉히 스캔한다.
     # 이 수만큼 scroll 후 토큰 substring으로 필터 → doc_id dedup.
