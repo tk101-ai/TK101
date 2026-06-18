@@ -5,6 +5,7 @@ import ComparePanel from "../../components/playground/ComparePanel";
 import LlmChatPanel from "../../components/playground/LlmChatPanel";
 import MediaCompareView from "../../components/playground/MediaCompareView";
 import MediaGenPanel from "../../components/playground/MediaGenPanel";
+import MyUsagePanel from "../../components/playground/MyUsagePanel";
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -123,6 +124,11 @@ export default function PlaygroundPage() {
                 )}
               </>
             ),
+          },
+          {
+            key: "usage",
+            label: "내 사용량",
+            children: <MyUsagePanel />,
           },
         ]}
       />

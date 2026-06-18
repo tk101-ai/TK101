@@ -332,3 +332,14 @@ class PlaygroundI2VRequest(BaseModel):
     aspect_ratio: str = Field(default="16:9", max_length=20)
     audio_generation: bool = False
     enhance_prompt: bool = True
+
+
+class PlaygroundMediaCleanupOut(BaseModel):
+    """POST /api/playground/admin/media/cleanup 응답 (보존기간 정리 결과)."""
+
+    scanned: int
+    deleted_rows: int
+    deleted_files: int
+    file_errors: int
+    retention_days: int
+    cutoff: datetime

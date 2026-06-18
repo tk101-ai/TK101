@@ -16,6 +16,7 @@
 | GET    | /api/playground/media                           | 로그인 (본인) | 본인 미디어 목록 (갤러리)  |
 | GET    | /api/playground/media/{id}/file                 | 로그인 (본인) | 미디어 파일 서빙           |
 | GET    | /api/playground/admin/usage                     | **admin**     | 모델별/사용자별 사용량     |
+| POST   | /api/playground/admin/media/cleanup             | **admin**     | 보존기간 경과 미디어 정리  |
 
 2026-05-19 변경:
 - admin only 라우터 의존성 제거 → 일반 사용자가 사용은 가능, 통계는 admin 전용.
@@ -58,6 +59,7 @@ from app.schemas.playground import (
     PlaygroundChatRequest,
     PlaygroundI2VRequest,
     PlaygroundImageRequest,
+    PlaygroundMediaCleanupOut,
     PlaygroundMediaModelOption,
     PlaygroundMediaOut,
     PlaygroundMessageOut,
@@ -89,6 +91,7 @@ from app.services.playground.attachments import (
     extract_text,
     supports_vision,
 )
+from app.services.playground.media_cleanup import cleanup_expired_media
 from app.services.playground.media_downloader import download_media
 from app.services.playground.nas_rag import (
     build_context_block,
@@ -1346,6 +1349,27 @@ async def admin_tail_logs_endpoint(
         yield body_text.encode("utf-8")
 
     return StreamingResponse(_gen(), media_type="text/plain; charset=utf-8")
+
+
+@router.post("/admin/media/cleanup", response_model=PlaygroundMediaCleanupOut)
+async def admin_cleanup_media_endpoint(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> PlaygroundMediaCleanupOut:
+    """보존기간(playground_media_retention_days) 경과 미디어 정리.
+
+    디스크 파일 unlink + DB row 삭제. 수동 트리거(admin). lifespan 주기 태스크와
+    동일한 ``cleanup_expired_media`` 를 호출한다.
+    """
+    result = await cleanup_expired_media(db)
+    return PlaygroundMediaCleanupOut(
+        scanned=result["scanned"],
+        deleted_rows=result["deleted_rows"],
+        deleted_files=result["deleted_files"],
+        file_errors=result["file_errors"],
+        retention_days=settings.playground_media_retention_days,
+        cutoff=result["cutoff"],
+    )
 
 
 # ===========================================================================
