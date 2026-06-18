@@ -1,8 +1,10 @@
 import { useState } from "react";
 import {
+  Alert,
   Button,
   Card,
   Input,
+  List,
   message,
   Popconfirm,
   Segmented,
@@ -12,6 +14,7 @@ import {
   Typography,
 } from "antd";
 import {
+  AuditOutlined,
   DeleteOutlined,
   DownloadOutlined,
   FileSearchOutlined,
@@ -24,7 +27,9 @@ import {
   downloadGeneratedPptx,
   generateDocument,
   regenerateSection,
+  reviewDocument,
   type DocGenResponse,
+  type DocReviewResponse,
   type DocSection,
   type DocType,
 } from "../../api/docgen";
@@ -48,6 +53,8 @@ export default function DocGenPage() {
   const [sections, setSections] = useState<DocSection[]>([]);
   const [feedbacks, setFeedbacks] = useState<Record<number, string>>({});
   const [regenIdx, setRegenIdx] = useState<number | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [review, setReview] = useState<DocReviewResponse | null>(null);
 
   const handleGenerate = async () => {
     const t = topic.trim();
@@ -62,6 +69,7 @@ export default function DocGenPage() {
       setTitle(res.title);
       setSections(res.sections);
       setFeedbacks({});
+      setReview(null);
       message.success(`초안 생성 완료 (참고 ${res.sources.length}건 · $${res.cost_usd.toFixed(4)})`);
     } catch {
       message.error("문서 생성 실패");
@@ -107,6 +115,26 @@ export default function DocGenPage() {
       await fn(title || "문서", sections);
     } catch {
       message.error(`${kind} 다운로드 실패`);
+    }
+  };
+
+  const handleReview = async () => {
+    if (sections.length === 0) return;
+    setReviewing(true);
+    try {
+      const res = await reviewDocument({
+        topic: topic.trim(),
+        doc_type: docType,
+        title: title || "문서",
+        sections,
+        use_nas: useNas,
+      });
+      setReview(res);
+      message.success(`품질 검증 완료 — 점수 ${res.overall_score}/100 ($${res.cost_usd.toFixed(4)})`);
+    } catch {
+      message.error("품질 검증 실패");
+    } finally {
+      setReviewing(false);
     }
   };
 
@@ -170,6 +198,9 @@ export default function DocGenPage() {
           }
           extra={
             <Space>
+              <Button icon={<AuditOutlined />} loading={reviewing} onClick={handleReview}>
+                품질 검증
+              </Button>
               <Button icon={<DownloadOutlined />} onClick={() => download("docx")}>
                 .docx
               </Button>
@@ -188,6 +219,46 @@ export default function DocGenPage() {
                 </Tag>
               ))}
             </div>
+          )}
+
+          {review && (
+            <Alert
+              type={review.overall_score >= 70 ? "success" : review.overall_score >= 40 ? "warning" : "error"}
+              style={{ marginBottom: 16 }}
+              showIcon
+              message={`품질 점수 ${review.overall_score}/100`}
+              description={
+                <div>
+                  <div style={{ marginBottom: 8 }}>{review.summary}</div>
+                  {review.section_reviews.some((r) => !r.grounded || r.issues.length > 0) && (
+                    <List
+                      size="small"
+                      dataSource={review.section_reviews.filter((r) => !r.grounded || r.issues.length > 0)}
+                      renderItem={(r) => (
+                        <List.Item style={{ display: "block", paddingLeft: 0 }}>
+                          <Text strong>{r.heading}</Text>{" "}
+                          {!r.grounded && <Tag color="red">근거 불충분</Tag>}
+                          {r.issues.map((iss, k) => (
+                            <div key={k} style={{ fontSize: 12, color: "#cf1322" }}>· {iss}</div>
+                          ))}
+                          {r.suggestions.map((sg, k) => (
+                            <div key={k} style={{ fontSize: 12, color: "#8c8c8c" }}>→ {sg}</div>
+                          ))}
+                        </List.Item>
+                      )}
+                    />
+                  )}
+                  {review.missing.length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>누락/보강: </Text>
+                      {review.missing.map((m, k) => (
+                        <Tag key={k} color="orange" style={{ marginBottom: 4 }}>{m.slice(0, 40)}</Tag>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              }
+            />
           )}
 
           <Space direction="vertical" style={{ width: "100%" }} size={16}>

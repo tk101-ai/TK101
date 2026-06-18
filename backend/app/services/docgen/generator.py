@@ -169,3 +169,77 @@ def render_markdown(title: str, sections: list[dict]) -> str:
         parts.append(s.get("body", ""))
         parts.append("")
     return "\n".join(parts).strip()
+
+
+_JUDGE_SYSTEM = (
+    "당신은 TK101의 문서 품질 검수관(LLM-as-judge)이다. 작성된 비즈니스 문서 초안을 "
+    "엄정하게 평가한다. 칭찬보다 문제 발견에 집중한다.\n"
+    "평가 관점:\n"
+    "1) 근거성(grounded): 본문의 구체 수치·실적·고유명사가 [참고자료]에 실제로 있는가. "
+    "참고자료에 없는데 단정한 수치/실적은 환각으로 보고 grounded=false + issues에 명시.\n"
+    "2) 요구 충족·누락: 작성 요구사항 대비 빠진 항목.\n"
+    "3) 구조·완성도: 논리 흐름, 빈약/중복 섹션.\n"
+    "반드시 다음 JSON으로만 응답(코드펜스 없이):\n"
+    '{"overall_score": 0~100 정수, "summary": "총평 2~4문장", '
+    '"section_reviews": [{"heading": "섹션제목", "grounded": true/false, '
+    '"issues": ["문제점"], "suggestions": ["개선 제안"]}], '
+    '"missing": ["요구 대비 누락/보강 필요 항목"]}'
+)
+
+
+def review_document(
+    topic: str,
+    doc_type: str,
+    title: str,
+    sections: list[dict],
+    chunks: list,
+) -> tuple[dict, float, str]:
+    """생성 초안을 LLM judge로 평가. (review dict, cost_usd, model) 반환."""
+    if chunks:
+        ctx = "\n\n".join(
+            f"[참고자료 {i + 1}] 출처: {c.file_path}\n{(c.content or '')[:1200]}"
+            for i, c in enumerate(chunks)
+        )
+    else:
+        ctx = "(참고자료 없음 — 근거성은 '확인 불가'로 보고 일반 품질만 평가)"
+    body = "\n\n".join(
+        f"## {s.get('heading', '')}\n{s.get('body', '')}" for s in sections
+    )
+    user = (
+        f"문서 종류: {doc_type}\n작성 요구사항:\n{topic}\n\n"
+        f"[검수 대상 초안] 제목: {title}\n{body}\n\n[참고자료]\n{ctx}"
+    )
+    resp = call_claude(
+        system_prompt=_JUDGE_SYSTEM,
+        messages=[{"role": "user", "content": user}],
+        max_tokens=4096,
+        cache_system=True,
+        trace_name="docgen.review",
+        trace_metadata={"doc_type": doc_type},
+    )
+    try:
+        data = _parse_json(resp.text)
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.exception("문서 검수 JSON 파싱 실패")
+        raise ValueError(f"문서 검수 응답 파싱 실패: {exc}") from exc
+    reviews = [
+        {
+            "heading": str(r.get("heading") or "").strip(),
+            "grounded": bool(r.get("grounded", True)),
+            "issues": [str(x) for x in (r.get("issues") or []) if x],
+            "suggestions": [str(x) for x in (r.get("suggestions") or []) if x],
+        }
+        for r in (data.get("section_reviews") or [])
+        if isinstance(r, dict)
+    ]
+    try:
+        score = max(0, min(100, int(data.get("overall_score", 0))))
+    except (ValueError, TypeError):
+        score = 0
+    review = {
+        "overall_score": score,
+        "summary": str(data.get("summary") or "").strip(),
+        "section_reviews": reviews,
+        "missing": [str(x) for x in (data.get("missing") or []) if x],
+    }
+    return review, resp.cost_usd, resp.model

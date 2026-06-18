@@ -106,3 +106,31 @@ export async function downloadGeneratedPptx(
   a.remove();
   window.URL.revokeObjectURL(url);
 }
+
+export interface DocSectionReview {
+  heading: string;
+  grounded: boolean;
+  issues: string[];
+  suggestions: string[];
+}
+
+export interface DocReviewResponse {
+  overall_score: number;
+  summary: string;
+  section_reviews: DocSectionReview[];
+  missing: string[];
+  cost_usd: number;
+  model: string;
+}
+
+/** 생성 초안 품질검증(LLM-as-judge). */
+export async function reviewDocument(req: {
+  topic: string;
+  doc_type: DocType;
+  title: string;
+  sections: DocSection[];
+  use_nas: boolean;
+}): Promise<DocReviewResponse> {
+  const res = await api.post<DocReviewResponse>("/api/docgen/review", req);
+  return res.data;
+}
