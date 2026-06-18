@@ -286,8 +286,25 @@ export default function LlmChatPanel() {
       >
         <Card
           size="small"
-          styles={{ body: { padding: 0, display: "flex", flexDirection: "column", height: "100%" } }}
-          style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}
+          styles={{
+            body: {
+              padding: 0,
+              display: "flex",
+              flexDirection: "column",
+              height: "100%",
+              // flex 자식(ChatStream)이 컨테이너를 늘리지 않고 내부 스크롤되도록.
+              minHeight: 0,
+            },
+          }}
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            minWidth: 0,
+            // 카드 자체도 부모(고정 height)를 넘기지 않게.
+            minHeight: 0,
+            overflow: "hidden",
+          }}
         >
           <div
             style={{

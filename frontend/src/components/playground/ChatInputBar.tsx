@@ -130,6 +130,8 @@ export default function ChatInputBar({
         borderTop: "1px solid rgba(0,0,0,0.08)",
         padding: "12px 24px",
         background: "#fff",
+        // 메시지 영역이 길어져도 입력바는 패널 하단에 항상 고정 (줄어들지 않음).
+        flexShrink: 0,
       }}
     >
       <input

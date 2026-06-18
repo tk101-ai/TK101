@@ -69,6 +69,8 @@ export default function ChatStream({ messages, sending }: ChatStreamProps) {
     <div
       style={{
         flex: 1,
+        // flex 부모 안에서 내용이 넘쳐도 컨테이너를 늘리지 않고 내부 스크롤되도록.
+        minHeight: 0,
         overflowY: "auto",
         padding: "16px 24px",
         display: "flex",

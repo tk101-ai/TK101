@@ -4,12 +4,13 @@
 저장 위치는 ``settings.playground_media_root`` (라이브 환경은 NAS RW 마운트
 ``/mnt/nas-rw/playground``, 사용자가 NAS DSM 에서 직접 보고 관리 가능).
 
-저장 경로 패턴 (2026-05-19 부서·사용자 분리 보강):
-    {root}/{department}/{user_id}/{kind}/{task_id}.{ext}
+저장 경로 패턴 (2026-06-18 날짜 세그먼트 보강):
+    {root}/{department}/{user_id}/{YYYY-MM-DD}/{kind}/{task_id}.{ext}
 
-- 사용자 의도: 1차 부서 단위, 2차 사용자 단위 폴더. NAS DSM 에서 직관적으로 탐색.
+- 사용자 의도: 1차 부서 단위, 2차 사용자 단위, 3차 생성 날짜 폴더. NAS DSM 에서 직관적으로 탐색.
 - ext 는 URL 의 파일 확장자 그대로 (없으면 image=png, video=mp4 fallback).
 - 디렉토리는 자동 생성.
+- 절대 경로는 DB(playground_media.file_path)에 저장되므로 과거 파일은 영향 없음.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ import logging
 import os
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -64,11 +66,13 @@ async def download_media(
     """텐센트 결과 URL 을 NAS RW 마운트로 다운로드 → 절대 경로 반환. 실패 시 None.
 
     이미 같은 파일이 있으면 덮어쓰지 않고 기존 경로 반환 (idempotent).
-    경로: ``{root}/{department}/{user_id}/{kind}/{task_id}.{ext}``
+    경로: ``{root}/{department}/{user_id}/{YYYY-MM-DD}/{kind}/{task_id}.{ext}``
     """
     ext = _guess_ext(url, kind)
     dept = _sanitize_segment(department or "unknown")
-    user_dir = _safe_root() / dept / str(user_id) / kind
+    # 생성 날짜(UTC) 세그먼트 — 갤러리 날짜별 그룹핑과 동일한 기준.
+    date_seg = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    user_dir = _safe_root() / dept / str(user_id) / date_seg / kind
     user_dir.mkdir(parents=True, exist_ok=True)
 
     # task_id 에 슬래시 등이 들어갈 가능성 차단.
