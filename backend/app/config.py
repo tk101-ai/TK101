@@ -149,8 +149,11 @@ class Settings(BaseSettings):
     # 텐센트 임시 URL (7일 만료) 을 영구 보관하기 위한 백엔드 디스크 루트.
     # docker-compose 에 volume mount: ``playground_media:/var/lib/playground/media``
     playground_media_root: str = "/var/lib/playground/media"
-    # 미디어 보관 기간 (일). 이후 cron 으로 정리.
+    # 미디어 보관 기간 (일). 경과분은 정리 대상.
     playground_media_retention_days: int = 30
+    # 미디어 자동정리(주기 태스크) 활성화. 기본 OFF — 비가역 하드삭제라 명시적 opt-in.
+    # OFF 면 admin 수동 엔드포인트(POST /api/playground/admin/media/cleanup)로만 정리.
+    playground_media_autocleanup_enabled: bool = False
     # Playground 로그 — NAS 영구 저장 (RotatingFileHandler, 10MB × 5).
     # 운영 환경에서 NAS RW 마운트 ``/mnt/nas-rw/logs/backend/`` 위에 저장.
     playground_log_path: str = "/mnt/nas-rw/logs/backend/backend.log"
