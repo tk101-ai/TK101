@@ -3,29 +3,38 @@ import {
   Button,
   Card,
   Input,
-  List,
   message,
+  Popconfirm,
   Segmented,
   Space,
   Switch,
   Tag,
   Typography,
 } from "antd";
-import { DownloadOutlined, FileSearchOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import {
+  DeleteOutlined,
+  DownloadOutlined,
+  FileSearchOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  ThunderboltOutlined,
+} from "@ant-design/icons";
 import {
   downloadGeneratedDocx,
   downloadGeneratedPptx,
   generateDocument,
+  regenerateSection,
   type DocGenResponse,
+  type DocSection,
   type DocType,
 } from "../../api/docgen";
 
-const { Text, Paragraph, Title } = Typography;
+const { Text } = Typography;
 const DOC_TYPES: DocType[] = ["제안서", "계획서", "보고서", "일반"];
 
 /**
  * 요구 기반 문서 생성 (T5 확장).
- * 주제 입력 → NAS 벡터검색(RAG) → Claude 구조화 초안 → .docx 다운로드.
+ * 주제 → NAS RAG → Claude 초안 → 인라인 편집/섹션 재생성 → docx/PPT 다운로드.
  */
 export default function DocGenPage() {
   const [topic, setTopic] = useState("");
@@ -33,6 +42,12 @@ export default function DocGenPage() {
   const [useNas, setUseNas] = useState(true);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DocGenResponse | null>(null);
+
+  // 생성 결과를 편집 가능한 상태로 보관(다운로드·재생성은 이 상태 기준).
+  const [title, setTitle] = useState("");
+  const [sections, setSections] = useState<DocSection[]>([]);
+  const [feedbacks, setFeedbacks] = useState<Record<number, string>>({});
+  const [regenIdx, setRegenIdx] = useState<number | null>(null);
 
   const handleGenerate = async () => {
     const t = topic.trim();
@@ -44,6 +59,9 @@ export default function DocGenPage() {
     try {
       const res = await generateDocument({ topic: t, doc_type: docType, use_nas: useNas });
       setResult(res);
+      setTitle(res.title);
+      setSections(res.sections);
+      setFeedbacks({});
       message.success(`초안 생성 완료 (참고 ${res.sources.length}건 · $${res.cost_usd.toFixed(4)})`);
     } catch {
       message.error("문서 생성 실패");
@@ -52,21 +70,43 @@ export default function DocGenPage() {
     }
   };
 
-  const handleDownload = async () => {
-    if (!result) return;
+  const updateSection = (i: number, patch: Partial<DocSection>) =>
+    setSections((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
+
+  const deleteSection = (i: number) =>
+    setSections((prev) => prev.filter((_, idx) => idx !== i));
+
+  const addSection = () =>
+    setSections((prev) => [...prev, { heading: "새 섹션", body: "" }]);
+
+  const handleRegenerate = async (i: number) => {
+    setRegenIdx(i);
     try {
-      await downloadGeneratedDocx(result.title, result.sections);
+      const res = await regenerateSection({
+        topic: topic.trim(),
+        doc_type: docType,
+        heading: sections[i].heading,
+        current_body: sections[i].body,
+        feedback: feedbacks[i] ?? "",
+        use_nas: useNas,
+      });
+      updateSection(i, res.section);
+      setFeedbacks((prev) => ({ ...prev, [i]: "" }));
+      message.success(`섹션 재생성 완료 ($${res.cost_usd.toFixed(4)})`);
     } catch {
-      message.error("docx 다운로드 실패");
+      message.error("섹션 재생성 실패");
+    } finally {
+      setRegenIdx(null);
     }
   };
 
-  const handleDownloadPptx = async () => {
-    if (!result) return;
+  const download = async (kind: "docx" | "pptx") => {
+    if (sections.length === 0) return;
     try {
-      await downloadGeneratedPptx(result.title, result.sections);
+      const fn = kind === "docx" ? downloadGeneratedDocx : downloadGeneratedPptx;
+      await fn(title || "문서", sections);
     } catch {
-      message.error("pptx 다운로드 실패");
+      message.error(`${kind} 다운로드 실패`);
     }
   };
 
@@ -76,11 +116,11 @@ export default function DocGenPage() {
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
           문서 생성{" "}
           <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-            요구 기반 · RAG 초안
+            요구 기반 · RAG 초안 · 편집/재생성
           </Text>
         </h2>
         <Text type="secondary">
-          주제를 입력하면 회사 NAS 자료(벡터검색)를 참고해 제안서·계획서 초안을 작성합니다.
+          주제를 입력하면 회사 NAS 자료를 참고해 초안을 만들고, 섹션을 직접 고치거나 다시 생성할 수 있습니다.
         </Text>
       </div>
 
@@ -120,14 +160,21 @@ export default function DocGenPage() {
 
       {result && (
         <Card
-          title={<Title level={5} style={{ margin: 0 }}>{result.title}</Title>}
+          title={
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              variant="borderless"
+              style={{ fontSize: 16, fontWeight: 600, padding: 0 }}
+            />
+          }
           extra={
             <Space>
-              <Button icon={<DownloadOutlined />} onClick={handleDownload}>
-                .docx 다운로드
+              <Button icon={<DownloadOutlined />} onClick={() => download("docx")}>
+                .docx
               </Button>
-              <Button icon={<DownloadOutlined />} onClick={handleDownloadPptx}>
-                PPT 다운로드
+              <Button icon={<DownloadOutlined />} onClick={() => download("pptx")}>
+                PPT
               </Button>
             </Space>
           }
@@ -142,15 +189,56 @@ export default function DocGenPage() {
               ))}
             </div>
           )}
-          <List
-            dataSource={result.sections}
-            renderItem={(s) => (
-              <List.Item style={{ display: "block" }}>
-                <Title level={5} style={{ marginTop: 0 }}>{s.heading}</Title>
-                <Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{s.body}</Paragraph>
-              </List.Item>
-            )}
-          />
+
+          <Space direction="vertical" style={{ width: "100%" }} size={16}>
+            {sections.map((s, i) => (
+              <div key={i} style={{ borderTop: i > 0 ? "1px solid #f0f0f0" : "none", paddingTop: i > 0 ? 12 : 0 }}>
+                <Space.Compact style={{ width: "100%", marginBottom: 6 }}>
+                  <Input
+                    value={s.heading}
+                    onChange={(e) => updateSection(i, { heading: e.target.value })}
+                    style={{ fontWeight: 600 }}
+                  />
+                  <Popconfirm title="이 섹션을 삭제할까요?" onConfirm={() => deleteSection(i)}>
+                    <Button icon={<DeleteOutlined />} danger />
+                  </Popconfirm>
+                </Space.Compact>
+                <Input.TextArea
+                  value={s.body}
+                  onChange={(e) => updateSection(i, { body: e.target.value })}
+                  autoSize={{ minRows: 3, maxRows: 16 }}
+                  style={{ marginBottom: 6 }}
+                />
+                <Space.Compact style={{ width: "100%" }}>
+                  <Input
+                    placeholder="수정 요청(선택) — 예: 견적 표를 더 구체적으로"
+                    value={feedbacks[i] ?? ""}
+                    onChange={(e) => setFeedbacks((prev) => ({ ...prev, [i]: e.target.value }))}
+                    onPressEnter={() => handleRegenerate(i)}
+                    size="small"
+                  />
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    loading={regenIdx === i}
+                    onClick={() => handleRegenerate(i)}
+                  >
+                    재생성
+                  </Button>
+                </Space.Compact>
+              </div>
+            ))}
+          </Space>
+
+          <Button
+            type="dashed"
+            icon={<PlusOutlined />}
+            onClick={addSection}
+            style={{ marginTop: 16 }}
+            block
+          >
+            섹션 추가
+          </Button>
         </Card>
       )}
     </div>

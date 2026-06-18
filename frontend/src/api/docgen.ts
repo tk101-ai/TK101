@@ -38,6 +38,29 @@ export async function generateDocument(req: DocGenRequest): Promise<DocGenRespon
   return res.data;
 }
 
+export interface RegenerateSectionRequest {
+  topic: string;
+  doc_type: DocType;
+  heading: string;
+  current_body: string;
+  feedback: string;
+  use_nas: boolean;
+}
+
+export interface RegenerateSectionResponse {
+  section: DocSection;
+  cost_usd: number;
+  model: string;
+}
+
+/** 초안의 한 섹션만 (수정 요청 반영) 재생성. */
+export async function regenerateSection(
+  req: RegenerateSectionRequest,
+): Promise<RegenerateSectionResponse> {
+  const res = await api.post<RegenerateSectionResponse>("/api/docgen/regenerate_section", req);
+  return res.data;
+}
+
 /** 초안(수정 가능)을 .docx 로 렌더해 브라우저 다운로드. */
 export async function downloadGeneratedDocx(
   title: string,

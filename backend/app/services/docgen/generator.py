@@ -105,6 +105,62 @@ def generate_document(topic: str, doc_type: str, chunks: list) -> GeneratedDoc:
     )
 
 
+_SECTION_SYSTEM = (
+    "당신은 TK101의 문서작성 보조 AI다. 주어진 문서의 **한 섹션만** 다시 쓴다.\n"
+    "규칙:\n"
+    "- [참고자료]가 있으면 그 사실·수치·고유명사에 근거하고, 없는 구체 수치는 지어내지 마라.\n"
+    "- 사용자 [수정 요청]이 있으면 그 의도를 최우선 반영한다.\n"
+    "- 반드시 다음 JSON으로만 응답(코드펜스 없이): "
+    '{"heading": "소제목", "body": "문단형 한국어 본문"}\n'
+    "- body 는 문단형. 표가 적합하면 마크다운 표를 포함한다."
+)
+
+
+def regenerate_section(
+    topic: str,
+    doc_type: str,
+    heading: str,
+    current_body: str,
+    feedback: str,
+    chunks: list,
+) -> tuple[dict, float, str]:
+    """문서의 한 섹션만 재생성. (section dict, cost_usd, model) 반환."""
+    guide = DOC_TYPE_GUIDE.get(doc_type, DOC_TYPE_GUIDE["일반"])
+    if chunks:
+        ctx = "\n\n".join(
+            f"[참고자료 {i + 1}] 출처: {c.file_path}\n{(c.content or '')[:1200]}"
+            for i, c in enumerate(chunks)
+        )
+    else:
+        ctx = "(검색된 회사 자료 없음 — 일반 구조로 작성하되 구체 수치는 만들지 말 것)"
+    user = (
+        f"문서 종류: {doc_type} ({guide})\n"
+        f"문서 전체 주제: {topic}\n\n"
+        f"다시 쓸 섹션 제목: {heading}\n"
+        f"현재 본문:\n{current_body or '(비어 있음)'}\n\n"
+        f"[수정 요청]\n{feedback or '(특별한 요청 없음 — 더 구체적이고 완성도 높게 다시 써줘)'}\n\n"
+        f"[참고자료]\n{ctx}"
+    )
+    resp = call_claude(
+        system_prompt=_SECTION_SYSTEM,
+        messages=[{"role": "user", "content": user}],
+        max_tokens=4096,
+        cache_system=True,
+        trace_name="docgen.regenerate_section",
+        trace_metadata={"doc_type": doc_type, "heading": heading},
+    )
+    try:
+        data = _parse_json(resp.text)
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.exception("섹션 재생성 JSON 파싱 실패")
+        raise ValueError(f"섹션 재생성 응답 파싱 실패: {exc}") from exc
+    section = {
+        "heading": str(data.get("heading") or heading).strip(),
+        "body": str(data.get("body") or "").strip(),
+    }
+    return section, resp.cost_usd, resp.model
+
+
 def render_markdown(title: str, sections: list[dict]) -> str:
     """미리보기용 마크다운."""
     parts = [f"# {title}", ""]

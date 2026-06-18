@@ -24,9 +24,17 @@ from app.schemas.docgen import (
     DocGenResponse,
     DocRenderRequest,
     DocSection,
+    DocSectionRegenRequest,
+    DocSectionRegenResponse,
     DocSourceRef,
 )
-from app.services.docgen import build_docx, build_pptx, generate_document, render_markdown
+from app.services.docgen import (
+    build_docx,
+    build_pptx,
+    generate_document,
+    regenerate_section,
+    render_markdown,
+)
 from app.services.form_filler import nas_bridge
 
 logger = logging.getLogger(__name__)
@@ -86,6 +94,46 @@ async def generate(
         sources=[DocSourceRef(path=p, score=round(s, 4)) for p, s in by_path.items()],
         cost_usd=doc.cost_usd,
         model=doc.model,
+    )
+
+
+@router.post("/regenerate_section", response_model=DocSectionRegenResponse)
+async def regenerate_section_endpoint(
+    body: DocSectionRegenRequest,
+    user: User = Depends(get_current_user),
+) -> DocSectionRegenResponse:
+    """초안의 한 섹션만 (수정 요청 반영) 재생성. NAS 자료 참고(선택)."""
+    chunks = []
+    if body.use_nas and body.limit > 0:
+        try:
+            chunks = await nas_bridge.search_relevant_chunks(
+                query=f"{body.topic} {body.heading}", limit=body.limit
+            )
+        except RuntimeError as exc:
+            logger.warning("regenerate_section NAS 검색 실패 — 자료 없이 진행: %s", exc)
+            chunks = []
+    try:
+        section, cost, model = await asyncio.to_thread(
+            regenerate_section,
+            body.topic,
+            body.doc_type,
+            body.heading,
+            body.current_body,
+            body.feedback,
+            chunks,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("섹션 재생성 실패")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"섹션 재생성 실패: {exc}",
+        ) from exc
+    return DocSectionRegenResponse(
+        section=DocSection(heading=section["heading"], body=section["body"]),
+        cost_usd=cost,
+        model=model,
     )
 
 

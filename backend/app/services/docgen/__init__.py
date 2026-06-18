@@ -7,7 +7,17 @@
 재사용: form_filler.nas_bridge(Qdrant RAG), form_filler.llm_client(call_claude).
 """
 from app.services.docgen.docx_builder import build_docx
-from app.services.docgen.generator import generate_document, render_markdown
+from app.services.docgen.generator import (
+    generate_document,
+    regenerate_section,
+    render_markdown,
+)
 from app.services.docgen.pptx_builder import build_pptx
 
-__all__ = ["generate_document", "render_markdown", "build_docx", "build_pptx"]
+__all__ = [
+    "generate_document",
+    "regenerate_section",
+    "render_markdown",
+    "build_docx",
+    "build_pptx",
+]

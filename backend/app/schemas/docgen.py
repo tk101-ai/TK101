@@ -39,3 +39,21 @@ class DocRenderRequest(BaseModel):
 
     title: str = Field(min_length=1, max_length=200)
     sections: list[DocSection] = Field(min_length=1)
+
+
+class DocSectionRegenRequest(BaseModel):
+    """초안의 한 섹션만 (수정 요청 반영해) 재생성."""
+
+    topic: str = Field(min_length=2, max_length=4000)
+    doc_type: DocType = "일반"
+    heading: str = Field(min_length=1, max_length=200)
+    current_body: str = ""
+    feedback: str = Field(default="", max_length=2000, description="이 섹션에 대한 수정 요청")
+    use_nas: bool = True
+    limit: int = Field(default=6, ge=0, le=20)
+
+
+class DocSectionRegenResponse(BaseModel):
+    section: DocSection
+    cost_usd: float
+    model: str
