@@ -25,6 +25,7 @@ from app.routers import (
     distribution_sessions,
     distribution_settlement,
     distribution_triggers,
+    docgen,
     forms,
     grants,
     matching,
@@ -137,6 +138,7 @@ app.include_router(sns.router)
 app.include_router(sns.internal_router)
 app.include_router(nas_search.router)
 app.include_router(forms.router)
+app.include_router(docgen.router)
 app.include_router(review_translation.router)
 # Wave 2 재무 모듈 신규 라우터
 app.include_router(bank_import.router)
