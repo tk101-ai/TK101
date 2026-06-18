@@ -1,7 +1,8 @@
 """요구 기반 문서 생성 라우터 (T5 확장).
 
-POST /api/docgen/generate  — 주제+NAS RAG → 구조화 초안(마크다운+섹션+출처) 반환.
-POST /api/docgen/render    — (수정된) 초안 → .docx 다운로드.
+POST /api/docgen/generate     — 주제+NAS RAG → 구조화 초안(마크다운+섹션+출처) 반환.
+POST /api/docgen/render       — (수정된) 초안 → .docx 다운로드.
+POST /api/docgen/render_pptx  — (수정된) 초안 → .pptx 다운로드.
 
 권한: 문서작성 모듈(form_filler) 재사용. LLM/검색은 form_filler 빌딩블록 재사용.
 """
@@ -25,7 +26,7 @@ from app.schemas.docgen import (
     DocSection,
     DocSourceRef,
 )
-from app.services.docgen import build_docx, generate_document, render_markdown
+from app.services.docgen import build_docx, build_pptx, generate_document, render_markdown
 from app.services.form_filler import nas_bridge
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ router = APIRouter(
 )
 
 _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+_PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 
 @router.post("/generate", response_model=DocGenResponse)
@@ -106,5 +108,28 @@ async def render(
     return StreamingResponse(
         io.BytesIO(data),
         media_type=_DOCX_MIME,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.post("/render_pptx")
+async def render_pptx(
+    body: DocRenderRequest,
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """초안(수정 가능) → .pptx 스트리밍 다운로드."""
+    sections = [{"heading": s.heading, "body": s.body} for s in body.sections]
+    try:
+        data = await asyncio.to_thread(build_pptx, body.title, sections)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("pptx 렌더 실패")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"pptx 렌더 실패: {exc}",
+        ) from exc
+    filename = urllib.parse.quote(f"{body.title[:60]}.pptx")
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type=_PPTX_MIME,
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )
