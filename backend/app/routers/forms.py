@@ -193,6 +193,10 @@ class JobDetail(BaseModel):
 
 class NasSourceAttachRequest(BaseModel):
     nas_file_ids: list[uuid.UUID] = Field(default_factory=list)
+    nas_paths: list[str] = Field(
+        default_factory=list,
+        description="NAS 검색결과에서 파일 단위로 선택할 때 경로(payload path) 목록.",
+    )
     nas_chunk_ids: list[uuid.UUID] = Field(default_factory=list)
     auto_query: str | None = Field(
         default=None,
@@ -652,6 +656,16 @@ def _save_upload_file(file_bytes: bytes, original_name: str, job_id: str) -> str
 # ---------------------------------------------------------------------------
 
 
+def _safe_uuid(value: str | None) -> uuid.UUID | None:
+    """문자열 → UUID. Qdrant point id 는 UUID(uuid5)지만 방어적으로 변환 실패는 None."""
+    if not value:
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 @router.post(
     "/jobs/{job_id}/sources/nas",
     status_code=status.HTTP_201_CREATED,
@@ -688,16 +702,22 @@ async def attach_nas_sources(
 
     file_chunks: list[nas_bridge.NasChunkHit] = []
     if body.nas_file_ids:
-        file_chunks = await nas_bridge.fetch_chunks_for_files(
+        file_chunks += await nas_bridge.fetch_chunks_for_files(
             db, [str(fid) for fid in body.nas_file_ids]
         )
-        chunk_ids.extend(c.chunk_id for c in file_chunks)
+    if body.nas_paths:
+        file_chunks += await nas_bridge.fetch_chunks_for_paths(db, body.nas_paths)
+    chunk_ids.extend(c.chunk_id for c in file_chunks)
 
     chunk_ids = list(dict.fromkeys(chunk_ids))  # dedupe, preserve order
     if not chunk_ids:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="추가할 NAS 청크가 없습니다 (auto_query/nas_file_ids/nas_chunk_ids 중 1개 이상 필요)",
+            detail=(
+                "추가할 NAS 청크가 없습니다 "
+                "(auto_query / auto_query_from_template / nas_paths / nas_file_ids / "
+                "nas_chunk_ids 중 1개 이상 필요)"
+            ),
         )
 
     direct = await nas_bridge.fetch_chunks_by_ids(db, chunk_ids)
@@ -708,12 +728,16 @@ async def attach_nas_sources(
         chunk = chunk_map.get(cid)
         if chunk is None:
             continue
+        # 신규 Qdrant 코퍼스는 레거시 nas_files 행이 없다(doc_id 는 UUID도 아님).
+        # → nas_file_id=None, 표시·추적용으로 경로는 upload_path, 청크는 point id 보존.
+        chunk_uuid = _safe_uuid(chunk.chunk_id)
         source = FormDataSource(
             id=uuid.uuid4(),
             job_id=job.id,
             kind="nas_file",
-            nas_file_id=uuid.UUID(chunk.file_id),
-            nas_chunk_ids=[uuid.UUID(chunk.chunk_id)],
+            nas_file_id=None,
+            upload_path=chunk.file_path or None,
+            nas_chunk_ids=[chunk_uuid] if chunk_uuid else None,
             extracted_text=chunk.content,
         )
         db.add(source)

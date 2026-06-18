@@ -191,3 +191,41 @@ async def fetch_chunks_for_files(
         chunks.sort(key=lambda h: h.chunk_index)
         flat.extend(chunks[:per_file_limit])
     return flat
+
+
+async def fetch_chunks_for_paths(
+    db=None,  # noqa: ANN001 (호환 유지용)
+    paths: Iterable[str] = (),
+    *,
+    per_file_limit: int = 5,
+) -> list[NasChunkHit]:
+    """선택된 파일 경로(payload path) 목록의 대표 청크들. NAS 검색결과에서 doc_id 대신
+    안정적인 path 로 '파일 단위' 선택을 처리(검색 hit.id 는 doc_id→UUID 인코딩이라
+    Qdrant 조회 키로 못 씀)."""
+    keys = [p for p in paths if p]
+    if not keys:
+        return []
+    try:
+        records, _ = await asyncio.to_thread(
+            lambda: get_client().scroll(
+                collection_name=settings.qdrant_collection_text,
+                scroll_filter=qm.Filter(
+                    must=[qm.FieldCondition(key="path", match=qm.MatchAny(any=keys))]
+                ),
+                limit=max(len(keys) * per_file_limit * 4, 256),
+                with_payload=True,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Qdrant 경로 청크 조회 실패")
+        raise RuntimeError(f"NAS 경로 청크 조회 실패: {exc}") from exc
+
+    by_path: dict[str, list[NasChunkHit]] = {}
+    for r in records:
+        hit = _hit_from_point(r, score=0.0)
+        by_path.setdefault(hit.file_path, []).append(hit)
+    flat: list[NasChunkHit] = []
+    for chunks in by_path.values():
+        chunks.sort(key=lambda h: h.chunk_index)
+        flat.extend(chunks[:per_file_limit])
+    return flat
