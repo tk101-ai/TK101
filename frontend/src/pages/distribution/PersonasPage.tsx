@@ -36,6 +36,7 @@ import {
   type PersonaOut,
 } from "../../api/distribution";
 import { extractErrorDetail } from "../../utils/errorUtils";
+import { useAuth } from "../../hooks/useAuth";
 import PersonaBusinessNameModal from "../../components/distribution/PersonaBusinessNameModal";
 import PersonaCreateModal from "../../components/distribution/PersonaCreateModal";
 import PersonaCredentialsModal from "../../components/distribution/PersonaCredentialsModal";
@@ -74,6 +75,11 @@ function PersonaStatusBadge({ persona }: PersonaStatusBadgeProps) {
 }
 
 export default function PersonasPage() {
+  // 페르소나 관리(등록/자격증명/로그인/동기화/로그아웃/삭제)는 백엔드에서
+  // require_admin 으로 막혀 있다(신사업유통 위험 작업). 일반 member 에게는
+  // 해당 버튼/컬럼을 숨겨 403 혼란을 막는다(목록 조회는 허용).
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [data, setData] = useState<PersonaOut[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [createOpen, setCreateOpen] = useState<boolean>(false);
@@ -412,18 +418,20 @@ export default function PersonasPage() {
           >
             새로고침
           </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setCreateOpen(true)}
-          >
-            새 페르소나 등록
-          </Button>
+          {isAdmin && (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setCreateOpen(true)}
+            >
+              새 페르소나 등록
+            </Button>
+          )}
         </Space>
       </div>
 
       <Table
-        columns={columns}
+        columns={isAdmin ? columns : columns.filter((c) => c.key !== "actions")}
         dataSource={data}
         rowKey="id"
         loading={loading}
