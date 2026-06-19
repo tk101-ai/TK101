@@ -1,17 +1,15 @@
 import { Alert, Button, Card, Col, Row, Space, Spin, Statistic, Tag } from "antd";
 import {
   ArrowRightOutlined,
-  ClockCircleOutlined,
   CloudServerOutlined,
   EditOutlined,
   FileTextOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import dayjs from "dayjs";
 
-import { getNasStatus, type NasStatus } from "../../api/nas";
+import { getNasCorpusStats, type NasCorpusStats } from "../../api/nas";
 import { listFormTemplates } from "../../api/forms";
 
 /**
@@ -34,15 +32,17 @@ export interface DepartmentBaseDashboardProps {
   upcoming: UpcomingWidget[];
   /** 부서별 추가 KPI 카드(선택). KISS — 현재는 4개 부서 모두 미사용. */
   extraKpiCards?: React.ReactNode;
+  /** 부서별 추가 빠른 액션 버튼(선택). 예: 신사업팀 → 신사업유통 대시보드 바로가기. */
+  extraQuickActions?: React.ReactNode;
 }
 
 interface KpiState {
-  nas: NasStatus | null;
+  corpus: NasCorpusStats | null;
   templateCount: number;
 }
 
 const INITIAL_KPI: KpiState = {
-  nas: null,
+  corpus: null,
   templateCount: 0,
 };
 
@@ -50,6 +50,7 @@ export default function DepartmentBaseDashboard({
   departmentLabel,
   upcoming,
   extraKpiCards,
+  extraQuickActions,
 }: DepartmentBaseDashboardProps) {
   const navigate = useNavigate();
   const [kpi, setKpi] = useState<KpiState>(INITIAL_KPI);
@@ -59,13 +60,13 @@ export default function DepartmentBaseDashboard({
     setLoading(true);
     try {
       // 둘 다 실패해도 placeholder UI가 노출되도록 settle.
-      const [nasRes, tplRes] = await Promise.allSettled([
-        getNasStatus(),
+      const [corpusRes, tplRes] = await Promise.allSettled([
+        getNasCorpusStats(),
         listFormTemplates({}),
       ]);
 
       const next: KpiState = { ...INITIAL_KPI };
-      if (nasRes.status === "fulfilled") next.nas = nasRes.value.data;
+      if (corpusRes.status === "fulfilled") next.corpus = corpusRes.value.data;
       if (tplRes.status === "fulfilled") next.templateCount = tplRes.value.length;
       setKpi(next);
     } finally {
@@ -78,11 +79,6 @@ export default function DepartmentBaseDashboard({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchKpi();
   }, [fetchKpi]);
-
-  const lastIndexedLabel = useMemo(() => {
-    if (!kpi.nas?.last_indexed_at) return "기록 없음";
-    return dayjs(kpi.nas.last_indexed_at).format("MM-DD HH:mm");
-  }, [kpi.nas]);
 
   return (
     <Spin spinning={loading} size="large">
@@ -99,37 +95,37 @@ export default function DepartmentBaseDashboard({
           {`${departmentLabel} 대시보드`}
         </h2>
 
-        {/* KPI Cards — 부서 공통 모듈 (NAS + FormFiller) */}
+        {/* KPI Cards — 부서 공통 모듈 (NAS 검색 + 문서 자동작성) */}
         <Row gutter={[16, 16]}>
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={12} lg={8}>
             <Card
               hoverable
               style={{ borderLeft: "3px solid #13c2c2" }}
               styles={{ body: { padding: "20px 24px" } }}
             >
               <Statistic
-                title="NAS 인덱싱 자료"
-                value={kpi.nas?.indexed_files ?? 0}
+                title="검색 가능 자료 (전사)"
+                value={kpi.corpus?.points_count ?? 0}
                 prefix={<CloudServerOutlined style={{ color: "#13c2c2" }} />}
-                suffix="건"
+                suffix="청크"
               />
             </Card>
           </Col>
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={12} lg={8}>
             <Card
               hoverable
               style={{ borderLeft: "3px solid #2f54eb" }}
               styles={{ body: { padding: "20px 24px" } }}
             >
               <Statistic
-                title="전체 자료 수"
-                value={kpi.nas?.total_files ?? 0}
+                title="검색 분야 (부서)"
+                value={kpi.corpus?.by_dept.length ?? 0}
                 prefix={<FileTextOutlined style={{ color: "#2f54eb" }} />}
-                suffix="건"
+                suffix="개"
               />
             </Card>
           </Col>
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={12} lg={8}>
             <Card
               hoverable
               style={{ borderLeft: "3px solid #fa8c16" }}
@@ -140,20 +136,6 @@ export default function DepartmentBaseDashboard({
                 value={kpi.templateCount}
                 prefix={<EditOutlined style={{ color: "#fa8c16" }} />}
                 suffix="개"
-              />
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={6}>
-            <Card
-              hoverable
-              style={{ borderLeft: "3px solid #8c8c8c" }}
-              styles={{ body: { padding: "20px 24px" } }}
-            >
-              <Statistic
-                title="마지막 인덱싱"
-                value={lastIndexedLabel}
-                prefix={<ClockCircleOutlined style={{ color: "#8c8c8c" }} />}
-                valueStyle={{ fontSize: 18 }}
               />
             </Card>
           </Col>
@@ -187,6 +169,7 @@ export default function DepartmentBaseDashboard({
             >
               양식 라이브러리
             </Button>
+            {extraQuickActions}
           </Space>
         </Card>
 

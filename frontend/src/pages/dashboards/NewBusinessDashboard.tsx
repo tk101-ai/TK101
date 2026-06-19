@@ -1,3 +1,6 @@
+import { Button } from "antd";
+import { ApartmentOutlined } from "@ant-design/icons";
+import { useNavigate } from "react-router-dom";
 import DepartmentBaseDashboard, {
   type UpcomingWidget,
 } from "./DepartmentBaseDashboard";
@@ -18,10 +21,22 @@ const NEW_BUSINESS_UPCOMING: UpcomingWidget[] = [
 ];
 
 export default function NewBusinessDashboard() {
+  const navigate = useNavigate();
   return (
     <DepartmentBaseDashboard
       departmentLabel="신사업팀"
       upcoming={NEW_BUSINESS_UPCOMING}
+      // 신사업팀 주력 모듈(distribution=신사업유통)로 바로 진입.
+      extraQuickActions={
+        <Button
+          type="primary"
+          ghost
+          icon={<ApartmentOutlined />}
+          onClick={() => navigate("/distribution/dashboard")}
+        >
+          신사업유통 대시보드
+        </Button>
+      }
     />
   );
 }

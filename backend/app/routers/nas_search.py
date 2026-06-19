@@ -33,6 +33,8 @@ from app.models.nas_file import NasFile, NasTextChunk
 from app.models.user import User
 from app.modules.constants import Module
 from app.schemas.nas_file import (
+    NasCorpusDeptStat,
+    NasCorpusStats,
     NasIndexProgress,
     NasIndexRunRequest,
     NasIndexRunResponse,
@@ -60,6 +62,7 @@ from app.services.nas_search.query_embedder import embed_query as embed_query_ve
 from app.services.nas_search.romanize import has_hangul, romanize_hangul
 from app.services.nas_search.qdrant_search import (
     build_qdrant_filter,
+    corpus_stats,
     keyword_arm,
     vector_arm,
 )
@@ -94,6 +97,25 @@ async def get_status(db: AsyncSession = Depends(get_db)) -> NasStatus:
         total_files=int(total_q.scalar() or 0),
         indexed_files=int(indexed_q.scalar() or 0),
         last_indexed_at=last_q.scalar(),
+    )
+
+
+@router.get("/corpus-stats", response_model=NasCorpusStats)
+async def get_corpus_stats() -> NasCorpusStats:
+    """현행 검색 코퍼스(Qdrant docs_text) 현황 — 총 청크 수 + 부서별 분포.
+
+    구 in-app 인덱서(nas_files)가 아니라 실제 검색이 쓰는 Qdrant를 직접 조회한다.
+    동기 Qdrant 클라이언트라 스레드로 오프로드. Qdrant 장애 시 502.
+    """
+    try:
+        points, by_dept = await asyncio.to_thread(corpus_stats)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Qdrant 코퍼스 통계 조회 실패")
+        raise HTTPException(status_code=502, detail=f"코퍼스 통계 조회 실패: {exc}")
+    return NasCorpusStats(
+        collection=settings.qdrant_collection_text,
+        points_count=points,
+        by_dept=[NasCorpusDeptStat(dept=d, count=c) for d, c in by_dept],
     )
 
 

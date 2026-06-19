@@ -7,14 +7,14 @@ import {
   CloseCircleOutlined,
   LinkOutlined,
   CloudServerOutlined,
-  ClockCircleOutlined,
+  DatabaseOutlined,
+  TrophyOutlined,
 } from "@ant-design/icons";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { ColumnsType } from "antd/es/table";
-import dayjs from "dayjs";
 import api from "../../api/client";
-import { getNasStatus, type NasStatus } from "../../api/nas";
+import { getNasCorpusStats, type NasCorpusStats } from "../../api/nas";
 import { getDepartmentLabel, NAV_ITEMS } from "../../config/modules";
 import FinanceDashboard from "./FinanceDashboard";
 import Marketing1Dashboard from "./Marketing1Dashboard";
@@ -80,7 +80,8 @@ const EXTERNAL_LINKS: ExternalLink[] = [
 function AdminHomePanel() {
   const [deptStats, setDeptStats] = useState<DepartmentStat[]>([]);
   const [totalUsers, setTotalUsers] = useState(0);
-  const [nasStatus, setNasStatus] = useState<NasStatus | null>(null);
+  const [corpus, setCorpus] = useState<NasCorpusStats | null>(null);
+  const [corpusFailed, setCorpusFailed] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // 모듈 수: 백엔드에 /api/modules 가 없으므로 frontend NAV_ITEMS의 distinct module 개수로 산정.
@@ -93,10 +94,10 @@ function AdminHomePanel() {
   const fetchStats = useCallback(async () => {
     setLoading(true);
     try {
-      // 부서 통계와 NAS 상태를 병렬 fetch — 한 쪽 실패해도 다른 쪽은 노출되도록 settle 처리.
-      const [usersRes, nasRes] = await Promise.allSettled([
+      // 부서 통계와 검색 코퍼스 현황을 병렬 fetch — 한 쪽 실패해도 다른 쪽은 노출되도록 settle.
+      const [usersRes, corpusRes] = await Promise.allSettled([
         api.get<DepartmentStat[]>("/api/users/stats"),
-        getNasStatus(),
+        getNasCorpusStats(),
       ]);
 
       if (usersRes.status === "fulfilled") {
@@ -107,10 +108,13 @@ function AdminHomePanel() {
         message.error("부서 통계를 불러오는데 실패했습니다.");
       }
 
-      if (nasRes.status === "fulfilled") {
-        setNasStatus(nasRes.value.data);
+      if (corpusRes.status === "fulfilled") {
+        setCorpus(corpusRes.value.data);
+        setCorpusFailed(false);
+      } else {
+        // 코퍼스 조회 실패 = Qdrant 검색 엔진 점검 필요 신호(시스템 상태 카드에 반영).
+        setCorpusFailed(true);
       }
-      // NAS 실패는 에러 토스트 안 띄움 — 보조 정보라 조용히 fallback.
     } finally {
       setLoading(false);
     }
@@ -145,17 +149,10 @@ function AdminHomePanel() {
     },
   ];
 
-  const nasIndexProgress = useMemo(() => {
-    if (!nasStatus || nasStatus.total_files === 0) return 0;
-    return Math.round((nasStatus.indexed_files / nasStatus.total_files) * 100);
-  }, [nasStatus]);
-
-  const lastIndexedLabel = useMemo(() => {
-    if (!nasStatus?.last_indexed_at) return "기록 없음";
-    return dayjs(nasStatus.last_indexed_at).format("MM-DD HH:mm");
-  }, [nasStatus]);
-
-  const systemHealthy = nasStatus?.mount_ok !== false;
+  // 검색 코퍼스(Qdrant) 조회 성공 = 검색 엔진 정상으로 본다.
+  const systemHealthy = !corpusFailed;
+  // 최다 적재 부서(상위 1개). by_dept 는 백엔드에서 count 내림차순 정렬됨.
+  const topDept = corpus?.by_dept?.[0] ?? null;
 
   return (
     <Spin spinning={loading} size="large">
@@ -229,7 +226,7 @@ function AdminHomePanel() {
             >
               <Statistic
                 title="시스템 상태"
-                value={systemHealthy ? "정상" : "NAS 점검 필요"}
+                value={systemHealthy ? "정상" : "검색엔진 점검"}
                 prefix={
                   systemHealthy ? (
                     <CheckCircleOutlined style={{ color: "#52c41a" }} />
@@ -246,7 +243,7 @@ function AdminHomePanel() {
           </Col>
         </Row>
 
-        {/* Summary Cards (2행: NAS 인덱싱 헬스) */}
+        {/* Summary Cards (2행: 검색 코퍼스 현황 — 현행 검색 데이터 소스 Qdrant) */}
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col xs={24} sm={12} lg={8}>
             <Card
@@ -255,10 +252,10 @@ function AdminHomePanel() {
               styles={{ body: { padding: "20px 24px" } }}
             >
               <Statistic
-                title="NAS 인덱싱 파일 수"
-                value={nasStatus?.indexed_files ?? 0}
-                prefix={<CloudServerOutlined style={{ color: "#13c2c2" }} />}
-                suffix={`/ ${(nasStatus?.total_files ?? 0).toLocaleString("ko-KR")}건`}
+                title="검색 코퍼스 (적재 청크)"
+                value={corpus?.points_count ?? 0}
+                prefix={<DatabaseOutlined style={{ color: "#13c2c2" }} />}
+                suffix="청크"
               />
             </Card>
           </Col>
@@ -269,23 +266,26 @@ function AdminHomePanel() {
               styles={{ body: { padding: "20px 24px" } }}
             >
               <Statistic
-                title="NAS 인덱싱 진행률"
-                value={nasIndexProgress}
-                suffix="%"
-                valueStyle={{ fontSize: 22, fontWeight: 700 }}
+                title="적재 부서 수"
+                value={corpus?.by_dept.length ?? 0}
+                prefix={<CloudServerOutlined style={{ color: "#2f54eb" }} />}
+                suffix="개 부서"
               />
             </Card>
           </Col>
           <Col xs={24} sm={12} lg={8}>
             <Card
               hoverable
-              style={{ borderLeft: "3px solid #8c8c8c" }}
+              style={{ borderLeft: "3px solid #fa8c16" }}
               styles={{ body: { padding: "20px 24px" } }}
             >
               <Statistic
-                title="마지막 인덱싱"
-                value={lastIndexedLabel}
-                prefix={<ClockCircleOutlined style={{ color: "#8c8c8c" }} />}
+                title="최다 적재 부서"
+                value={topDept ? topDept.dept : "—"}
+                prefix={<TrophyOutlined style={{ color: "#fa8c16" }} />}
+                suffix={
+                  topDept ? `${topDept.count.toLocaleString("ko-KR")}청크` : undefined
+                }
                 valueStyle={{ fontSize: 18 }}
               />
             </Card>

@@ -61,6 +61,22 @@ export interface NasIndexRunResponse {
 
 export const getNasStatus = () => api.get<NasStatus>("/api/nas/status");
 
+/** 현행 검색 코퍼스(Qdrant docs_text) 통계 — 구 nas_files 인덱서가 아니라
+ *  실제 검색이 쓰는 Qdrant 직접 조회값. */
+export interface NasCorpusDeptStat {
+  dept: string;
+  count: number;
+}
+
+export interface NasCorpusStats {
+  collection: string;
+  points_count: number; // 적재된 청크 수
+  by_dept: NasCorpusDeptStat[];
+}
+
+export const getNasCorpusStats = () =>
+  api.get<NasCorpusStats>("/api/nas/corpus-stats");
+
 export const runNasIndex = () =>
   api.post<NasIndexRunResponse>("/api/nas/index/run");
 
