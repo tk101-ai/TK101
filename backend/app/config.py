@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     # 이 수만큼 scroll 후 토큰 substring으로 필터 → doc_id dedup.
     nas_keyword_scan_limit: int = 4000
 
+    # 리랭커(cross-encoder) — 1차 하이브리드 상위 N개를 (쿼리,청크) 직접 채점해
+    # 재정렬. bi-encoder cosine + 키워드 0.85 floor 의 변별 약함을 보정한다.
+    # CPU 추론(기동 시 워밍업). 끄려면 NAS_RERANK_ENABLED=0.
+    nas_rerank_enabled: bool = True
+    nas_rerank_model: str = "BAAI/bge-reranker-v2-m3"  # 다국어 KO/ZH/EN
+    nas_rerank_top_n: int = 35  # 재채점할 상위 후보 수(품질 우선, 지연 trade-off)
+    nas_rerank_max_length: int = 512
+
     # 부서별 검색 스코핑 (선택 기능) ----------------------------------------------
     # 켜면 일반 사용자는 본인 부서(Qdrant dept)로 한정, 전체검색 허용 역할은 무필터.
     # 사용자 부서 enum(marketing_1/new_business/...)과 Qdrant 문서 dept 라벨
