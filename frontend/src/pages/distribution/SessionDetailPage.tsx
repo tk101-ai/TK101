@@ -58,6 +58,7 @@ import {
   type SessionDetail,
 } from "../../api/distribution";
 import { extractErrorDetail } from "../../utils/errorUtils";
+import { useAuth } from "../../hooks/useAuth";
 
 const { Title, Paragraph, Text } = Typography;
 const { TextArea } = Input;
@@ -577,6 +578,10 @@ function RejectModal({ open, loading, onClose, onConfirm }: RejectModalProps) {
 
 export default function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
+  // 승인/거부는 신사업팀 member 가능(검수), 실 송신(send-now)만 백엔드
+  // require_admin → member 에게는 '지금 송신' 버튼을 숨겨 403 혼란을 막는다.
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [approveOpen, setApproveOpen] = useState<boolean>(false);
@@ -826,23 +831,25 @@ export default function SessionDetailPage() {
             )}
             {status === "approved" && (
               <>
-                <Popconfirm
-                  title="지금 바로 송신할까요?"
-                  description="송신 결과가 즉시 반영됩니다."
-                  okText="송신"
-                  cancelText="취소"
-                  onConfirm={() => {
-                    void handleSendNow();
-                  }}
-                >
-                  <Button
-                    type="primary"
-                    icon={<SendOutlined />}
-                    loading={sendNowLoading}
+                {isAdmin && (
+                  <Popconfirm
+                    title="지금 바로 송신할까요?"
+                    description="송신 결과가 즉시 반영됩니다."
+                    okText="송신"
+                    cancelText="취소"
+                    onConfirm={() => {
+                      void handleSendNow();
+                    }}
                   >
-                    지금 송신
-                  </Button>
-                </Popconfirm>
+                    <Button
+                      type="primary"
+                      icon={<SendOutlined />}
+                      loading={sendNowLoading}
+                    >
+                      지금 송신
+                    </Button>
+                  </Popconfirm>
+                )}
                 <Button
                   danger
                   icon={<StopOutlined />}
