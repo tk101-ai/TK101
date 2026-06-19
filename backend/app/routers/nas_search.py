@@ -594,10 +594,13 @@ async def search_text(
                 snippet=_build_snippet(pl.get("text") or ""),
             )
         )
-        if len(hits) >= body.limit:
-            break
 
-    return NasSearchResponse(results=hits)
+    # 노출 순서를 표시 점수(confidence)와 일치시킨다 — 사용자는 "상위 = 점수 높은 순"을
+    # 기대하는데, RRF 순위로 그대로 내보내면 키워드매칭(0.85)이 cosine 0.92보다 위에
+    # 떠 점수가 뒤죽박죽으로 보였다. RRF는 후보 선별/키워드 부스트에만 쓰고, 최종
+    # 노출은 점수 내림차순으로 정렬한 뒤 상위 limit개를 반환한다(동점은 RRF 순서 유지).
+    hits.sort(key=lambda h: h.score, reverse=True)
+    return NasSearchResponse(results=hits[: body.limit])
 
 
 @router.get("/folders/top", response_model=NasTopFoldersResponse)
