@@ -601,14 +601,15 @@ async def search_text(
             )
         )
 
-    # 1차 점수(confidence) 내림차순 정렬 — 리랭킹 후보 선정 + 리랭커 off 시 최종 순서.
-    cands.sort(key=lambda c: c[0].score, reverse=True)
-
     # 리랭킹: 상위 후보를 cross-encoder로 (쿼리,청크) 직접 채점해 재정렬한다.
-    # bi-encoder cosine + 키워드 0.85 floor 는 다중어 질의에서 변별이 약한데(상위가
-    # 전부 0.85로 뭉침), cross-encoder가 실제 관련도로 풀어준다. 실패 시 1차 점수순 폴백.
+    # ⚠️ 후보 풀은 confidence가 아니라 **RRF 순위(=cands 적재 순서)** 로 고른다.
+    # confidence는 키워드 강매칭이 0.85로 뭉치고, 의미적으로 관련 높은(벡터 arm 상위)
+    # 문서라도 키워드 강매칭이 아니면 cosine(~0.65)이라 0.85 그룹 아래로 밀린다 →
+    # confidence로 후보를 고르면 정작 관련문서가 풀에서 빠져 재채점이 무의미해진다
+    # (실측: confidence 풀이면 관련문서 탈락, RRF 풀이면 0.92로 1위). RRF는 벡터+
+    # 키워드 순위를 합쳐 관련문서를 상위에 두므로 후보 선정에 더 안전하다.
     if settings.nas_rerank_enabled and len(cands) > 1:
-        top = cands[: settings.nas_rerank_top_n]
+        top = cands[: settings.nas_rerank_top_n]  # RRF 순서 상위 N
         try:
             scores = await asyncio.to_thread(
                 rerank_passages, body.query, [t for _, t in top]
@@ -622,6 +623,8 @@ async def search_text(
         except Exception:  # noqa: BLE001
             logger.exception("리랭킹 실패 — 1차 점수순으로 폴백")
 
+    # 리랭커 off/실패 시: 표시 점수(confidence) 내림차순으로 노출.
+    cands.sort(key=lambda c: c[0].score, reverse=True)
     return NasSearchResponse(results=[hit for hit, _ in cands[: body.limit]])
 
 
