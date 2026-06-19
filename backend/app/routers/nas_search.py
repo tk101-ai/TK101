@@ -59,6 +59,7 @@ from app.services.nas_search.hybrid import (
 )
 from app.services.nas_search.indexer import build_filename_header
 from app.services.nas_search.query_embedder import embed_query as embed_query_vec
+from app.services.nas_search.reranker import rerank as rerank_passages
 from app.services.nas_search.romanize import has_hangul, romanize_hangul
 from app.services.nas_search.qdrant_search import (
     build_qdrant_filter,
@@ -559,7 +560,8 @@ async def search_text(
     #    아무것도 안 맞을 때 벡터가 0.6대 노이즈를 반환하므로, 임계값 미만은 제외해
     #    "없으면 없다"가 되게 한다(nas_min_relevance, 튜닝 가능).
     min_rel = settings.nas_min_relevance
-    hits: list[NasSearchHit] = []
+    # (hit, 청크 본문) 쌍 — 청크 본문은 리랭커 입력용(스니펫은 잘려 부적합).
+    cands: list[tuple[NasSearchHit, str]] = []
     for doc_id in ranked:
         pl_k = by_k.get(doc_id)
         pl_v = by_v.get(doc_id)
@@ -580,27 +582,47 @@ async def search_text(
                 continue  # 벡터-only(또는 키워드 약매칭) 노이즈 제외
             confidence = float(vec_score)
         source_type = pl.get("source_type")
-        hits.append(
-            NasSearchHit(
-                id=_doc_id_to_uuid(doc_id),
-                path=path,
-                name=os.path.basename(path) if path else None,
-                file_type=pl.get("modality") or "document",
-                mime_type=_SOURCE_TYPE_TO_MIME.get(source_type or ""),
-                size=None,
-                mtime=None,
-                dept=pl.get("dept"),
-                score=round(min(1.0, confidence), 4),
-                snippet=_build_snippet(pl.get("text") or ""),
+        text = pl.get("text") or ""
+        cands.append(
+            (
+                NasSearchHit(
+                    id=_doc_id_to_uuid(doc_id),
+                    path=path,
+                    name=os.path.basename(path) if path else None,
+                    file_type=pl.get("modality") or "document",
+                    mime_type=_SOURCE_TYPE_TO_MIME.get(source_type or ""),
+                    size=None,
+                    mtime=None,
+                    dept=pl.get("dept"),
+                    score=round(min(1.0, confidence), 4),
+                    snippet=_build_snippet(text),
+                ),
+                text,
             )
         )
 
-    # 노출 순서를 표시 점수(confidence)와 일치시킨다 — 사용자는 "상위 = 점수 높은 순"을
-    # 기대하는데, RRF 순위로 그대로 내보내면 키워드매칭(0.85)이 cosine 0.92보다 위에
-    # 떠 점수가 뒤죽박죽으로 보였다. RRF는 후보 선별/키워드 부스트에만 쓰고, 최종
-    # 노출은 점수 내림차순으로 정렬한 뒤 상위 limit개를 반환한다(동점은 RRF 순서 유지).
-    hits.sort(key=lambda h: h.score, reverse=True)
-    return NasSearchResponse(results=hits[: body.limit])
+    # 1차 점수(confidence) 내림차순 정렬 — 리랭킹 후보 선정 + 리랭커 off 시 최종 순서.
+    cands.sort(key=lambda c: c[0].score, reverse=True)
+
+    # 리랭킹: 상위 후보를 cross-encoder로 (쿼리,청크) 직접 채점해 재정렬한다.
+    # bi-encoder cosine + 키워드 0.85 floor 는 다중어 질의에서 변별이 약한데(상위가
+    # 전부 0.85로 뭉침), cross-encoder가 실제 관련도로 풀어준다. 실패 시 1차 점수순 폴백.
+    if settings.nas_rerank_enabled and len(cands) > 1:
+        top = cands[: settings.nas_rerank_top_n]
+        try:
+            scores = await asyncio.to_thread(
+                rerank_passages, body.query, [t for _, t in top]
+            )
+            rescored = [
+                hit.model_copy(update={"score": round(float(s), 4)})
+                for (hit, _), s in zip(top, scores)
+            ]
+            rescored.sort(key=lambda h: h.score, reverse=True)
+            return NasSearchResponse(results=rescored[: body.limit])
+        except Exception:  # noqa: BLE001
+            logger.exception("리랭킹 실패 — 1차 점수순으로 폴백")
+
+    return NasSearchResponse(results=[hit for hit, _ in cands[: body.limit]])
 
 
 @router.get("/folders/top", response_model=NasTopFoldersResponse)

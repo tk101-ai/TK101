@@ -77,6 +77,16 @@ async def _warmup_nas_query_embedder() -> None:
     except Exception:  # noqa: BLE001
         logger.exception("NAS 쿼리 임베딩 모델 워밍업 실패 — 첫 쿼리 시 lazy load로 재시도")
 
+    # 리랭커(cross-encoder)도 기동 시 워밍업 — 첫 검색 지연(모델 로드+페이지인) 흡수.
+    if settings.nas_rerank_enabled:
+        from app.services.nas_search import reranker
+
+        try:
+            await asyncio.to_thread(reranker.warmup)
+            logger.info("NAS 리랭커 모델 워밍업 완료")
+        except Exception:  # noqa: BLE001
+            logger.exception("NAS 리랭커 모델 워밍업 실패 — 첫 쿼리 시 lazy load로 재시도")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
