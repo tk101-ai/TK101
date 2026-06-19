@@ -18,6 +18,25 @@ class NasStatus(BaseModel):
     last_indexed_at: datetime | None = None
 
 
+class NasCorpusDeptStat(BaseModel):
+    """검색 코퍼스의 부서별 청크 수."""
+
+    dept: str
+    count: int
+
+
+class NasCorpusStats(BaseModel):
+    """현행 검색 코퍼스(Qdrant docs_text) 현황.
+
+    구 in-app 인덱서(nas_files 테이블, 폐기)가 아니라 실제 검색이 쓰는 Qdrant를
+    직접 조회한 값이다. 적재는 외부 파이프라인(tk101-rag/Qwen3)이 담당한다.
+    """
+
+    collection: str
+    points_count: int  # 적재된 청크(벡터) 수
+    by_dept: list[NasCorpusDeptStat] = []
+
+
 class NasIndexProgress(BaseModel):
     """백그라운드 인덱싱 진행률 스냅샷."""
 

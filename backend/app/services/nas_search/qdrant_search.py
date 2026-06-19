@@ -50,6 +50,34 @@ def get_client() -> QdrantClient:
         return _client
 
 
+# ── 코퍼스 통계 (대시보드용) ──────────────────────────────────────────────────
+
+def corpus_stats() -> tuple[int, list[tuple[str, int]]]:
+    """현행 검색 코퍼스(docs_text)의 총 청크 수 + 부서별 분포.
+
+    적재는 외부 파이프라인(tk101-rag)이 하므로 여기서는 읽기만 한다(컬렉션
+    변형 없음). facet 미지원/실패 시 by_dept는 빈 리스트로 폴백한다.
+    동기 클라이언트이므로 호출부(라우터)에서 스레드로 오프로드할 것.
+    """
+    client = get_client()
+    info = client.get_collection(settings.qdrant_collection_text)
+    points = int(info.points_count or 0)
+    by_dept: list[tuple[str, int]] = []
+    try:
+        res = client.facet(
+            collection_name=settings.qdrant_collection_text,
+            key="dept",
+            limit=50,
+        )
+        by_dept = sorted(
+            ((str(h.value), int(h.count)) for h in res.hits),
+            key=lambda x: -x[1],
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Qdrant dept facet 실패 — by_dept 생략")
+    return points, by_dept
+
+
 # ── 필터 빌더 ────────────────────────────────────────────────────────────────
 
 # file_kinds(스키마) → Qdrant payload source_type(인덱싱 파이프라인 원본 형식).
