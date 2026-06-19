@@ -73,8 +73,12 @@ class Settings(BaseSettings):
     # CPU 추론(기동 시 워밍업). 끄려면 NAS_RERANK_ENABLED=0.
     nas_rerank_enabled: bool = True
     nas_rerank_model: str = "BAAI/bge-reranker-v2-m3"  # 다국어 KO/ZH/EN
-    nas_rerank_top_n: int = 35  # 재채점할 상위 후보 수(품질 우선, 지연 trade-off)
-    nas_rerank_max_length: int = 512
+    # 지연/품질 trade-off (CPU 추론, 메모리대역폭 병목이라 스레드론 못 줄임).
+    # 실측(청크 평균 ~1200자): 512토큰·N35=20s / 256·N35=9.4s / 256·N20=5.1s /
+    # 256·N12=3.0s. 균형점으로 256·N20(~5s) 채택. 더 빠르게는 N/길이 더 낮추고,
+    # 더 정밀하게는 올린다. 검색 지연 대부분이 이 재채점이다.
+    nas_rerank_top_n: int = 20  # 재채점할 상위 후보 수
+    nas_rerank_max_length: int = 256  # 청크 토큰 절단 길이
 
     # 부서별 검색 스코핑 (선택 기능) ----------------------------------------------
     # 켜면 일반 사용자는 본인 부서(Qdrant dept)로 한정, 전체검색 허용 역할은 무필터.
