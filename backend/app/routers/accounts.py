@@ -27,7 +27,8 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
     "",
     response_model=AccountRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_admin)],
+    # 생성은 금융팀 member 도 가능(라우터의 require_module(FINANCE) 게이트로 충분).
+    # 수정(PATCH)/삭제(DELETE)는 마스터데이터 보호를 위해 admin 유지.
 )
 async def create_account(body: AccountCreate, db: AsyncSession = Depends(get_db)):
     account = Account(**body.model_dump())
