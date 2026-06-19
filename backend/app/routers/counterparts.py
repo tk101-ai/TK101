@@ -141,7 +141,8 @@ async def get_counterpart(
     "",
     response_model=CounterpartRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_admin)],
+    # 생성은 금융팀 member 도 가능(라우터의 require_module(FINANCE) 게이트로 충분).
+    # 수정(PATCH)/삭제(DELETE)는 마스터데이터 보호를 위해 admin 유지.
 )
 async def create_counterpart(
     body: CounterpartCreate,
