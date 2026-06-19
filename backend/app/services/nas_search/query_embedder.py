@@ -109,5 +109,11 @@ def embed_queries(texts: list[str]) -> list[list[float]]:
 
 
 def warmup() -> None:
-    """기동 시 모델 미리 로드(첫 쿼리 지연 제거용). lifespan에서 호출 권장."""
-    _get_model()
+    """기동 시 모델 로드 + **더미 추론 1회**로 가중치를 RAM에 페이지인한다.
+
+    가중치는 safetensors mmap이라 `_get_model()`만으로는 디스크에 매핑만 되고
+    실제 메모리로 올라오지 않는다. 그러면 첫 실제 쿼리가 8GB를 페이지인하느라
+    ~30s 걸린다(실측: 콜드 33s → 웜 0.3s). 더미 추론으로 전체 가중치를 미리
+    touch해 첫 사용자 쿼리도 웜 상태(~0.3s)가 되게 한다. lifespan에서 호출.
+    """
+    embed_query("워밍업")
