@@ -20,6 +20,7 @@ from app.modules.constants import Module
 from app.config import settings
 from app.schemas.sns import (
     AccountCreate,
+    AccountDeleteResponse,
     AccountRead,
     AccountUpdate,
     CollectCommentsResponse,
@@ -39,6 +40,7 @@ from app.schemas.sns import (
     SnapshotCreate,
     SnapshotRead,
     TopPost,
+    TrendPoint,
     WeeklyKpiRow,
 )
 from app.services.sns_collectors.base import BaseCollector, CollectorError
@@ -112,6 +114,63 @@ async def update_account(account_id: str, body: AccountUpdate, db: AsyncSession 
     await db.commit()
     await db.refresh(account)
     return account
+
+
+@router.delete(
+    "/accounts/{account_id}",
+    response_model=AccountDeleteResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def delete_account(
+    account_id: str,
+    hard: bool = Query(
+        False,
+        description="True면 계정과 모든 하위 데이터(게시물·스냅샷·메트릭·댓글)를 영구 삭제. "
+        "기본(False)은 소프트삭제(is_active=False)로 수집 이력을 보존한다.",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """계정 삭제.
+
+    - 기본(`hard=false`): 소프트삭제 — `is_active=False`로 비활성화하고 모든 이력은 보존한다.
+      `PATCH`의 소프트삭제와 동일한 결과이나, 의미가 명확한 전용 엔드포인트.
+    - `hard=true`: 영구 삭제 — 계정 행을 실제로 DELETE 한다. FK `ON DELETE CASCADE`로
+      하위 SocialPost / SocialWeeklySnapshot (그리고 post에 딸린 metric snapshot·comment)이
+      함께 정리된다. **수집된 트렌드/메트릭 이력까지 영구 소실**되므로 호출 측에서 명시적 확인 필요.
+
+    없는 계정이면 404.
+    """
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
+    account = result.scalar_one_or_none()
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="계정을 찾을 수 없습니다")
+
+    if not hard:
+        account.is_active = False
+        await db.commit()
+        return AccountDeleteResponse(id=account.id, hard=False, deleted=False)
+
+    # 하드삭제: 단일 트랜잭션. CASCADE FK가 metric snapshot·comment를 정리하지만,
+    # 삭제 건수를 응답에 담기 위해 posts/snapshots는 명시적으로 카운트 후 삭제한다.
+    account_uuid = account.id
+    posts_deleted = await db.scalar(
+        select(func.count(SocialPost.id)).where(SocialPost.account_id == account_uuid)
+    )
+    snapshots_deleted = await db.scalar(
+        select(func.count(SocialWeeklySnapshot.id)).where(
+            SocialWeeklySnapshot.account_id == account_uuid
+        )
+    )
+    # 계정 행 삭제 → CASCADE로 posts(→metrics/comments)·snapshots 동반 삭제.
+    await db.delete(account)
+    await db.commit()
+    return AccountDeleteResponse(
+        id=account_uuid,
+        hard=True,
+        deleted=True,
+        posts_deleted=int(posts_deleted or 0),
+        snapshots_deleted=int(snapshots_deleted or 0),
+    )
 
 
 # ---------------- Meta 토큰 진단 (admin) ----------------
@@ -453,13 +512,69 @@ async def stats_top_posts(
     ]
 
 
-@router.get("/stats/trend")
+@router.get("/stats/trend", response_model=list[TrendPoint])
 async def stats_trend(
     language: str | None = Query(None),
     platform: str | None = Query(None),
+    account_id: str | None = Query(None),
+    months: int = Query(6, ge=1, le=36, description="최근 N개월치 스냅샷만 조회"),
+    db: AsyncSession = Depends(get_db),
 ):
-    """주차별 누적 트렌드. 차트 위젯에서 활용. 현재는 placeholder."""
-    return []
+    """채널별 팔로워 추이(시계열).
+
+    `SocialWeeklySnapshot`을 (account × year × month × week) 단위로 조회해 차트용으로 반환한다.
+    최근 `months`개월 범위만 포함하며, 오래된→최신 순으로 정렬한다. 프론트는 account별로
+    시리즈를 묶거나 합산해 멀티라인 차트로 렌더한다.
+
+    필터: `language`, `platform`, `account_id`. 미지정 시 전 채널.
+    """
+    # 최근 N개월 경계 계산 (현재 달 기준). year*12+month 정수 비교로 단순화.
+    today = date.today()
+    boundary = today.year * 12 + today.month - (months - 1)
+
+    query = (
+        select(
+            SocialWeeklySnapshot.account_id.label("account_id"),
+            SocialAccount.platform.label("platform"),
+            SocialAccount.language.label("language"),
+            SocialAccount.handle.label("handle"),
+            SocialWeeklySnapshot.year.label("year"),
+            SocialWeeklySnapshot.month.label("month"),
+            SocialWeeklySnapshot.week_number.label("week_number"),
+            SocialWeeklySnapshot.followers.label("followers"),
+        )
+        .join(SocialAccount, SocialAccount.id == SocialWeeklySnapshot.account_id)
+        .where(
+            (SocialWeeklySnapshot.year * 12 + SocialWeeklySnapshot.month) >= boundary
+        )
+        .order_by(
+            SocialWeeklySnapshot.year.asc(),
+            SocialWeeklySnapshot.month.asc(),
+            SocialWeeklySnapshot.week_number.asc(),
+        )
+    )
+    if language:
+        query = query.where(SocialAccount.language == language)
+    if platform:
+        query = query.where(SocialAccount.platform == platform)
+    if account_id:
+        query = query.where(SocialWeeklySnapshot.account_id == account_id)
+
+    result = await db.execute(query)
+    return [
+        TrendPoint(
+            account_id=row.account_id,
+            platform=row.platform,
+            language=row.language,
+            handle=row.handle,
+            year=int(row.year),
+            month=int(row.month),
+            week_number=int(row.week_number),
+            period=f"{int(row.year)}-{int(row.month):02d}-W{int(row.week_number)}",
+            followers=int(row.followers or 0),
+        )
+        for row in result.all()
+    ]
 
 
 # ---------------- Ingest ----------------

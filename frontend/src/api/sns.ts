@@ -192,6 +192,18 @@ export const createAccount = (data: CreateAccountRequest) =>
 export const updateAccount = (id: string, data: UpdateAccountRequest) =>
   api.patch<SnsAccount>(`/api/sns/accounts/${id}`, data);
 
+export interface DeleteAccountResponse {
+  id: string;
+  hard: boolean;
+  deleted: boolean;
+  posts_deleted: number;
+  snapshots_deleted: number;
+}
+
+// 계정 삭제. hard=false(기본)는 소프트삭제(is_active=false), hard=true는 영구 삭제(하위 데이터 CASCADE).
+export const deleteAccount = (id: string, hard = false) =>
+  api.delete<DeleteAccountResponse>(`/api/sns/accounts/${id}`, { params: { hard } });
+
 export const listPosts = (filter: PostFilter = {}) =>
   api.get<SnsPost[]>("/api/sns/posts", { params: filter });
 
@@ -209,6 +221,29 @@ export const upsertSnapshot = (data: UpsertSnapshotRequest) =>
 
 export const bulkUpsertSnapshots = (data: UpsertSnapshotRequest[]) =>
   api.post<SnsSnapshot[]>("/api/sns/snapshots/bulk", data);
+
+export interface TrendPoint {
+  account_id: string;
+  platform: Platform;
+  language: Language;
+  handle: string | null;
+  year: number;
+  month: number;
+  week_number: number;
+  period: string; // 예: "2026-05-W3"
+  followers: number;
+}
+
+export interface TrendFilter {
+  language?: Language;
+  platform?: Platform;
+  account_id?: string;
+  months?: number;
+}
+
+// 채널별 팔로워 추이(시계열). 최근 months(기본 6)개월 범위.
+export const listTrend = (filter: TrendFilter = {}) =>
+  api.get<TrendPoint[]>("/api/sns/stats/trend", { params: filter });
 
 export const importMarketing1Excel = (file: File) => {
   const form = new FormData();

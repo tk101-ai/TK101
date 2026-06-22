@@ -201,6 +201,31 @@ class TopPost(BaseModel):
     url: str | None
 
 
+class TrendPoint(BaseModel):
+    """팔로워 추이 한 점 — 채널(계정) × 주차."""
+
+    account_id: uuid.UUID
+    platform: str
+    language: str
+    handle: str | None = None
+    year: int
+    month: int
+    week_number: int
+    # 정렬·차트 X축용 라벨. 예: "2026-05-W3"
+    period: str
+    followers: int
+
+
+class AccountDeleteResponse(BaseModel):
+    """계정 삭제 결과. hard=False면 소프트삭제(is_active=False), True면 영구 삭제."""
+
+    id: uuid.UUID
+    hard: bool
+    deleted: bool  # True=행 영구 삭제, False=소프트삭제(보존)
+    posts_deleted: int = 0
+    snapshots_deleted: int = 0
+
+
 # ---------------- 수동 콘텐츠 등록 (FALLBACK 모드) ----------------
 
 

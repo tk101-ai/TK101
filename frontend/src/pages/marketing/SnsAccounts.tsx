@@ -13,6 +13,7 @@ import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import {
   createAccount,
+  deleteAccount,
   getLanguageLabel,
   getPlatformLabel,
   LANGUAGE_OPTIONS,
@@ -171,6 +172,46 @@ export default function SnsAccounts() {
     });
   };
 
+  const handleDeleteAccount = (record: SnsAccount) => {
+    const label = `${getPlatformLabel(record.platform)} (${getLanguageLabel(record.language)})`;
+    Modal.confirm({
+      title: "계정 영구 삭제",
+      width: 480,
+      content: (
+        <div>
+          <p>
+            <strong>{label}</strong> 계정을 <strong>영구 삭제</strong>합니다.
+          </p>
+          <p style={{ color: "#cf1322", margin: 0 }}>
+            이 계정의 모든 콘텐츠·주간 팔로워 스냅샷·메트릭·댓글이 함께 삭제되며,
+            트렌드/이력은 복구할 수 없습니다.
+          </p>
+          <p style={{ color: "rgba(0,0,0,0.45)", marginTop: 8, marginBottom: 0 }}>
+            이력을 보존하면서 숨기기만 하려면 "계정 수정"에서 비활성 상태로 전환하세요.
+          </p>
+        </div>
+      ),
+      okText: "영구 삭제",
+      okButtonProps: { danger: true },
+      cancelText: "취소",
+      onOk: async () => {
+        setCollectingId(record.id);
+        try {
+          const res = await deleteAccount(record.id, true);
+          message.success(
+            `계정 삭제 완료 — 콘텐츠 ${res.data.posts_deleted}건, 스냅샷 ${res.data.snapshots_deleted}건 함께 삭제`,
+          );
+          fetchData();
+        } catch (err) {
+          const detail = extractDetail(err);
+          message.error(detail ? `삭제 실패: ${detail}` : "삭제 실패");
+        } finally {
+          setCollectingId(null);
+        }
+      },
+    });
+  };
+
   const buildActionMenu = (record: SnsAccount): MenuProps => {
     const collectable = COLLECTABLE_PLATFORMS.has(record.platform) && record.is_active;
     return {
@@ -189,6 +230,14 @@ export default function SnsAccounts() {
           icon: <DeleteOutlined />,
           danger: true,
           onClick: () => handleResetPosts(record),
+        },
+        { type: "divider" },
+        {
+          key: "delete-account",
+          label: "계정 영구 삭제",
+          icon: <DeleteOutlined />,
+          danger: true,
+          onClick: () => handleDeleteAccount(record),
         },
       ],
     };

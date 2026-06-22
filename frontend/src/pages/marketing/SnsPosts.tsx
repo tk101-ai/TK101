@@ -19,7 +19,6 @@ import {
   CONTENT_TYPE_OPTIONS,
   createPost,
   getContentTypeLabel,
-  getPlatformLabel,
   listAccounts,
   listPosts,
   updatePost,
@@ -28,6 +27,7 @@ import {
   type SnsAccount,
   type SnsPost,
 } from "../../api/sns";
+import AccountSelector, { buildAccountLabel } from "../../components/sns/AccountSelector";
 
 const { RangePicker } = DatePicker;
 
@@ -49,11 +49,6 @@ interface PostFormValues {
   share_count?: number | null;
   save_count?: number | null;
   url?: string;
-}
-
-function buildAccountLabel(account: SnsAccount): string {
-  const handle = account.handle ?? account.external_id ?? account.id.slice(0, 8);
-  return `${getPlatformLabel(account.platform)} · ${handle}`;
 }
 
 export default function SnsPosts() {
@@ -246,12 +241,10 @@ export default function SnsPosts() {
       </div>
 
       <Space wrap style={{ marginBottom: 16 }}>
-        <Select
-          placeholder="계정 선택"
-          allowClear
-          style={{ width: 220 }}
+        <AccountSelector
+          accounts={accounts}
+          value={filters.account_id}
           onChange={(v) => setFilters((f) => ({ ...f, account_id: v, offset: 0 }))}
-          options={accounts.map((a) => ({ label: buildAccountLabel(a), value: a.id }))}
         />
         <RangePicker
           onChange={(_, dates) =>

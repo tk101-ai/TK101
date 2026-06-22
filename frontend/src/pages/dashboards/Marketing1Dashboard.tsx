@@ -20,6 +20,8 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import dayjs from "dayjs";
 import api from "../../api/client";
 import type { ColumnsType } from "antd/es/table";
+import { listTrend, type TrendPoint } from "../../api/sns";
+import FollowerTrendChart from "../../components/sns/FollowerTrendChart";
 
 // ----- Types -----
 interface WeeklyKpiRow {
@@ -192,6 +194,7 @@ export default function Marketing1Dashboard() {
   const [weeklyData, setWeeklyData] = useState<WeeklyKpiRow[]>([]);
   const [growthData, setGrowthData] = useState<GrowthCard[]>([]);
   const [topPosts, setTopPosts] = useState<TopPost[]>([]);
+  const [trendData, setTrendData] = useState<TrendPoint[]>([]);
 
   const [topLanguage, setTopLanguage] = useState<string>("all");
   const [topPlatform, setTopPlatform] = useState<string>("all");
@@ -205,16 +208,18 @@ export default function Marketing1Dashboard() {
       if (topLanguage !== "all") topParams.language = topLanguage;
       if (topPlatform !== "all") topParams.platform = topPlatform;
 
-      const [weeklyRes, growthRes, topRes] = await Promise.all([
+      const [weeklyRes, growthRes, topRes, trendRes] = await Promise.all([
         api.get<WeeklyKpiRow[]>("/api/sns/stats/weekly", {
           params: { year, month },
         }),
         api.get<GrowthCard[]>("/api/sns/stats/growth"),
         api.get<TopPost[]>("/api/sns/stats/top-posts", { params: topParams }),
+        listTrend({ months: 6 }),
       ]);
       setWeeklyData(weeklyRes.data ?? []);
       setGrowthData(growthRes.data ?? []);
       setTopPosts(topRes.data ?? []);
+      setTrendData(trendRes.data ?? []);
     } catch {
       message.error("대시보드 데이터를 불러오는데 실패했습니다.");
     } finally {
@@ -584,23 +589,9 @@ export default function Marketing1Dashboard() {
           />
         </Card>
 
-        {/* Widget 4: Trend (placeholder) */}
-        <Card
-          title="주차별 트렌드"
-          extra={<Tag color="orange">준비 중</Tag>}
-        >
-          <div
-            style={{
-              padding: "48px 16px",
-              textAlign: "center",
-              color: "rgba(0,0,0,0.45)",
-              background:
-                "repeating-linear-gradient(135deg, #fafafa 0px, #fafafa 12px, #f5f5f5 12px, #f5f5f5 24px)",
-              borderRadius: 6,
-            }}
-          >
-            준비 중입니다. v0.5.x에서 주차별 트렌드 차트가 추가될 예정입니다.
-          </div>
+        {/* Widget 4: 팔로워 추이 (주차별 멀티라인, 채널별 시리즈) */}
+        <Card title="팔로워 추이 (최근 6개월)">
+          <FollowerTrendChart data={trendData} />
         </Card>
       </div>
     </Spin>
