@@ -7,15 +7,14 @@
 
 ---
 
-## NOW (다음 세션에 바로)
-- [ ] **코드리뷰 커버리지 검증 패스** (오너 질문 후속) — 전체 리뷰가 *범위*는 전부 커버했으나 71K LOC를 전 줄 정독한 건 아님(큰 파일 위주). 전 파일 체크리스트로 "모든 파일에 눈이 닿았나" 확정 + 빠진 파일만 추가 리뷰. (`pages/Transactions.tsx`처럼 글롭 밖 파일 점검)
-- [x] **품질 P1 (1차) 완료** — sns.py 2173→패키지, forms.py 1350→패키지, Transactions.tsx 1114→254, SessionDetailPage 1070→171. 라우트 보존(OpenAPI 검증). ⚠️배포 1회 실패(tsc -b 미사용import)→`npm run build` 검증으로 전환.
-- [x] **품질 P1 (2차) 완료·배포** — playground.py 1412→패키지(라우트27 보존) · session_service.py 997→패키지(15 공개API 보존) · ProductsPage 930→123 · Marketing1Dashboard 888→120 · AnalyticsPage 871→181 · MediaGenPanel 835→446. OpenAPI 188경로 보존. npm run build 배포전 검증(빌드실패 0). **→ P1 거대파일 10개 전부 분할 완료.**
-- [x] **커버리지 발견 보완 완료·배포(~20건)** — ProtectedRoute role 가드+/users admin게이트 · streamChat 입력잠김 해결 · 첨부 clear · TaxInvoices 자동조회·NaN가드 · Transactions bulk 동시성캡+부분성공·죽은코드 · Register 검증 · reconcile 후보집합 정정(중복청구) · upload_log 스키마 · balance N+1→단일쿼리 · attachments uuid. npm run build 검증.
-- [ ] ⚠️논의 **#1 localStorage JWT → httpOnly 쿠키** (커버리지서도 재확인된 HIGH) — 인증 저장모델 변경, 로그인 흐름 위험. 별도 논의 후 (= 기존 C 항목과 동일)
-- [x] **품질 P3 (1차) 완료·배포** — BE 라우터 경로파라미터 15개 uuid화(500→422)·영어에러 한국어 · 데드코드 제거(file_walker.py 191줄 등)·LLM call_claude 일원화·models +4등록 · FE App.tsx 라우트 데이터주도(config/routes.tsx). 라우트 220 보존.
-- [ ] ⚠️대형 **TanStack Query 도입** — 서버상태 관리 전면 교체(useState/useEffect→쿼리). 별도 전용 작업(테스트 적어 신중). 재무·유통·settings 페이지.
-- [ ] ⚠️영향큼 **API `res.data` 언랩 컨벤션 통일** — api/* 반환을 res.data로 일관화. 모든 호출부 영향 → 별도 신중 작업.
+## NOW (내일 이어서)
+> ✅ **코드정리 사이클 완료(2026-06-22~23)**: 보안+품질 전수리뷰(둘 다 B−) → 커버리지 확정 → 보완 6차례 배포(PR#59·P0+P2·**P1 거대파일 10개 분할**·커버리지 20건·P3 일관성) → 더미코드 스캔(깨끗). 마이그0·무중단. 상세: `docs/worklogs/2026-06-23.md`, 스코어카드 `docs/reviews/`.
+
+**내일 정하면 바로 진행할 후보:**
+- [ ] **제품 기능 복귀** → 아래 NEXT 칸 (SNS 수동분류·제작주체·엑셀B·docwork PR-C). 우선순위 높음, 위험 낮음.
+- [ ] ⚠️대형/논의 **TanStack Query 도입** — 서버상태 전면 교체. 전용 작업, 테스트 적어 신중.
+- [ ] ⚠️영향큼 **API `res.data` 언랩 컨벤션 통일** — 모든 호출부 영향. 신중.
+- [ ] ⚠️논의 **localStorage JWT → httpOnly 쿠키** — 인증 저장모델, 로그인 흐름 위험. 논의부터.
 
 ## NEXT (조만간)
 - [ ] **포매터/린터 셋업** — prettier(frontend) + ruff/black(backend) 추가. 현재 미설치라 ECC 품질 훅(`stop:format-typecheck` 등) 포매터 절반이 no-op. 깔면 자동포맷·린트 살아남
@@ -42,6 +41,7 @@
 - [ ] ⚠️오너승인 **금요일 18시 임베딩 스케줄** — RunPod 서버리스 + Qdrant 접근방식(푸시 모델 권장) 결정 필요. → `docs/reviews/REVIEW_INCREMENTAL_EMBEDDING_FRIDAY_SCHEDULE.md`
 
 ## DONE (최근)
+- [x] **코드리뷰·리메디에이션 사이클(6/22~23)** — 보안B−+품질B− 전수리뷰, 보완 6차례 배포, 거대파일 10개 분할, 커버리지 20건, P3 일관성. → worklog 2026-06-23.md
 - [x] NAS 검색 부서 필터(Qdrant 다중선택, RND 포함) — PR#56
 - [x] SNS 콘텐츠 채널 셀렉터 제거, 계정 선택기 일원화 — PR#55
 - [x] 엑셀 내보내기 1·2단계(페이지별 + 브랜드별 통합워크북) — PR#53/54
