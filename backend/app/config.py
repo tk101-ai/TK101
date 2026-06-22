@@ -116,6 +116,20 @@ class Settings(BaseSettings):
     form_filler_upload_root: str = "/var/lib/form_filler/uploads"
     # 단일 양식 업로드 한도 (FR-01).
     form_filler_max_form_mb: int = 50
+    # 문서 생성기(docgen) — 디자인/구조 품질 옵션 -------------------------------
+    # 구조 설계 모델. 기본 Sonnet 4.6(내용 충분). 더 높은 구조 완성도 원하면 env로
+    #   DOCGEN_MODEL=claude-opus-4-8 처럼 토글(비용↑). None이면 form_filler Sonnet.
+    docgen_model: str | None = None
+    # 브랜드 테마 색(hex). 표지/제목바/표헤더/차트에 사용. env로 회사 색 주입 가능.
+    docgen_brand_primary: str = "#16335B"   # 딥 네이비(제목바·표지 배경)
+    docgen_brand_accent: str = "#2D7FF9"    # 포인트 블루(강조선·차트)
+    docgen_brand_text: str = "#1A2230"      # 본문 텍스트
+    docgen_footer_text: str = "TK101"       # 슬라이드/문서 푸터 라벨
+    # (선택) 기존 회사 템플릿/로고를 떨어뜨리면 그대로 사용. 없으면 기본 테마로 생성.
+    docgen_pptx_template: str | None = None  # .pptx 마스터 템플릿 경로
+    docgen_docx_template: str | None = None  # .docx 템플릿 경로
+    docgen_logo_path: str | None = None      # 표지/푸터 로고 이미지 경로(png)
+
     # Langfuse (관측성, NFR-07). 없으면 트레이스만 비활성화하고 기능은 동작.
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
