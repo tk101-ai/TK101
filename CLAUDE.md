@@ -22,6 +22,8 @@
 
 그 외 제품/UX/데이터모델 결정은 **물어보지 말고** 합리적 안으로 진행 + 가정 명시. 보안/인프라도 **코드·서버 설정은 자율**, 단 **콘솔·외부계정·비밀번호·방화벽 콘솔**이 필요한 단계만 오너에게 명확한 절차로 넘긴다.
 
+> 파괴적 작업 판단은 `safety-guard` 스킬 기준을 따른다(운영 데이터/파일/마이그레이션 보호).
+
 ## 3. 검증 게이트 (이걸 통과해야 "완료")
 
 배포 전: `py_compile` / `npx tsc --noEmit` + `npx vite build`(exit 0) / 컨테이너 `import app.main`.
@@ -50,5 +52,18 @@ DB 마이그레이션: **`tk101_dev`(dev 컨테이너)에서 적용·롤백·재
 - 처리 시작/완료를 백로그에 표시(`[ ]`→`[~]`→`[x]`)하고, 완료분은 PR번호와 함께 남긴다.
 - "물어봐야 하는 둘(§2)"에 해당하는 항목은 백로그에 `⚠️오너승인`으로 표시하고 그 항목만 멈춰 확인.
 
-## 7. 참고 문서
-설계/이력은 `docs/`: `prd/`(PRD·SPEC·DESIGN), `reviews/`(보안/도메인/임베딩 검토), `worklogs/`(날짜별). 최신 작업이력: `docs/worklogs/`.
+## 7. 요청 라우팅 (요청 종류 → 쓸 도구)
+
+말한 의도에 따라 아래 ECC 도구로 자동 라우팅한다. (큐레이션: `agent-sort` 결과 — DAILY만 사용, off-stack은 `rules-library/`로 분리됨)
+
+| 네가 이렇게 말하면 | 흐름 |
+|---|---|
+| **"X 만들어줘 / 추가해줘"** | 기획·계획(`planner`/`architect`/`code-explorer`로 기존코드 파악) → **오너 승인(§1 게이트)** → 병렬 개발(워크트리, `claude-devfleet`/`team-builder`) → 다중 리뷰 → 통합·검증·배포 |
+| **"코드 리뷰해줘"** | **멀티에이전트 병렬 리뷰**: `code-reviewer` + `python-reviewer` + `typescript-reviewer` + `security-reviewer` + `database-reviewer` + `silent-failure-hunter` → 종합 보고 (`/code-review`, `santa-method`). 항상 다중. |
+| **"퀄리티/리팩토링/개선"** | `code-simplifier` + `refactor-cleaner` + `performance-optimizer` + `comment-analyzer` (`/quality-gate`·`/refactor-clean`·`/verify`) |
+| **"테스트/검증"** | `tdd-guide` (pytest/vitest) + `/test-coverage`·`/e2e` |
+
+활성 스킬·에이전트는 DAILY 세트(자세한 분류는 본 세션 agent-sort 결과). LIBRARY는 필요 시 Skill/Agent 도구로 온디맨드 호출(별도 라우터 없음).
+
+## 8. 참고 문서
+설계/이력은 `docs/`: `prd/`(PRD·SPEC·DESIGN), `reviews/`(보안/도메인/임베딩 검토), `worklogs/`(날짜별). 최신 작업이력: `docs/worklogs/`. 비활성 룰/스킬 큐레이션: off-stack 룰은 `.claude/rules-library/`.
