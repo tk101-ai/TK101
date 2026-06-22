@@ -17,7 +17,12 @@
 - [ ] **엑셀 내보내기 (B)** — 부서(dept) 대신 NAS 폴더명(MARKETING/COMPANY/CLOUD/RND)으로 표기: 파이프라인에 `top_folder` 페이로드 필드 추가 후 폴더 단위 표기
 - [ ] **docwork PR-C** — 검수(LLM-judge)·렌더를 form_filler와 공유화, `form_filler/extractor`를 `services/documents/`로 이전
 
-## LATER (더 큰 것)
+## 전체 코드리뷰 후속 (2026-06-22, → docs/reviews/CODE_REVIEW_FULL_2026-06-22.md)
+- [~] **그룹1 보완 병렬 진행 중** — 입력검증→422 · path통일 · React버그(대량fetch/regex/디바운스/5주차) · pool_pre_ping · IntegrityError→409 · 재무 매칭정합 · 에러메시지 일관 · 하드코딩 + 오늘 #1~5 + **D 레이트리밋**(로그인·LLM생성)
+- [ ] ⚠️논의 **C: localStorage JWT → httpOnly 쿠키 단일화** — XSS 방어 강화지만 로그인 흐름 변경 위험, 신중히 테스트 후 (보류, 추후 논의)
+- [ ] ⚠️논의 **S-1: 테스트 인프라 구축** — 인증·금액·매칭 핵심 로직 pytest/vitest 안전망(현재 8개뿐). 보완의 전제조건이라 별도 큰 작업
+- [ ] **결정기록**: NAS검색 = **전사 공유 유지**(부서 스코핑 OFF 의도적). confidential 플래그 필터링은 추후 검토. by-path 다운로드 인가도 추후.
+- [ ] 나머지 medium/low (토큰무효화 J·세션확장성 K 등) — 리뷰 문서 부록 참조, 우선순위 낮음
 - [ ] **SNS 데이터 퀄리티** — 과거 게시물/메트릭 backfill(메타·유튜브 API 깊이 긁기), 누락 메트릭 보정
 - [ ] **릴스 캠페인 추적** — 차수/EP/주제 + 크로스플랫폼(웨이보·페북) 성과 비교 (시트의 릴스 시리즈 탭)
 - [ ] **보고서 생성** — 항목별 보고서 양식 맞춤 (⚠️ 오너가 양식 전달 후 착수)
