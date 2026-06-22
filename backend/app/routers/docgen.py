@@ -39,7 +39,7 @@ from app.services.docgen import (
     render_markdown,
     review_document,
 )
-from app.services.form_filler import nas_bridge
+from app.services.nas_search import bridge as nas_bridge
 
 logger = logging.getLogger(__name__)
 

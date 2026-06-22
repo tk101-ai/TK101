@@ -29,7 +29,7 @@ from app.services.distribution.scenario_engine import (
     build_prompt,
     extract_messages_from_response,
 )
-from app.services.form_filler.llm_client import LLMResponse, call_claude
+from app.services.llm.client import LLMResponse, call_claude
 
 logger = logging.getLogger(__name__)
 
