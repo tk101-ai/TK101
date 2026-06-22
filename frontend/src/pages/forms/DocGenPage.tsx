@@ -60,8 +60,10 @@ export default function DocGenPage() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DocGenResponse | null>(null);
 
-  // 섹션 재생성/검수는 RAG만 재참조한다(업로드 자료는 초안 생성 시점에만).
-  const useNas = sourceMode !== "uploaded";
+  // 업로드된 실제 File 객체들 — 생성·재생성·검수 핸들러가 공유한다(무상태 멀티파트 재전송).
+  const files = fileList
+    .map((f) => f.originFileObj as File | undefined)
+    .filter((f): f is File => !!f);
   const showUpload = sourceMode !== "rag";
 
   // 생성 결과를 편집 가능한 상태로 보관(다운로드·재생성은 이 상태 기준).
@@ -81,9 +83,6 @@ export default function DocGenPage() {
       message.warning("작성 요구/주제를 입력하세요");
       return;
     }
-    const files = fileList
-      .map((f) => f.originFileObj as File | undefined)
-      .filter((f): f is File => !!f);
     if (sourceMode === "uploaded" && files.length === 0) {
       message.warning("업로드 문서를 1개 이상 추가하거나 출처를 바꾸세요");
       return;
@@ -127,7 +126,8 @@ export default function DocGenPage() {
         heading: sections[i].heading,
         current_body: sections[i].body,
         feedback: feedbacks[i] ?? "",
-        use_nas: useNas,
+        source_mode: sourceMode,
+        files,
       });
       updateSection(i, res.section);
       setFeedbacks((prev) => ({ ...prev, [i]: "" }));
@@ -166,7 +166,8 @@ export default function DocGenPage() {
       heading: sections[idx].heading,
       current_body: sections[idx].body,
       feedback: buildReviewFeedback(r),
-      use_nas: useNas,
+      source_mode: sourceMode,
+      files,
     });
     updateSection(idx, res.section);
     // 재생성된 섹션의 검수 결과는 더 이상 유효하지 않으므로 목록에서 제거.
@@ -236,7 +237,8 @@ export default function DocGenPage() {
         doc_type: docType,
         title: title || "문서",
         sections,
-        use_nas: useNas,
+        source_mode: sourceMode,
+        files,
       });
       setReview(res);
       message.success(`품질 검증 완료 — 점수 ${res.overall_score}/100 ($${res.cost_usd.toFixed(4)})`);

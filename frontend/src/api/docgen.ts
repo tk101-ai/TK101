@@ -52,7 +52,10 @@ export interface RegenerateSectionRequest {
   heading: string;
   current_body: string;
   feedback: string;
-  use_nas: boolean;
+  /** 출처 모드. 기본 "rag"(NAS만). */
+  source_mode?: SourceMode;
+  /** source_mode 가 uploaded/both 일 때 참고할 업로드 파일들. */
+  files?: File[];
 }
 
 export interface RegenerateSectionResponse {
@@ -65,7 +68,19 @@ export interface RegenerateSectionResponse {
 export async function regenerateSection(
   req: RegenerateSectionRequest,
 ): Promise<RegenerateSectionResponse> {
-  const res = await api.post<RegenerateSectionResponse>("/api/docgen/regenerate_section", req);
+  // 멀티파트 — 업로드 자료/출처모드를 재생성에도 함께 전송한다.
+  const fd = new FormData();
+  fd.append("topic", req.topic);
+  fd.append("doc_type", req.doc_type);
+  fd.append("heading", req.heading);
+  fd.append("current_body", req.current_body);
+  fd.append("feedback", req.feedback);
+  fd.append("source_mode", req.source_mode ?? "rag");
+  (req.files ?? []).forEach((f) => fd.append("files", f));
+  const res = await api.post<RegenerateSectionResponse>(
+    "/api/docgen/regenerate_section",
+    fd,
+  );
   return res.data;
 }
 
@@ -137,8 +152,19 @@ export async function reviewDocument(req: {
   doc_type: DocType;
   title: string;
   sections: DocSection[];
-  use_nas: boolean;
+  /** 출처 모드. 기본 "rag"(NAS만). */
+  source_mode?: SourceMode;
+  /** source_mode 가 uploaded/both 일 때 참고할 업로드 파일들. */
+  files?: File[];
 }): Promise<DocReviewResponse> {
-  const res = await api.post<DocReviewResponse>("/api/docgen/review", req);
+  // 멀티파트 — sections 는 JSON 문자열로, 업로드 자료는 파일로 함께 전송한다.
+  const fd = new FormData();
+  fd.append("topic", req.topic);
+  fd.append("doc_type", req.doc_type);
+  fd.append("title", req.title);
+  fd.append("sections_json", JSON.stringify(req.sections));
+  fd.append("source_mode", req.source_mode ?? "rag");
+  (req.files ?? []).forEach((f) => fd.append("files", f));
+  const res = await api.post<DocReviewResponse>("/api/docgen/review", fd);
   return res.data;
 }
