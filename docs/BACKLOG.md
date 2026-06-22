@@ -10,7 +10,7 @@
 ## NOW (다음 세션에 바로)
 - [ ] **코드리뷰 커버리지 검증 패스** (오너 질문 후속) — 전체 리뷰가 *범위*는 전부 커버했으나 71K LOC를 전 줄 정독한 건 아님(큰 파일 위주). 전 파일 체크리스트로 "모든 파일에 눈이 닿았나" 확정 + 빠진 파일만 추가 리뷰. (`pages/Transactions.tsx`처럼 글롭 밖 파일 점검)
 - [x] **품질 P1 (1차) 완료** — sns.py 2173→패키지, forms.py 1350→패키지, Transactions.tsx 1114→254, SessionDetailPage 1070→171. 라우트 보존(OpenAPI 검증). ⚠️배포 1회 실패(tsc -b 미사용import)→`npm run build` 검증으로 전환.
-- [ ] **품질 P1 (2차) — 남은 거대 파일**: playground.py 1412 · session_service.py 997 · ProductsPage.tsx 930 · Marketing1Dashboard.tsx 888 · AnalyticsPage.tsx 871 · MediaGenPanel.tsx 835
+- [x] **품질 P1 (2차) 완료·배포** — playground.py 1412→패키지(라우트27 보존) · session_service.py 997→패키지(15 공개API 보존) · ProductsPage 930→123 · Marketing1Dashboard 888→120 · AnalyticsPage 871→181 · MediaGenPanel 835→446. OpenAPI 188경로 보존. npm run build 배포전 검증(빌드실패 0). **→ P1 거대파일 10개 전부 분할 완료.**
 - [ ] **커버리지 패스 후속 발견(~21건)** — 🔴 Users.tsx 라우트 role 가드(백엔드 admin강제라 안전, UI 심층방어) · usePlaygroundChat streamChat 거부 미처리(입력잠김) · reconcile.py 후보집합 느슨(이체↔세금계산서 중복) · TaxInvoices 필터 자동조회 안됨 · 기타 low(금액포맷 중복·floating promise·죽은코드). 상세: 대화 로그
 - [ ] **품질 P3 — 일관성/플랫폼** (점진): BE 에러 한국어 통일·uuid 통일 · FE 라우트 데이터주도(NAV 단일소스) · TanStack Query 도입 · 데드코드 제거(file_walker.py 등)
 
