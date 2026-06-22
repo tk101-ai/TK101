@@ -45,3 +45,21 @@ export function extractErrorDetail(
   }
   return fallback;
 }
+
+/** 라우터/리소스 미존재(404) 사용자 노출 메시지(일반화). */
+export const NOT_FOUND_MESSAGE = "요청한 기능을 사용할 수 없습니다.";
+/** 관리자 권한 필요(403) 사용자 노출 메시지. */
+export const FORBIDDEN_MESSAGE = "관리자 권한이 필요합니다";
+
+/**
+ * 고정 옵션을 바인딩한 `extractErrorDetail` 프리셋을 만든다.
+ *
+ * 페이지마다 동일한 옵션으로 `extractErrorDetail`를 감싸던 손수 래퍼(5곳)를
+ * 대체한다. 호출부는 `const extractErrorDetail = makeErrorExtractor({...})` 로
+ * 동일 시그니처를 유지한다.
+ */
+export function makeErrorExtractor(
+  options: ExtractErrorOptions,
+): (err: unknown, fallback: string) => string {
+  return (err, fallback) => extractErrorDetail(err, fallback, options);
+}

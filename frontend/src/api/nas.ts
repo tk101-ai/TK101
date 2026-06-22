@@ -1,4 +1,5 @@
 import api from "./client";
+import { triggerBlobDownload } from "../utils/download";
 
 export type NasFileType = "document" | "image";
 
@@ -108,12 +109,5 @@ export async function downloadNasFile(path: string, filename: string): Promise<v
     params: { path },
     responseType: "blob",
   });
-  const url = window.URL.createObjectURL(res.data);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.URL.revokeObjectURL(url);
+  triggerBlobDownload(res.data, filename);
 }

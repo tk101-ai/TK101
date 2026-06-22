@@ -28,6 +28,7 @@ import {
   listSettlementCompanies,
 } from "../../api/distribution_settlement";
 import { extractErrorDetail } from "../../utils/errorUtils";
+import { formatNumber, toIsoDate } from "../../utils/format";
 
 const { Title, Paragraph, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -50,18 +51,6 @@ const { RangePicker } = DatePicker;
  */
 
 type DateRange = [Dayjs | null, Dayjs | null] | null;
-
-const NUMBER_FORMATTER = new Intl.NumberFormat("ko-KR");
-
-function formatNumber(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return NUMBER_FORMATTER.format(Math.round(value));
-}
-
-function toIsoDate(d: Dayjs | null | undefined): string | undefined {
-  if (!d) return undefined;
-  return d.format("YYYY-MM-DD");
-}
 
 function ratioPercent(rate: number | null | undefined): number {
   if (rate == null || !Number.isFinite(rate)) return 0;

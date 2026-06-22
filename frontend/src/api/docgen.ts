@@ -1,4 +1,5 @@
 import api from "./client";
+import { triggerBlobDownload } from "../utils/download";
 
 export type DocType = "제안서" | "계획서" | "보고서" | "일반";
 
@@ -96,14 +97,7 @@ export async function downloadGeneratedDocx(
   const blob = new Blob([res.data], {
     type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   });
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${title || "문서"}.docx`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  triggerBlobDownload(blob, `${title || "문서"}.docx`);
 }
 
 /** 초안(수정 가능)을 .pptx 로 렌더해 브라우저 다운로드. */
@@ -119,14 +113,7 @@ export async function downloadGeneratedPptx(
   const blob = new Blob([res.data], {
     type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   });
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${title || "문서"}.pptx`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  triggerBlobDownload(blob, `${title || "문서"}.pptx`);
 }
 
 export interface DocSectionReview {

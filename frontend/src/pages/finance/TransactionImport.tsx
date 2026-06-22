@@ -42,7 +42,10 @@ import {
   type AccountType,
   type Currency,
 } from "../../api/accounts";
-import { extractErrorDetail as extractDetail } from "../../utils/errorUtils";
+import {
+  makeErrorExtractor,
+  NOT_FOUND_MESSAGE,
+} from "../../utils/errorUtils";
 
 const { Title, Paragraph, Text } = Typography;
 const { Dragger } = Upload;
@@ -72,14 +75,12 @@ interface ImportRow {
   importErrorMessage: string | null;
 }
 
-function extractErrorDetail(err: unknown, fallback: string): string {
-  return extractDetail(err, fallback, {
-    statusMessages: {
-      404: "백엔드 라우터가 아직 등록되지 않았습니다 (Wave 5 예정).",
-    },
-    useAxiosMessage: true,
-  });
-}
+const extractErrorDetail = makeErrorExtractor({
+  statusMessages: {
+    404: NOT_FOUND_MESSAGE,
+  },
+  useAxiosMessage: true,
+});
 
 function makeUid(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

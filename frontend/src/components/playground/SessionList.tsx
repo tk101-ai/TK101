@@ -26,6 +26,7 @@ import {
   patchSession,
   type PlaygroundSession,
 } from "../../api/playground";
+import { triggerBlobDownload } from "../../utils/download";
 
 const { Text } = Typography;
 
@@ -150,17 +151,10 @@ export default function SessionList({
     try {
       const text = await exportSession(s.id, "md");
       const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
       const safeTitle = (s.title ?? "session")
         .replace(/[\\/:*?"<>|]/g, "_")
         .slice(0, 80);
-      a.href = url;
-      a.download = `${safeTitle}-${s.id.slice(0, 8)}.md`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      triggerBlobDownload(blob, `${safeTitle}-${s.id.slice(0, 8)}.md`);
     } catch (err: unknown) {
       // 정확한 에러 메시지 노출 — 백엔드 401/404/500 등 구분.
       const detail =

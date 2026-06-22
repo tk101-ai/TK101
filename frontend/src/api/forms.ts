@@ -1,4 +1,5 @@
 import api from "./client";
+import { triggerBlobDownload } from "../utils/download";
 
 /**
  * T5 범용 문서 자동 작성기 API 클라이언트 (PRD 7.3 — 14개 엔드포인트).
@@ -563,14 +564,7 @@ export async function downloadJobOutput(jobId: string, filename: string): Promis
   const res = await api.get<Blob>(`/api/forms/jobs/${jobId}/download`, {
     responseType: "blob",
   });
-  const url = window.URL.createObjectURL(res.data);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.URL.revokeObjectURL(url);
+  triggerBlobDownload(res.data, filename);
 }
 
 export async function getJobRevisions(jobId: string): Promise<FormRevision[]> {

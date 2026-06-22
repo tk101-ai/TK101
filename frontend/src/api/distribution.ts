@@ -262,16 +262,20 @@ export const DISTRIBUTION_COMPANIES = [
 ] as const;
 export type DistributionCompany = (typeof DISTRIBUTION_COMPANIES)[number];
 
-/** 페이지 상단 회사 Select 표준 옵션 — "전체" 포함. */
+/**
+ * 업로드/생성 폼의 기본 회사 — 기존 단일 회사 운영(레거시) 호환 기본값.
+ * 여러 곳에 흩어져 있던 하드코딩 기본값을 단일 출처로 모은다(P0-3).
+ */
+export const DEFAULT_DISTRIBUTION_COMPANY: DistributionCompany =
+  DISTRIBUTION_COMPANIES[1];
+
+/** 페이지 상단 회사 Select 표준 옵션 — "전체" + 회사 목록(배열에서 파생). */
 export const COMPANY_FILTER_OPTIONS: {
   value: DistributionCompany | "all";
   label: string;
 }[] = [
-  { value: "all", label: "전체 (4 회사 합산)" },
-  { value: "TK101", label: "TK101" },
-  { value: "래더엑스", label: "래더엑스" },
-  { value: "뉴테인핏", label: "뉴테인핏" },
-  { value: "SYBT", label: "SYBT" },
+  { value: "all", label: `전체 (${DISTRIBUTION_COMPANIES.length} 회사 합산)` },
+  ...DISTRIBUTION_COMPANIES.map((c) => ({ value: c, label: c })),
 ];
 
 /** 업로드 폼 등 "전체" 가 무의미한 곳에서 쓰는 옵션 — 4 회사만. */
@@ -703,7 +707,7 @@ export async function generateWeekly(
 ): Promise<GenerateWeeklyResult> {
   const res = await api.post<GenerateWeeklyResult>(`${BASE}/generate-weekly`, {
     scenario_names: payload.scenario_names ?? [],
-    company_label: payload.company_label ?? "래더엑스",
+    company_label: payload.company_label ?? DEFAULT_DISTRIBUTION_COMPANY,
   });
   return res.data;
 }

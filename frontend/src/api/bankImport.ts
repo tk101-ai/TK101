@@ -1,13 +1,12 @@
 import api from "./client";
 
 /**
- * 은행 거래내역 자동 임포트 API 클라이언트 (재무 모듈 강화 Wave 3 — FE-D).
+ * 은행 거래내역 자동 임포트 API 클라이언트.
  *
- * 백엔드: `app/routers/bank_import.py` (BE-B 작업 결과)
+ * 백엔드: `app/routers/bank_import.py`
  * 흐름: 어댑터 목록 조회 → 파일 업로드 후 preview → confirm 으로 실제 저장.
  *
- * 주의: Wave 5 에서 main.py 라우터 등록이 완료되기 전까지는 호출 시 404 가
- *       돌아온다. 페이지에서는 message.error 로 안내한다.
+ * 주의: 라우터 미등록 등으로 404 가 돌아오면 페이지에서 message.error 로 안내한다.
  */
 
 export interface BankAdapter {
