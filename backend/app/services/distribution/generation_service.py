@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Sequence
@@ -26,6 +27,7 @@ from typing import Any, Sequence
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.distribution.constants import DEFAULT_COMPANY
 from app.models.distribution import (
     DistributionMessage,
     DistributionPersona,
@@ -62,11 +64,34 @@ DEFAULT_WEEKLY_SCENARIOS: tuple[str, ...] = (
 # 명품재고대장에서 멘션용으로 가져올 상위 제품 개수.
 TOP_PRODUCT_LIMIT: int = 12
 
-# 당장은 베트남(VN-A)과 TK(KR-A1) 두 계정만 대화에 참여시킨다 (2026-05-27 사용자 결정).
-# 향후 KR-A2~A4 등 다른 계정을 추가하려면 이 튜플에 account_label 만 더하면 됨.
-# 빈 튜플이거나 매칭되는 라벨이 DB 에 없으면 화이트리스트를 적용하지 않고
+# 대화에 실제로 참여시킬 계정 라벨 화이트리스트 (운영 안전장치).
+#
+# 동적설계: 코드 리터럴이 아니라 환경변수 ``DISTRIBUTION_ACTIVE_ACCOUNT_LABELS``
+# (콤마 구분) 에서 읽는다. 미설정 시 기존 운영값(VN-A, KR-A1)을 기본으로 사용해
+# 동작을 100% 보존한다. 운영에서 계정을 추가/축소하려면 env 만 바꾸면 되고
+# 코드 배포가 필요 없다.
+#
+# 왜 DB ``persona.active`` 만으로 충분하지 않은가:
+#   운영 DB 에는 active=true + 자격증명 보유한 도메스틱 계정이 여러 개(KR/KR1/KR2/VN)
+#   존재한다. active 만 신뢰하면 주간 생성이 의도하지 않은 실계정으로 확장되어
+#   실제 텔레그램 송신·LLM 비용이 발생한다. 따라서 "어떤 계정을 라이브로 돌릴지"는
+#   active 플래그와 별개의 운영 결정이며, 그 결정을 명시 화이트리스트로 보존한다.
+#
+# 빈 값이거나 매칭되는 라벨이 DB 에 하나도 없으면 화이트리스트를 적용하지 않고
 # 기존 동작(role 별 전체 활성 페르소나)을 유지한다 — 하위호환.
-DISTRIBUTION_ACTIVE_ACCOUNT_LABELS: tuple[str, ...] = ("VN-A", "KR-A1")
+#
+# TODO(P0-3): config.py 에 ``distribution_active_account_labels`` 설정을 추가하거나
+#   페르소나 테이블에 ``live`` 컬럼을 도입해 DB 진실원천으로 승격. 현재는 owned-set
+#   제약(config.py 미소유)으로 env 기반 로컬 상수 유지.
+def _load_active_account_labels() -> tuple[str, ...]:
+    raw = os.getenv("DISTRIBUTION_ACTIVE_ACCOUNT_LABELS")
+    if raw is None:
+        return ("VN-A", "KR-A1")  # 운영 기본값(미설정 시 동작 보존)
+    labels = tuple(s.strip() for s in raw.split(",") if s.strip())
+    return labels
+
+
+DISTRIBUTION_ACTIVE_ACCOUNT_LABELS: tuple[str, ...] = _load_active_account_labels()
 
 
 @dataclass
@@ -588,7 +613,7 @@ async def generate_weekly_for_all_pairs(
     db: AsyncSession,
     *,
     scenario_names: list[str] | None = None,
-    company_label: str = "래더엑스",
+    company_label: str = DEFAULT_COMPANY,
 ) -> GenerationSummary:
     """모든 한국 페르소나 × 베트남 페르소나 1명 × 시나리오 조합으로 세션 생성.
 

@@ -93,13 +93,38 @@ async def _warmup_nas_query_embedder() -> None:
 async def lifespan(app: FastAPI):
     setup_logging()
     # 부서→모듈 grant 캐시 로드(DB → 메모리). 인가가 이 캐시를 읽음.
-    from app.modules.registry import load_grants_cache
+    # P0-1: 권한 진실원천은 DB grants 단일소스. 하드코딩 폴백 제거됨 → 기동 시
+    # 캐시 로드 + 누락 부서 검증을 loud 하게 수행한다(실패해도 기동은 계속하되
+    # ERROR 로크게 남겨 운영이 즉시 인지).
+    from app.modules.registry import (
+        grants_cache_loaded,
+        load_grants_cache,
+        verify_grants_cache,
+    )
 
     try:
         await load_grants_cache()
-        logger.info("부서-모듈 grant 캐시 로드 완료")
+        if not grants_cache_loaded():
+            logger.error(
+                "grant 캐시 로드됐으나 비어있음 — department_module_grants 테이블이 "
+                "비었을 수 있음. 비admin 사용자가 DASHBOARD 만 받게 됨(인가 lockout 위험). "
+                "마이그레이션 031 시드/관리자 grant 설정 확인 필요."
+            )
+        else:
+            missing = await verify_grants_cache()
+            if missing:
+                logger.error(
+                    "grant 누락 부서 발견 — %s. 해당 부서 사용자는 DASHBOARD 만 "
+                    "접근 가능(lockout 위험). 관리자 grant 설정 또는 시드 필요.",
+                    ", ".join(missing),
+                )
+            else:
+                logger.info("부서-모듈 grant 캐시 로드 완료 (모든 부서 커버 확인)")
     except Exception:
-        logger.exception("grant 캐시 로드 실패 — 하드코딩 매핑으로 폴백")
+        logger.exception(
+            "grant 캐시 로드 실패 — DB 단일소스 인가 불가. 비admin 사용자는 "
+            "임시로 DASHBOARD 만 접근 가능. DB 연결/기동 즉시 점검 필요."
+        )
     # NAS 검색 v2 쿼리 임베딩 모델 워밍업(백그라운드 — 기동을 막지 않음).
     warmup_task = asyncio.create_task(_warmup_nas_query_embedder())
     worker_task: asyncio.Task | None = None
