@@ -73,7 +73,7 @@ class AttachmentUploadResponse(BaseModel):
 # 내부 헬퍼
 # ---------------------------------------------------------------------------
 async def _get_transaction(
-    db: AsyncSession, transaction_id: str
+    db: AsyncSession, transaction_id: uuid.UUID
 ) -> Transaction:
     result = await db.execute(
         select(Transaction).where(Transaction.id == transaction_id)
@@ -103,7 +103,7 @@ def _attachment_error_to_http(exc: AttachmentError) -> HTTPException:
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_attachment(
-    transaction_id: str,
+    transaction_id: uuid.UUID,
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -159,7 +159,7 @@ async def upload_attachment(
     response_model=list[AttachmentMeta],
 )
 async def list_transaction_attachments(
-    transaction_id: str,
+    transaction_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
     """단건 모델이지만 list 반환 (다건 모델 호환 대비)."""
@@ -187,7 +187,7 @@ async def list_transaction_attachments(
 # ---------------------------------------------------------------------------
 @router.get("/{transaction_id}/attachments/{filename}")
 async def download_attachment(
-    transaction_id: str,
+    transaction_id: uuid.UUID,
     filename: str,
     db: AsyncSession = Depends(get_db),
 ):
@@ -214,7 +214,7 @@ async def download_attachment(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def remove_attachment(
-    transaction_id: str,
+    transaction_id: uuid.UUID,
     filename: str,
     db: AsyncSession = Depends(get_db),
 ):
