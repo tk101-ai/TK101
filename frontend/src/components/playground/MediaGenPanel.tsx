@@ -6,16 +6,13 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Select,
   Space,
   Switch,
   Tag,
-  Tooltip,
   Typography,
   message,
 } from "antd";
-import { DownloadOutlined, PlayCircleOutlined } from "@ant-design/icons";
 import {
   QUOTA_EXCEEDED_MESSAGE,
   createImageTask,
@@ -25,138 +22,25 @@ import {
   getMediaModels,
   getMyMedia,
   isQuotaExceededError,
-  mediaFileUrl,
 } from "../../api/playground";
 import type {
   PlaygroundAttachment,
-  PlaygroundMediaItem,
   PlaygroundMediaModelOption,
-  PlaygroundTaskStatus,
 } from "../../api/playground";
 import BaseImagePicker from "./BaseImagePicker";
 import QuotaIndicator from "./QuotaIndicator";
-import { triggerBlobDownload } from "../../utils/download";
+import {
+  ASPECT_RATIO_OPTIONS,
+  POLL_INTERVAL_MS,
+  POLL_MAX_MS,
+  VIDEO_RESOLUTION_OPTIONS,
+} from "./media-gen/constants";
+import { groupTasksByDate, itemToTask } from "./media-gen/transforms";
+import TaskCard from "./media-gen/TaskCard";
+import I2VModal from "./media-gen/I2VModal";
+import type { ActiveTask, MediaGenPanelProps } from "./media-gen/types";
 
-const { Text, Paragraph } = Typography;
-
-type MediaKind = "image" | "video";
-
-interface MediaGenPanelProps {
-  kind: MediaKind;
-}
-
-interface ActiveTask {
-  // DB row 의 id (있으면 안정 URL 서빙 가능).
-  mediaId: string | null;
-  taskId: string;
-  kind: MediaKind;
-  prompt: string;
-  modelKey: string;
-  status: PlaygroundTaskStatus["status"];
-  outputUrl: string | null;
-  errorMessage: string | null;
-  costUsd: number | null;
-  // 생성 시각 (ISO). DB 복원 시 created_at, 신규 요청 시 클라이언트 now.
-  createdAt: string;
-}
-
-function itemToTask(item: PlaygroundMediaItem): ActiveTask {
-  return {
-    mediaId: item.id,
-    taskId: item.task_id ?? item.id,
-    kind: item.media_type,
-    prompt: item.prompt ?? "",
-    modelKey: item.model_key ?? "",
-    status: item.status,
-    outputUrl: item.file_path ? mediaFileUrl(item.id) : item.url,
-    errorMessage: item.error_message,
-    costUsd: item.cost_usd,
-    createdAt: item.created_at,
-  };
-}
-
-/** 로컬 타임존 기준 YYYY-MM-DD 문자열. */
-function toDateKey(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-/** dateKey(YYYY-MM-DD) → "오늘 / 어제 / YYYY-MM-DD" 헤더 라벨. */
-function dateGroupLabel(dateKey: string): string {
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
-  if (dateKey === toDateKey(today)) return "오늘";
-  if (dateKey === toDateKey(yesterday)) return "어제";
-  return dateKey;
-}
-
-interface DateGroup {
-  dateKey: string;
-  label: string;
-  tasks: ActiveTask[];
-}
-
-/**
- * task 목록을 생성 날짜(로컬 타임존)별로 그룹핑. 최신 날짜가 먼저, 각 그룹 내에서도
- * 입력 순서(최신순)를 유지한다. createdAt 파싱 실패 항목은 "오늘" 그룹에 둔다.
- */
-function groupTasksByDate(tasks: ActiveTask[]): DateGroup[] {
-  const todayKey = toDateKey(new Date());
-  const order: string[] = [];
-  const buckets = new Map<string, ActiveTask[]>();
-  for (const t of tasks) {
-    const parsed = t.createdAt ? new Date(t.createdAt) : null;
-    const key =
-      parsed && !Number.isNaN(parsed.getTime()) ? toDateKey(parsed) : todayKey;
-    if (!buckets.has(key)) {
-      buckets.set(key, []);
-      order.push(key);
-    }
-    buckets.get(key)!.push(t);
-  }
-  // 최신 날짜 우선 정렬.
-  order.sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
-  return order.map((dateKey) => ({
-    dateKey,
-    label: dateGroupLabel(dateKey),
-    tasks: buckets.get(dateKey)!,
-  }));
-}
-
-const POLL_INTERVAL_MS = 3000;
-const POLL_MAX_MS = 5 * 60 * 1000;
-
-const STATUS_COLOR: Record<PlaygroundTaskStatus["status"], string> = {
-  pending: "default",
-  running: "processing",
-  succeeded: "success",
-  failed: "error",
-  unknown: "warning",
-};
-
-const STATUS_LABEL: Record<PlaygroundTaskStatus["status"], string> = {
-  pending: "대기 중",
-  running: "생성 중",
-  succeeded: "완료",
-  failed: "실패",
-  unknown: "알 수 없음",
-};
-
-const ASPECT_RATIO_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "1:1", label: "1:1 (정사각)" },
-  { value: "16:9", label: "16:9 (와이드)" },
-  { value: "9:16", label: "9:16 (세로)" },
-  { value: "4:3", label: "4:3" },
-  { value: "3:4", label: "3:4" },
-];
-
-const VIDEO_RESOLUTION_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "720P", label: "720P" },
-  { value: "1080P", label: "1080P" },
-];
+const { Text } = Typography;
 
 /**
  * 이미지·영상 생성 공통 패널 (T8 Phase 4/5 뼈대).
@@ -558,278 +442,5 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
         onSubmit={handleI2VSubmit}
       />
     </div>
-  );
-}
-
-/**
- * 결과물(이미지/영상)을 사용자 PC 로 즉시 다운로드.
- *
- * - mediaId 가 있으면 백엔드 안정 URL(`/api/playground/media/{id}/file`) 사용 — same-origin
- *   이라 fetch + Blob 다 통과. 백엔드 디스크에 영구 보관된 파일이라 만료 위험도 없음.
- * - mediaId 없으면 텐센트 임시 URL 로 fallback. cross-origin 차단 시 새 탭으로.
- */
-async function downloadTaskOutput(task: ActiveTask): Promise<void> {
-  const ext = task.kind === "image" ? "png" : "mp4";
-  const safeModel = (task.modelKey || "media").replace(/[^a-zA-Z0-9_.-]/g, "_");
-  const filename = `${safeModel}_${task.taskId.slice(0, 12)}.${ext}`;
-
-  // 1) 안정 URL — 백엔드 stream 통해 다운로드.
-  if (task.mediaId) {
-    try {
-      const res = await fetch(`/api/playground/media/${task.mediaId}/file`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      triggerBlobDownload(blob, filename);
-      return;
-    } catch (err) {
-      // fall through 텐센트 URL 시도.
-      console.warn("백엔드 미디어 fetch 실패, 텐센트 URL 로 fallback", err);
-    }
-  }
-
-  // 2) 텐센트 임시 URL fallback — cross-origin CORS 허용되면 fetch+blob, 아니면 새 탭.
-  if (!task.outputUrl) {
-    message.error("다운로드 URL 이 없습니다");
-    return;
-  }
-  try {
-    const res = await fetch(task.outputUrl);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-    triggerBlobDownload(blob, filename);
-  } catch {
-    // CORS 거부 시 — 그냥 새 탭 열어서 사용자가 브라우저 다운로드 사용.
-    window.open(task.outputUrl, "_blank", "noopener,noreferrer");
-  }
-}
-
-function TaskCard({
-  task,
-  onConvertToVideo,
-}: {
-  task: ActiveTask;
-  onConvertToVideo?: () => void;
-}) {
-  // i2v 버튼 노출 조건: image kind + 성공 + DB persist 된 mediaId 존재.
-  const canConvert =
-    Boolean(onConvertToVideo) &&
-    task.kind === "image" &&
-    task.status === "succeeded" &&
-    Boolean(task.mediaId);
-  return (
-    <Card
-      size="small"
-      title={
-        <Space>
-          <Tag color={STATUS_COLOR[task.status]}>{STATUS_LABEL[task.status]}</Tag>
-          <Text code style={{ fontSize: 11 }}>
-            {task.modelKey}
-          </Text>
-          {task.costUsd !== null && task.costUsd !== undefined && (
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {/* 백엔드 Decimal 은 JSON 직렬화 시 string 으로 옴 — Number() 강제 변환 후 toFixed. */}
-              ${Number(task.costUsd).toFixed(4)}
-            </Text>
-          )}
-        </Space>
-      }
-      extra={
-        <Text code style={{ fontSize: 10, color: "rgba(0,0,0,0.45)" }}>
-          {task.taskId.slice(0, 12)}…
-        </Text>
-      }
-    >
-      <Paragraph style={{ marginBottom: 8, fontSize: 12 }} type="secondary">
-        {task.prompt}
-      </Paragraph>
-
-      {task.status === "succeeded" && task.outputUrl && (
-        <div style={{ marginTop: 8 }}>
-          {task.kind === "image" ? (
-            <img
-              src={task.outputUrl}
-              alt="generated"
-              style={{
-                maxWidth: "100%",
-                borderRadius: 6,
-                border: "1px solid rgba(0,0,0,0.08)",
-              }}
-            />
-          ) : (
-            <video
-              src={task.outputUrl}
-              controls
-              style={{ maxWidth: "100%", borderRadius: 6 }}
-            />
-          )}
-          <div
-            style={{
-              marginTop: 6,
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            <Button
-              size="small"
-              type="primary"
-              icon={<DownloadOutlined />}
-              onClick={() => downloadTaskOutput(task)}
-            >
-              다운로드
-            </Button>
-            {canConvert && (
-              <Tooltip title="텐센트 i2v API spec 확정 전 — 임시 비활성. 텐센트 담당자에게 정확한 호출 spec 문의 필요.">
-                <Button
-                  size="small"
-                  icon={<PlayCircleOutlined />}
-                  onClick={onConvertToVideo}
-                  disabled
-                >
-                  이 이미지로 영상 (준비 중)
-                </Button>
-              </Tooltip>
-            )}
-          </div>
-        </div>
-      )}
-
-      {task.status === "failed" && (
-        <Alert
-          type="error"
-          showIcon
-          message="생성 실패"
-          description={task.errorMessage ?? "텐센트가 명시한 사유 없음"}
-        />
-      )}
-    </Card>
-  );
-}
-
-interface I2VFormValues {
-  prompt: string;
-  model_key: string;
-  duration: number;
-  resolution: string;
-  aspect_ratio: string;
-  audio_generation: boolean;
-  enhance_prompt: boolean;
-}
-
-function I2VModal({
-  target,
-  videoModels,
-  onCancel,
-  onSubmit,
-}: {
-  target: ActiveTask | null;
-  videoModels: PlaygroundMediaModelOption[];
-  onCancel: () => void;
-  onSubmit: (values: I2VFormValues, target: ActiveTask) => Promise<void>;
-}) {
-  const [form] = Form.useForm<I2VFormValues>();
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (target) {
-      form.setFieldsValue({
-        prompt: target.prompt,
-        model_key: videoModels[0]?.key ?? "",
-        duration: 5,
-        resolution: "720P",
-        aspect_ratio: "16:9",
-        audio_generation: false,
-        enhance_prompt: true,
-      });
-    }
-    // 닫힐 때 form 초기화는 destroyOnClose 가 처리.
-  }, [target, videoModels, form]);
-
-  const handleOk = async () => {
-    if (!target) return;
-    try {
-      const values = await form.validateFields();
-      setSubmitting(true);
-      await onSubmit(values, target);
-    } catch {
-      // validation error — 모달 유지.
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Modal
-      title="이 이미지로 영상 만들기"
-      open={target !== null}
-      onCancel={onCancel}
-      onOk={() => void handleOk()}
-      okText="영상 생성"
-      cancelText="취소"
-      confirmLoading={submitting}
-      destroyOnClose
-      width={520}
-    >
-      {target?.outputUrl && (
-        <div style={{ marginBottom: 12, textAlign: "center" }}>
-          <img
-            src={target.outputUrl}
-            alt="source"
-            style={{
-              maxWidth: "100%",
-              maxHeight: 200,
-              borderRadius: 6,
-              border: "1px solid rgba(0,0,0,0.08)",
-            }}
-          />
-        </div>
-      )}
-      <Form form={form} layout="vertical" preserve={false}>
-        <Form.Item
-          name="prompt"
-          label="영상 프롬프트"
-          rules={[{ required: true, message: "프롬프트를 입력하세요" }]}
-        >
-          <Input.TextArea rows={3} placeholder="예: 카메라가 천천히 줌인하며 캐릭터가 미소 짓는다" />
-        </Form.Item>
-        <Form.Item
-          name="model_key"
-          label="영상 모델"
-          rules={[{ required: true, message: "모델을 선택하세요" }]}
-        >
-          <Select
-            options={videoModels.map((m) => ({
-              value: m.key,
-              label: m.badge ? `${m.label} (${m.badge})` : m.label,
-            }))}
-            placeholder={
-              videoModels.length === 0 ? "모델 목록 로딩 중…" : "모델을 선택하세요"
-            }
-          />
-        </Form.Item>
-        <Form.Item name="duration" label="영상 길이 (초)">
-          <InputNumber min={1} max={60} style={{ width: "100%" }} />
-        </Form.Item>
-        <Form.Item name="resolution" label="해상도">
-          <Select options={VIDEO_RESOLUTION_OPTIONS} />
-        </Form.Item>
-        <Form.Item name="aspect_ratio" label="화면 비율">
-          <Select options={ASPECT_RATIO_OPTIONS} />
-        </Form.Item>
-        <Form.Item name="audio_generation" label="오디오 생성" valuePropName="checked">
-          <Switch />
-        </Form.Item>
-        <Form.Item
-          name="enhance_prompt"
-          label="프롬프트 자동 보강"
-          valuePropName="checked"
-        >
-          <Switch />
-        </Form.Item>
-      </Form>
-    </Modal>
   );
 }
