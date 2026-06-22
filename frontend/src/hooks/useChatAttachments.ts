@@ -61,7 +61,16 @@ export function useChatAttachments(sessionId: string | null) {
   }, []);
 
   const clear = useCallback(() => {
-    setAttachments([]);
+    // addFiles 가 즉시 업로드하므로, 보내지 않은 첨부를 그냥 비우면 서버에 고아로 남는다.
+    // remove() 처럼 각 첨부를 best-effort 로 서버 삭제한다(개별 실패는 무시).
+    setAttachments((prev) => {
+      prev.forEach((a) => {
+        deleteAttachment(a.id).catch(() => {
+          // 서버 삭제 실패해도 clear 를 막지 않음. 다음 청소 cron 으로 정리.
+        });
+      });
+      return [];
+    });
   }, []);
 
   return {

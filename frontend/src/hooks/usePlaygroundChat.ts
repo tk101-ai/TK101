@@ -153,84 +153,116 @@ export function usePlaygroundChat(args: UsePlaygroundChatArgs) {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      await streamChat(
-        {
-          session_id: sid,
-          message: trimmed,
-          provider: args.provider,
-          model: args.model,
-          system_prompt: args.systemPrompt || null,
-          temperature: args.temperature,
-          attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
-          use_nas_rag: args.useNasRag || undefined,
-        },
-        {
-          signal: controller.signal,
-          onChunk: (chunk: PlaygroundChunk) => {
-            if (chunk.type === "text_delta") {
-              updateAssistant(assistantId, (m) => ({
-                ...m,
-                content: m.content + chunk.content,
-              }));
-            } else if (chunk.type === "usage") {
-              const inputN = chunk.input ?? 0;
-              const outputN = chunk.output ?? 0;
-              const reasoningN = chunk.reasoning ?? 0;
-              const cachedN = chunk.cached ?? 0;
-              const totalN = chunk.total ?? inputN + outputN;
-              updateAssistant(assistantId, (m) => ({
-                ...m,
-                metrics: {
-                  inputTokens: chunk.input ?? m.metrics.inputTokens,
-                  outputTokens: chunk.output ?? m.metrics.outputTokens,
-                  reasoningTokens: chunk.reasoning ?? m.metrics.reasoningTokens,
-                  cachedTokens: chunk.cached ?? m.metrics.cachedTokens,
-                  totalTokens: chunk.total ?? totalN,
-                  latencyMs: chunk.latency_ms ?? m.metrics.latencyMs,
-                  model: chunk.model ?? m.metrics.model,
-                },
-              }));
-              setUsage((prev) => ({
-                ...prev,
-                totalInput: prev.totalInput + inputN,
-                totalOutput: prev.totalOutput + outputN,
-                totalTokens: prev.totalTokens + totalN,
-                cached: prev.cached + cachedN,
-                reasoning: prev.reasoning + reasoningN,
-              }));
-            } else if (chunk.type === "sources") {
-              updateAssistant(assistantId, (m) => ({
-                ...m,
-                sources: chunk.sources,
-              }));
-            } else if (chunk.type === "done") {
-              updateAssistant(assistantId, (m) => ({ ...m, streaming: false }));
-              setUsage((prev) => ({ ...prev, totalRequests: prev.totalRequests + 1 }));
-            } else if (chunk.type === "error") {
+      // 이 메시지의 토큰 메트릭은 "마지막 값 유지" 방식으로 받고,
+      // 누적 사용량(cumulative)에는 'done' 시점에 단 한 번만 더한다.
+      // 백엔드는 OpenAI stream_options.include_usage / Anthropic 종단 usage 로
+      // 스트림당 단일 terminal usage 청크만 보내므로 현재 동작은 동일하다.
+      // (incremental usage 로 바뀌어도 이중 합산되지 않도록 한 안전장치.)
+      const lastUsage = {
+        input: 0,
+        output: 0,
+        total: 0,
+        cached: 0,
+        reasoning: 0,
+      };
+
+      try {
+        await streamChat(
+          {
+            session_id: sid,
+            message: trimmed,
+            provider: args.provider,
+            model: args.model,
+            system_prompt: args.systemPrompt || null,
+            temperature: args.temperature,
+            attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
+            use_nas_rag: args.useNasRag || undefined,
+          },
+          {
+            signal: controller.signal,
+            onChunk: (chunk: PlaygroundChunk) => {
+              if (chunk.type === "text_delta") {
+                updateAssistant(assistantId, (m) => ({
+                  ...m,
+                  content: m.content + chunk.content,
+                }));
+              } else if (chunk.type === "usage") {
+                const inputN = chunk.input ?? 0;
+                const outputN = chunk.output ?? 0;
+                const reasoningN = chunk.reasoning ?? 0;
+                const cachedN = chunk.cached ?? 0;
+                const totalN = chunk.total ?? inputN + outputN;
+                updateAssistant(assistantId, (m) => ({
+                  ...m,
+                  metrics: {
+                    inputTokens: chunk.input ?? m.metrics.inputTokens,
+                    outputTokens: chunk.output ?? m.metrics.outputTokens,
+                    reasoningTokens: chunk.reasoning ?? m.metrics.reasoningTokens,
+                    cachedTokens: chunk.cached ?? m.metrics.cachedTokens,
+                    totalTokens: chunk.total ?? totalN,
+                    latencyMs: chunk.latency_ms ?? m.metrics.latencyMs,
+                    model: chunk.model ?? m.metrics.model,
+                  },
+                }));
+                // 누적엔 더하지 않고 "마지막 값"만 기록 — 'done' 에서 한 번 반영.
+                lastUsage.input = inputN;
+                lastUsage.output = outputN;
+                lastUsage.total = totalN;
+                lastUsage.cached = cachedN;
+                lastUsage.reasoning = reasoningN;
+              } else if (chunk.type === "sources") {
+                updateAssistant(assistantId, (m) => ({
+                  ...m,
+                  sources: chunk.sources,
+                }));
+              } else if (chunk.type === "done") {
+                updateAssistant(assistantId, (m) => ({ ...m, streaming: false }));
+                setUsage((prev) => ({
+                  ...prev,
+                  totalRequests: prev.totalRequests + 1,
+                  totalInput: prev.totalInput + lastUsage.input,
+                  totalOutput: prev.totalOutput + lastUsage.output,
+                  totalTokens: prev.totalTokens + lastUsage.total,
+                  cached: prev.cached + lastUsage.cached,
+                  reasoning: prev.reasoning + lastUsage.reasoning,
+                }));
+              } else if (chunk.type === "error") {
+                updateAssistant(assistantId, (m) => ({
+                  ...m,
+                  streaming: false,
+                  error: chunk.message,
+                }));
+              }
+            },
+            onError: (err) => {
               updateAssistant(assistantId, (m) => ({
                 ...m,
                 streaming: false,
-                error: chunk.message,
+                error: err.message || "스트림 오류",
               }));
-            }
+            },
+            onClose: () => {
+              updateAssistant(assistantId, (m) =>
+                m.streaming ? { ...m, streaming: false } : m,
+              );
+            },
           },
-          onError: (err) => {
-            updateAssistant(assistantId, (m) => ({
-              ...m,
-              streaming: false,
-              error: err.message || "스트림 오류",
-            }));
-          },
-          onClose: () => {
-            updateAssistant(assistantId, (m) =>
-              m.streaming ? { ...m, streaming: false } : m,
-            );
-          },
-        },
-      );
-
-      setSending(false);
-      abortRef.current = null;
+        );
+      } catch (err: unknown) {
+        // SSE 가 열리기 전(네트워크 실패 등) streamChat 이 reject 하면
+        // onError/onClose 가 호출되지 않아 어시스턴트 버블이 streaming 에 묶인다.
+        // 여기서 errored 로 표시해 입력/버블을 풀어준다.
+        const msg = err instanceof Error ? err.message : "스트림 오류";
+        updateAssistant(assistantId, (m) => ({
+          ...m,
+          streaming: false,
+          error: m.error ?? msg,
+        }));
+      } finally {
+        // 성공/실패/예외 무관하게 항상 잠금 해제 + abort 정리.
+        setSending(false);
+        abortRef.current = null;
+      }
     },
     [
       sending,
