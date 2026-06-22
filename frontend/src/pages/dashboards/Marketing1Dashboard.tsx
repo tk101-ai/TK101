@@ -68,10 +68,8 @@ interface PivotedRow {
   key: string;
   language: string;
   platform: string;
-  week1: number;
-  week2: number;
-  week3: number;
-  week4: number;
+  // 주차→팔로워. 5주차가 있는 달도 자동 반영(백엔드 week-of-month = ((day-1)//7)+1 → 최대 5).
+  weeks: Record<number, number>;
   postCount: number;
   viewCount: number;
   reactionCount: number;
@@ -118,6 +116,17 @@ const formatPercent = (value: number): string => {
   return `${sign}${value.toFixed(2)}%`;
 };
 
+// 데이터에 등장한 주차 집합을 오름차순으로 도출(5주차 달이면 자동 포함).
+function deriveWeekNumbers(rows: WeeklyKpiRow[]): number[] {
+  const set = new Set<number>();
+  for (const row of rows) {
+    if (Number.isFinite(row.week_number)) set.add(row.week_number);
+  }
+  // 데이터가 없으면 최소 1~4주 컬럼은 유지(빈 표에서도 헤더가 자연스럽게 보이도록).
+  if (set.size === 0) return [1, 2, 3, 4];
+  return Array.from(set).sort((a, b) => a - b);
+}
+
 // Pivot: (language, platform, week_number) → row per (language+platform) with week columns
 function pivotWeeklyRows(rows: WeeklyKpiRow[]): PivotedRow[] {
   const grouped = new Map<string, PivotedRow>();
@@ -127,19 +136,13 @@ function pivotWeeklyRows(rows: WeeklyKpiRow[]): PivotedRow[] {
       key,
       language: row.language,
       platform: row.platform,
-      week1: 0,
-      week2: 0,
-      week3: 0,
-      week4: 0,
+      weeks: {},
       postCount: 0,
       viewCount: 0,
       reactionCount: 0,
     };
-    const next: PivotedRow = { ...existing };
-    if (row.week_number === 1) next.week1 = row.followers;
-    if (row.week_number === 2) next.week2 = row.followers;
-    if (row.week_number === 3) next.week3 = row.followers;
-    if (row.week_number === 4) next.week4 = row.followers;
+    const next: PivotedRow = { ...existing, weeks: { ...existing.weeks } };
+    next.weeks[row.week_number] = row.followers;
     next.postCount += row.post_count ?? 0;
     next.viewCount += row.view_count ?? 0;
     next.reactionCount += row.reaction_count ?? 0;
@@ -158,26 +161,26 @@ function pivotWeeklyRows(rows: WeeklyKpiRow[]): PivotedRow[] {
   });
 }
 
-function buildTotalRow(rows: PivotedRow[]): PivotedRow {
+function buildTotalRow(rows: PivotedRow[], weekNumbers: number[]): PivotedRow {
   return rows.reduce<PivotedRow>(
-    (acc, row) => ({
-      ...acc,
-      week1: acc.week1 + row.week1,
-      week2: acc.week2 + row.week2,
-      week3: acc.week3 + row.week3,
-      week4: acc.week4 + row.week4,
-      postCount: acc.postCount + row.postCount,
-      viewCount: acc.viewCount + row.viewCount,
-      reactionCount: acc.reactionCount + row.reactionCount,
-    }),
+    (acc, row) => {
+      const weeks = { ...acc.weeks };
+      for (const w of weekNumbers) {
+        weeks[w] = (weeks[w] ?? 0) + (row.weeks[w] ?? 0);
+      }
+      return {
+        ...acc,
+        weeks,
+        postCount: acc.postCount + row.postCount,
+        viewCount: acc.viewCount + row.viewCount,
+        reactionCount: acc.reactionCount + row.reactionCount,
+      };
+    },
     {
       key: "__total__",
       language: "__total__",
       platform: "__total__",
-      week1: 0,
-      week2: 0,
-      week3: 0,
-      week4: 0,
+      weeks: {},
       postCount: 0,
       viewCount: 0,
       reactionCount: 0,
@@ -388,8 +391,12 @@ export default function Marketing1Dashboard() {
   }, [fetchData]);
 
   // ----- Pivoted weekly rows + totals -----
+  const weekNumbers = useMemo(() => deriveWeekNumbers(weeklyData), [weeklyData]);
   const pivotedRows = useMemo(() => pivotWeeklyRows(weeklyData), [weeklyData]);
-  const totalRow = useMemo(() => buildTotalRow(pivotedRows), [pivotedRows]);
+  const totalRow = useMemo(
+    () => buildTotalRow(pivotedRows, weekNumbers),
+    [pivotedRows, weekNumbers],
+  );
 
   // ----- 통합 요약: 플랫폼별 합산 + 전체 합계 -----
   const platformSummaries = useMemo(
@@ -401,7 +408,14 @@ export default function Marketing1Dashboard() {
     [platformSummaries, weeklyData],
   );
 
-  const weeklyColumns: ColumnsType<PivotedRow> = [
+  const weeklyColumns: ColumnsType<PivotedRow> = useMemo(() => {
+    const weekColumns: ColumnsType<PivotedRow> = weekNumbers.map((w) => ({
+      title: `${w}주 팔로워`,
+      key: `week${w}`,
+      align: "right",
+      render: (_: unknown, record) => formatNumber(record.weeks[w] ?? 0),
+    }));
+    return [
     {
       title: "어권",
       dataIndex: "language",
@@ -432,34 +446,7 @@ export default function Marketing1Dashboard() {
       onCell: (record) =>
         record.key === "__total__" ? { colSpan: 0 } : { colSpan: 1 },
     },
-    {
-      title: "1주 팔로워",
-      dataIndex: "week1",
-      key: "week1",
-      align: "right",
-      render: (val: number) => formatNumber(val),
-    },
-    {
-      title: "2주 팔로워",
-      dataIndex: "week2",
-      key: "week2",
-      align: "right",
-      render: (val: number) => formatNumber(val),
-    },
-    {
-      title: "3주 팔로워",
-      dataIndex: "week3",
-      key: "week3",
-      align: "right",
-      render: (val: number) => formatNumber(val),
-    },
-    {
-      title: "4주 팔로워",
-      dataIndex: "week4",
-      key: "week4",
-      align: "right",
-      render: (val: number) => formatNumber(val),
-    },
+    ...weekColumns,
     {
       title: "콘텐츠수",
       dataIndex: "postCount",
@@ -481,7 +468,8 @@ export default function Marketing1Dashboard() {
       align: "right",
       render: (val: number) => formatNumber(val),
     },
-  ];
+    ];
+  }, [weekNumbers]);
 
   const tableData =
     pivotedRows.length > 0 ? [...pivotedRows, totalRow] : [];
@@ -799,7 +787,7 @@ export default function Marketing1Dashboard() {
                     sm={12}
                     md={8}
                     lg={6}
-                    key={`${card.platform}-${card.language}-${card.handle ?? ""}`}
+                    key={`${card.client ?? ""}-${card.platform}-${card.language}-${card.handle ?? ""}`}
                   >
                     <Card
                       hoverable

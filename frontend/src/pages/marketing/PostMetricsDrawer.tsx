@@ -43,6 +43,8 @@ type TabKey = "metrics" | "comments";
 interface PostMetricsDrawerProps {
   post: SnsPost | null;
   onClose: () => void;
+  // 인앱에서 만든 AI 요약을 부모 목록에 반영(재열람 시 영속 표시). 서버에도 이미 저장됨.
+  onAnalysis?: (postId: SnsPost["id"], summary: string | null) => void;
 }
 
 interface ChartDatum {
@@ -74,7 +76,11 @@ function toChartDatum(snap: MetricSnapshot): ChartDatum {
  * - 댓글 탭: social_post_comments(026)를 오래된→최신 순으로 목록 표시.
  * 데이터가 없으면(토큰 미설정/미수집) 안내 문구만 노출.
  */
-export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerProps) {
+export default function PostMetricsDrawer({
+  post,
+  onClose,
+  onAnalysis,
+}: PostMetricsDrawerProps) {
   const [activeTab, setActiveTab] = useState<TabKey>("metrics");
   const [period, setPeriod] = useState<Period>("daily");
   const [snapshots, setSnapshots] = useState<MetricSnapshot[]>([]);
@@ -115,12 +121,14 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
       const force = Boolean(analysis);
       const res = await analyzePostComments(post.id, force);
       setAnalysis(res.data.summary);
+      // 부모 목록의 post 객체에도 반영 → 같은 게시물 재열람 시 새로고침 없이 영속 표시.
+      onAnalysis?.(post.id, res.data.summary);
     } catch (err) {
       message.error(extractErrorDetail(err, "댓글 분석 실패"));
     } finally {
       setAnalyzing(false);
     }
-  }, [post, analysis]);
+  }, [post, analysis, onAnalysis]);
 
   const fetchMetrics = useCallback(async () => {
     if (!post) return;
