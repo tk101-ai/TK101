@@ -328,6 +328,21 @@ export const exportPosts = (params: {
   return downloadXlsx("/api/sns/export/posts", params, `게시물_${period}.xlsx`);
 };
 
+/**
+ * 브랜드(client)별 통합 워크북 .xlsx 다운로드 — 월간요약 + 채널별 콘텐츠 + 팔로워.
+ * 팀의 기존 구글시트 구조를 재현하며 marketing1 importer 와 라운드트립 호환된다.
+ */
+export const exportBrandWorkbook = (params: {
+  client: string;
+  year: number;
+  month: number;
+}) =>
+  downloadXlsx(
+    "/api/sns/export/workbook",
+    params,
+    `${params.client}_SNS_DB_${params.year}-${pad2(params.month)}.xlsx`,
+  );
+
 export const importMarketing1Excel = (file: File) => {
   const form = new FormData();
   form.append("file", file);

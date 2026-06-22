@@ -53,6 +53,7 @@ from app.schemas.sns import (
 from app.services.sns_collectors.base import BaseCollector, CollectorError
 from app.services.sns_export import (
     build_content_status_workbook,
+    build_full_brand_workbook,
     build_posts_workbook,
     build_snapshots_workbook,
 )
@@ -651,6 +652,123 @@ async def export_posts(
         period = "전체"
     buf = build_posts_workbook(rows)
     return _xlsx_response(buf, f"게시물_{period}.xlsx")
+
+
+@router.get("/export/workbook")
+async def export_workbook(
+    client: str = Query(..., description="브랜드(발주처). social_accounts.client 와 일치하는 채널만."),
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """브랜드별 통합 워크북 → .xlsx (월간요약 + 채널별 콘텐츠 + 팔로워).
+
+    팀의 기존 구글시트 구조를 재현하며 marketing1 importer 와 라운드트립 호환된다.
+    완전 동적 — 주어진 client 의 계정을 DB 에서 순회하므로 서울시/신세계 등 어떤
+    브랜드도 자기 워크북을 자동 생성한다(특정 발주처/채널 하드코딩 없음).
+    """
+    # 1) 브랜드 계정.
+    acc_result = await db.execute(
+        select(SocialAccount)
+        .where(SocialAccount.client == client)
+        .order_by(SocialAccount.platform, SocialAccount.language)
+    )
+    accounts = acc_result.scalars().all()
+    if not accounts:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"브랜드 '{client}' 의 계정이 없습니다",
+        )
+    account_ids = [a.id for a in accounts]
+
+    # 2) 계정별 주차 게재건수 (선택 월). stats_weekly_posts 와 동일 공식.
+    week_of_month = (((func.extract("day", SocialPost.posted_at) - 1) / 7).cast(Integer) + 1).label("week_number")
+    counts_result = await db.execute(
+        select(
+            SocialPost.account_id.label("account_id"),
+            week_of_month,
+            func.count(SocialPost.id).label("post_count"),
+            func.coalesce(func.sum(SocialPost.total_engagement), 0).label("interaction"),
+        )
+        .where(
+            SocialPost.account_id.in_(account_ids),
+            func.extract("year", SocialPost.posted_at) == year,
+            func.extract("month", SocialPost.posted_at) == month,
+        )
+        .group_by(SocialPost.account_id, week_of_month)
+    )
+    summary_by_id: dict[uuid.UUID, WeeklyPostCountRow] = {}
+    interaction_by_id: dict[uuid.UUID, int] = {}
+    for r in counts_result.all():
+        row = summary_by_id.get(r.account_id)
+        if row is None:
+            acc = next(a for a in accounts if a.id == r.account_id)
+            row = WeeklyPostCountRow(
+                account_id=r.account_id,
+                platform=acc.platform,
+                language=acc.language,
+                handle=acc.handle,
+                client=acc.client,
+            )
+            summary_by_id[r.account_id] = row
+        week = int(r.week_number)
+        if 1 <= week <= 5:
+            setattr(row, f"week{week}", getattr(row, f"week{week}") + int(r.post_count))
+        row.total += int(r.post_count)
+        interaction_by_id[r.account_id] = interaction_by_id.get(r.account_id, 0) + int(r.interaction or 0)
+    # interaction 을 summary 행에 부착(빌더가 getattr 로 읽음).
+    summary_rows = []
+    for acc_id, row in summary_by_id.items():
+        summary_rows.append(
+            SimpleNamespace(
+                account_id=row.account_id,
+                week1=row.week1, week2=row.week2, week3=row.week3,
+                week4=row.week4, week5=row.week5, total=row.total,
+                interaction=interaction_by_id.get(acc_id, 0),
+            )
+        )
+
+    # 3) 계정별 주차 팔로워 (선택 월).
+    snap_result = await db.execute(
+        select(
+            SocialWeeklySnapshot.account_id.label("account_id"),
+            SocialWeeklySnapshot.week_number.label("week_number"),
+            SocialWeeklySnapshot.followers.label("followers"),
+        ).where(
+            SocialWeeklySnapshot.account_id.in_(account_ids),
+            SocialWeeklySnapshot.year == year,
+            SocialWeeklySnapshot.month == month,
+        )
+    )
+    snapshots_by_account: dict[uuid.UUID, dict[int, int]] = {}
+    for r in snap_result.all():
+        snapshots_by_account.setdefault(r.account_id, {})[int(r.week_number)] = r.followers
+
+    # 4) 계정별 게시물 (선택 월, 배포일 오름차순 → 시트의 번호 순).
+    posts_result = await db.execute(
+        select(SocialPost)
+        .where(
+            SocialPost.account_id.in_(account_ids),
+            func.extract("year", SocialPost.posted_at) == year,
+            func.extract("month", SocialPost.posted_at) == month,
+        )
+        .order_by(SocialPost.posted_at.asc())
+    )
+    posts_by_account: dict[uuid.UUID, list[SocialPost]] = {}
+    for post in posts_result.scalars().all():
+        posts_by_account.setdefault(post.account_id, []).append(post)
+
+    buf = build_full_brand_workbook(
+        client=client,
+        year=year,
+        month=month,
+        accounts=accounts,
+        summary_rows=summary_rows,
+        posts_by_account=posts_by_account,
+        snapshots_by_account=snapshots_by_account,
+    )
+    safe_client = client or "전체"
+    return _xlsx_response(buf, f"{safe_client}_SNS_DB_{year}-{month:02d}.xlsx")
 
 
 @router.get("/stats/growth", response_model=list[GrowthCard])
