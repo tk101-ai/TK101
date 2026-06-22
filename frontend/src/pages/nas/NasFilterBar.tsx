@@ -1,11 +1,12 @@
 import { Radio, Select, Space, Tag } from "antd";
 import type { RadioChangeEvent } from "antd";
-import type { NasFileKind } from "../../api/nas";
+import type { NasDeptStat, NasFileKind } from "../../api/nas";
 
 export type NasPeriodKey = "all" | "1w" | "1m" | "3m" | "1y";
 
 export interface NasFilterValue {
   fileKinds: NasFileKind[];
+  depts: string[];
   pathPrefix: string | null;
   period: NasPeriodKey;
 }
@@ -13,7 +14,7 @@ export interface NasFilterValue {
 export interface NasFilterBarProps {
   value: NasFilterValue;
   onChange: (next: NasFilterValue) => void;
-  folders: string[];
+  deptOptions: NasDeptStat[];
 }
 
 interface FileKindOption {
@@ -68,7 +69,7 @@ export function periodToMtimeFrom(period: NasPeriodKey, now: Date = new Date()):
   return from.toISOString();
 }
 
-export default function NasFilterBar({ value, onChange, folders }: NasFilterBarProps) {
+export default function NasFilterBar({ value, onChange, deptOptions }: NasFilterBarProps) {
   const isAllKindsSelected = value.fileKinds.length === 0;
 
   const handleKindToggle = (key: "all" | NasFileKind, checked: boolean) => {
@@ -88,8 +89,8 @@ export default function NasFilterBar({ value, onChange, folders }: NasFilterBarP
     onChange({ ...value, fileKinds: Array.from(current) });
   };
 
-  const handleFolderChange = (next: string | undefined) => {
-    onChange({ ...value, pathPrefix: next ?? null });
+  const handleDeptChange = (next: string[]) => {
+    onChange({ ...value, depts: next });
   };
 
   const handlePeriodChange = (e: RadioChangeEvent) => {
@@ -130,14 +131,19 @@ export default function NasFilterBar({ value, onChange, folders }: NasFilterBarP
         </Space>
       </FilterGroup>
 
-      <FilterGroup label="폴더">
-        <Select<string>
+      <FilterGroup label="부서">
+        <Select<string[]>
+          mode="multiple"
           allowClear
-          placeholder="전체 폴더"
-          value={value.pathPrefix ?? undefined}
-          onChange={handleFolderChange}
-          options={folders.map((f) => ({ label: f, value: f }))}
-          style={{ minWidth: 180 }}
+          placeholder="전체 부서 (미선택 시 전체 검색)"
+          value={value.depts}
+          onChange={handleDeptChange}
+          options={deptOptions.map((d) => ({
+            label: `${d.dept} (${d.count.toLocaleString()})`,
+            value: d.dept,
+          }))}
+          style={{ minWidth: 240 }}
+          maxTagCount="responsive"
           size="middle"
         />
       </FilterGroup>

@@ -3,8 +3,9 @@ import { Alert, Button, Empty, Input, List, Radio, Space, Spin, Tag, message } f
 import type { RadioChangeEvent } from "antd";
 import { PictureOutlined } from "@ant-design/icons";
 import {
-  getNasTopFolders,
+  listNasDepts,
   searchNasText,
+  type NasDeptStat,
   type NasSearchHit,
   type NasSearchParams,
 } from "../../api/nas";
@@ -29,6 +30,7 @@ const SORT_OPTIONS: { key: SearchSort; label: string }[] = [
 
 const DEFAULT_FILTER: NasFilterValue = {
   fileKinds: [],
+  depts: [],
   pathPrefix: null,
   period: "all",
 };
@@ -44,27 +46,30 @@ export default function NasSearch() {
   const [limit, setLimit] = useState<number>(SEARCH_PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
   const [sort, setSort] = useState<SearchSort>("score");
-  const [folders, setFolders] = useState<string[]>([]);
+  const [deptOptions, setDeptOptions] = useState<NasDeptStat[]>([]);
   const [filter, setFilter] = useState<NasFilterValue>(DEFAULT_FILTER);
 
-  const fetchTopFolders = useCallback(async () => {
+  const fetchDepts = useCallback(async () => {
     try {
-      const res = await getNasTopFolders();
-      setFolders(res.data.folders);
+      const res = await listNasDepts();
+      setDeptOptions(res.data.depts);
     } catch {
-      setFolders([]);
+      setDeptOptions([]);
     }
   }, []);
 
   useEffect(() => {
-    void fetchTopFolders();
-  }, [fetchTopFolders]);
+    void fetchDepts();
+  }, [fetchDepts]);
 
   const buildSearchParams = useCallback(
     (q: string, lim: number): NasSearchParams => {
       const params: NasSearchParams = { query: q, limit: lim };
       if (filter.fileKinds.length > 0) {
         params.file_kinds = filter.fileKinds;
+      }
+      if (filter.depts.length > 0) {
+        params.depts = filter.depts;
       }
       if (filter.pathPrefix) {
         params.path_prefix = filter.pathPrefix;
@@ -147,7 +152,7 @@ export default function NasSearch() {
         style={{ marginBottom: 8 }}
       />
 
-      <NasFilterBar value={filter} onChange={setFilter} folders={folders} />
+      <NasFilterBar value={filter} onChange={setFilter} deptOptions={deptOptions} />
 
       <ImageSearchPlaceholder />
 

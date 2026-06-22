@@ -8,13 +8,20 @@ export interface NasSearchParams {
   query: string;
   limit: number;
   file_kinds?: NasFileKind[];
+  depts?: string[];
   path_prefix?: string;
   mtime_from?: string;
   mtime_to?: string;
 }
 
-export interface NasTopFoldersResponse {
-  folders: string[];
+/** 검색 부서 필터 옵션 1건 — Qdrant 코퍼스의 dept facet 기준. */
+export interface NasDeptStat {
+  dept: string;
+  count: number;
+}
+
+export interface NasDeptsResponse {
+  depts: NasDeptStat[];
 }
 
 export interface NasStatus {
@@ -86,8 +93,10 @@ export const getNasIndexStatus = () =>
 export const searchNasText = (params: NasSearchParams) =>
   api.post<NasSearchResponse>("/api/nas/search/text", params);
 
-export const getNasTopFolders = () =>
-  api.get<NasTopFoldersResponse>("/api/nas/folders/top");
+/** 검색 부서 필터 옵션 — 실제 검색 코퍼스(Qdrant)의 dept facet.
+ *  구 nas_files 폴더 목록 대체(RND 등 실제 검색 가능 부서 모두 포함). */
+export const listNasDepts = () =>
+  api.get<NasDeptsResponse>("/api/nas/depts");
 
 /**
  * JWT Bearer 인증을 유지한 채 파일을 다운로드한다.
