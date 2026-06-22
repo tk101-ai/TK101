@@ -26,7 +26,8 @@
 
 ## 3. 검증 게이트 (이걸 통과해야 "완료")
 
-배포 전: `py_compile` / `npx tsc --noEmit` + `npx vite build`(exit 0) / 컨테이너 `import app.main`.
+배포 전: `py_compile` / **프론트는 `npm run build`(=`tsc -b && vite build`, exit 0)** / 컨테이너 `import app.main`.
+> ⚠️ `npx tsc --noEmit`는 `tsc -b`의 `noUnusedLocals`를 안 잡아 빌드가 통과처럼 보일 수 있다(2026-06-22 P1 배포 1회 실패 원인 = 미사용 import). **리팩토링 검증은 반드시 `npm run build`로.**
 DB 마이그레이션: **`tk101_dev`(dev 컨테이너)에서 적용·롤백·재적용 테스트 후** 운영 배포(운영 alembic은 배포 시 실행).
 배포 후: **운영에서 실제 검증**(라우트 등록/실데이터/리비전). **운영 검증 없이 "완료"라고 하지 않는다.** 실패하면 그대로 보고.
 
