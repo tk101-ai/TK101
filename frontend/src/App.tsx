@@ -18,6 +18,7 @@ import SnsWeeklySnapshots from "./pages/marketing/SnsWeeklySnapshots";
 import SnsExcelImport from "./pages/marketing/SnsExcelImport";
 import SeoulSns from "./pages/marketing/SeoulSns";
 import ReviewTranslationPage from "./pages/marketing/ReviewTranslation";
+import Marketing1Dashboard from "./pages/dashboards/Marketing1Dashboard";
 import NasSearch from "./pages/nas/Search";
 import FormUploadPage from "./pages/forms/FormUploadPage";
 import FormReviewPage from "./pages/forms/FormReviewPage";
@@ -192,6 +193,14 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="marketing_sns">
                     <SnsExcelImport />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/marketing/dashboard"
+                element={
+                  <ProtectedRoute user={user} module="marketing_sns">
+                    <Marketing1Dashboard />
                   </ProtectedRoute>
                 }
               />
