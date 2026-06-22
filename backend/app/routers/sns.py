@@ -1504,19 +1504,47 @@ async def refresh_all(
     if period not in VALID_PERIODS:
         raise HTTPException(status_code=422, detail="period 는 daily 또는 weekly 여야 합니다")
 
+    # 실제 API 연동된 계정(external_id 보유)만 갱신한다. 엑셀 가져오기가 만든
+    # 미연동 placeholder 계정(external_id 없음)은 수집 시 세션을 깨뜨려(MissingGreenlet)
+    # 전체 갱신을 500으로 터뜨리므로 제외 — 데이터도 없어 갱신 대상이 아니다.
     accounts_q = await db.execute(
         select(SocialAccount).where(
             SocialAccount.is_active.is_(True),
             SocialAccount.platform.in_(SUPPORTED_PLATFORMS),
+            SocialAccount.external_id.isnot(None),
+            SocialAccount.external_id != "",
         )
     )
     accounts = accounts_q.scalars().all()
 
     results: list[RefreshAccountResult] = []
     for account in accounts:
-        results.append(
-            await _refresh_one_account(db, account, period, include_metrics)
-        )
+        # 한 계정의 예기치 못한 치명적 실패가 전체 갱신을 막지 않도록 한 번 더 격리.
+        try:
+            results.append(
+                await _refresh_one_account(db, account, period, include_metrics)
+            )
+        except Exception as exc:  # noqa: BLE001
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001 — 세션이 이미 깨진 경우
+                logger.exception("전체 갱신: rollback 실패 account=%s", account.id)
+            logger.exception("전체 갱신: 계정 격리 실패 account=%s", account.id)
+            results.append(
+                RefreshAccountResult(
+                    account_id=account.id,
+                    platform=account.platform,
+                    language=account.language,
+                    handle=account.handle,
+                    ok=False,
+                    posts_added=0,
+                    posts_updated=0,
+                    snapshots_added=0,
+                    snapshots_updated=0,
+                    metrics_processed=0,
+                    errors=[f"갱신 실패: {type(exc).__name__}"],
+                )
+            )
 
     ok_count = sum(1 for r in results if r.ok)
     failed_count = sum(1 for r in results if not r.ok)

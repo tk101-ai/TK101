@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Select, message } from "antd";
 import {
+  getLanguageLabel,
   getPlatformLabel,
   listAccounts,
   type Language,
@@ -8,13 +9,22 @@ import {
   type SnsAccount,
 } from "../../api/sns";
 
+const hasText = (s?: string | null): boolean => !!(s && s.trim());
+
+/** 실제 API 연동(등록)된 계정인지 — handle/external_id/page_url 중 하나라도 있으면 연동으로 본다. */
+export function isConnectedAccount(account: SnsAccount): boolean {
+  return hasText(account.handle) || hasText(account.external_id) || hasText(account.page_url);
+}
+
 /**
- * SNS 계정 라벨. 예: "유튜브 · @handle".
- * SnsPosts 의 buildAccountLabel 패턴을 공유 컴포넌트로 통일.
+ * SNS 계정 라벨. 예: "유튜브 · SeoulCityOfficial".
+ * 핸들/external_id 가 없으면(미연동 placeholder) UUID 대신 "(미연동)"으로 표기.
  */
 export function buildAccountLabel(account: SnsAccount): string {
-  const handle = account.handle ?? account.external_id ?? account.id.slice(0, 8);
-  return `${getPlatformLabel(account.platform)} · ${handle}`;
+  const name =
+    [account.handle, account.external_id].map((x) => x?.trim()).find(Boolean) ??
+    `${getLanguageLabel(account.language)} (미연동)`;
+  return `${getPlatformLabel(account.platform)} · ${name}`;
 }
 
 interface BaseProps {
@@ -24,6 +34,8 @@ interface BaseProps {
   filterLanguage?: Language;
   /** 비활성(is_active=false) 계정 포함 여부. 기본 false(활성만). */
   includeInactive?: boolean;
+  /** 미연동(placeholder) 계정 포함 여부. 기본 false → 실제 등록된 계정만 노출. */
+  includeUnconnected?: boolean;
   placeholder?: string;
   allowClear?: boolean;
   style?: React.CSSProperties;
@@ -63,6 +75,7 @@ export default function AccountSelector(props: AccountSelectorProps) {
     filterPlatform,
     filterLanguage,
     includeInactive = false,
+    includeUnconnected = false,
     placeholder = "계정 선택",
     allowClear = true,
     style,
@@ -106,10 +119,11 @@ export default function AccountSelector(props: AccountSelectorProps) {
   const options = useMemo(() => {
     return fetched
       .filter((a) => includeInactive || a.is_active)
+      .filter((a) => includeUnconnected || isConnectedAccount(a))
       .filter((a) => !filterPlatform || a.platform === filterPlatform)
       .filter((a) => !filterLanguage || a.language === filterLanguage)
       .map((a) => ({ label: buildAccountLabel(a), value: a.id }));
-  }, [fetched, includeInactive, filterPlatform, filterLanguage]);
+  }, [fetched, includeInactive, includeUnconnected, filterPlatform, filterLanguage]);
 
   if (isMulti) {
     const { value, onChange } = props as MultiProps;
