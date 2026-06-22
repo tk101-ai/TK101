@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { DatePicker, Input, message, Select, Space, Table, Tag } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -7,31 +7,44 @@ import { getTaxInvoices, type TaxInvoice, type TaxInvoiceFilter } from "../api/t
 
 const { RangePicker } = DatePicker;
 
+// 필터 변경 시 자동 재조회 debounce (ms). keyword 입력 타이핑 대응.
+const REFETCH_DEBOUNCE_MS = 300;
+
+/** 금액 문자열을 "1,234원"으로 렌더. null/빈값/NaN은 "-" 표기. */
+function formatAmount(v: string | null | undefined): string {
+  if (v == null || v === "") return "-";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "-";
+  return n.toLocaleString("ko-KR") + "원";
+}
+
 export default function TaxInvoices() {
   const [data, setData] = useState<TaxInvoice[]>([]);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState<TaxInvoiceFilter>({});
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async (currentFilters: TaxInvoiceFilter) => {
     setLoading(true);
     try {
-      const res = await getTaxInvoices(filters);
+      const res = await getTaxInvoices(currentFilters);
       setData(res.data);
     } catch {
       message.error("세금계산서 조회 실패");
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    // 마운트 시 데이터 fetch (의도된 패턴).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSearch = () => fetchData();
+  // 필터 변경 시 debounce + 자동 재조회 (Transactions 와 동일 UX).
+  // selects/date 는 즉시 변경되고, keyword 타이핑은 debounce 로 흡수된다.
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      void fetchData(filters);
+    }, REFETCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(handle);
+  }, [filters, fetchData]);
+
+  const handleSearch = () => void fetchData(filters);
 
   const columns: ColumnsType<TaxInvoice> = [
     {
@@ -72,7 +85,7 @@ export default function TaxInvoices() {
       dataIndex: "supply_amount",
       width: 130,
       align: "right" as const,
-      render: (v: string) => Number(v).toLocaleString("ko-KR") + "원",
+      render: (v: string) => formatAmount(v),
       sorter: (a, b) => Number(a.supply_amount) - Number(b.supply_amount),
     },
     {
@@ -80,14 +93,14 @@ export default function TaxInvoices() {
       dataIndex: "tax_amount",
       width: 120,
       align: "right" as const,
-      render: (v: string) => Number(v).toLocaleString("ko-KR") + "원",
+      render: (v: string) => formatAmount(v),
     },
     {
       title: "합계",
       dataIndex: "total_amount",
       width: 130,
       align: "right" as const,
-      render: (v: string) => Number(v).toLocaleString("ko-KR") + "원",
+      render: (v: string) => formatAmount(v),
       sorter: (a, b) => Number(a.total_amount) - Number(b.total_amount),
     },
     {

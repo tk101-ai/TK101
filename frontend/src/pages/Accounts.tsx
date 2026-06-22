@@ -247,13 +247,12 @@ export default function Accounts() {
    * 1차 호출은 force=false. 백엔드가 거래 N건 있다고 409로 거부하면,
    * 사용자에게 거래 카운트를 보여주고 강제 삭제(force=true) 의사 재확인.
    */
-  const handleDelete = async (record: Account) => {
+  const handleDelete = async (record: Account): Promise<void> => {
     const accountLabel = `${record.bank_name} ${record.account_number}`;
     try {
-      const result = await deleteAccount(record.id, false);
+      await deleteAccount(record.id, false);
       message.success(`계좌를 삭제했습니다 (${accountLabel})`);
       await fetchData();
-      return result;
     } catch (err: unknown) {
       // 409 = 거래내역 있음. 사용자 재확인 후 force=true 재시도.
       const status = (err as { response?: { status?: number } })?.response?.status;
@@ -380,7 +379,7 @@ export default function Accounts() {
             title={v ? "이 계좌를 비활성화할까요?" : "이 계좌를 활성화할까요?"}
             okText={v ? "비활성화" : "활성화"}
             cancelText="취소"
-            onConfirm={() => handleToggleActive(record)}
+            onConfirm={() => void handleToggleActive(record)}
           >
             <Switch
               checked={v}
@@ -417,7 +416,7 @@ export default function Accounts() {
               okText="삭제"
               okType="danger"
               cancelText="취소"
-              onConfirm={() => handleDelete(record)}
+              onConfirm={() => void handleDelete(record)}
             >
               <Tooltip title="삭제">
                 <Button

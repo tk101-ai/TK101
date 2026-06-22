@@ -40,7 +40,6 @@ export default function Transactions() {
     pageSize,
     filters,
     accountMap,
-    categoryMap,
     uploadModal,
     setUploadModal,
     uploadAccountId,
@@ -132,10 +131,10 @@ export default function Transactions() {
           <Button icon={<UploadOutlined />} onClick={() => setUploadModal(true)}>
             엑셀 업로드
           </Button>
-          <Button icon={<SyncOutlined />} onClick={handleAutoMatch}>
+          <Button icon={<SyncOutlined />} onClick={() => void handleAutoMatch()}>
             자동 매칭
           </Button>
-          <Button icon={<DownloadOutlined />} onClick={handleDownload}>
+          <Button icon={<DownloadOutlined />} onClick={() => void handleDownload()}>
             엑셀 다운로드
           </Button>
         </Space>
@@ -160,7 +159,7 @@ export default function Transactions() {
           isAdmin={role.isAdmin}
           onBulkCategory={() => setBulkCategoryOpen(true)}
           onBulkMemo={() => setBulkMemoOpen(true)}
-          onBulkDelete={handleBulkDelete}
+          onBulkDelete={() => void handleBulkDelete()}
           onClearSelection={() => setSelectedRowKeys([])}
         />
       )}
@@ -194,7 +193,6 @@ export default function Transactions() {
           카테고리 마스터가 비어 있습니다. /api/categories 가 활성화되면 자동으로 표시됩니다.
         </Typography.Paragraph>
       )}
-      {categoryMap.size === 0 && null}
 
       {/* 모달 영역 */}
       <TransactionFormModal

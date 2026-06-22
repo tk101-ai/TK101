@@ -10,6 +10,13 @@ const { Title, Text } = Typography;
 // 직원 셀프 가입. 부서는 본인이 선택(관리자 승인 시 확정), role 은 서버가 member 고정.
 const DEPT_CHOICES = DEPARTMENT_OPTIONS.filter((o) => o.value !== "admin");
 
+// 회사 도메인 외 가입 차단(서버 규칙과 동일). 대소문자 무시.
+const COMPANY_EMAIL_DOMAIN = "@tk101global.com";
+
+function isCompanyEmail(email: string): boolean {
+  return email.trim().toLowerCase().endsWith(COMPANY_EMAIL_DOMAIN);
+}
+
 export default function Register() {
   const navigate = useNavigate();
   const [form] = Form.useForm();
@@ -62,6 +69,14 @@ export default function Register() {
               rules={[
                 { required: true, message: "이메일을 입력해주세요" },
                 { type: "email", message: "이메일 형식이 올바르지 않습니다" },
+                {
+                  validator(_, value) {
+                    if (!value || isCompanyEmail(value)) return Promise.resolve();
+                    return Promise.reject(
+                      new Error("회사 이메일(@tk101global.com)로만 가입할 수 있습니다"),
+                    );
+                  },
+                },
               ]}
               extra="회사 이메일(@tk101global.com)로만 가입할 수 있습니다"
             >
