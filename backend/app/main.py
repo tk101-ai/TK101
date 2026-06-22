@@ -27,6 +27,7 @@ from app.routers import (
     distribution_settlement,
     distribution_triggers,
     docgen,
+    documents_admin,
     forms,
     grants,
     matching,
@@ -167,6 +168,8 @@ app.include_router(sns.internal_router)
 app.include_router(nas_search.router)
 app.include_router(forms.router)
 app.include_router(docgen.router)
+# PR-E #1: 관리자 전용 문서 토큰/비용 사용량 집계(require_admin).
+app.include_router(documents_admin.router)
 app.include_router(review_translation.router)
 # Wave 2 재무 모듈 신규 라우터
 app.include_router(bank_import.router)

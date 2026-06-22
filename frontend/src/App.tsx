@@ -25,6 +25,7 @@ import FormLibraryPage from "./pages/forms/FormLibraryPage";
 import JobNewPage from "./pages/forms/JobNewPage";
 import JobMappingPage from "./pages/forms/JobMappingPage";
 import DocGenPage from "./pages/forms/DocGenPage";
+import DocumentsUsagePage from "./pages/documents/DocumentsUsagePage";
 import TransactionImport from "./pages/finance/TransactionImport";
 import MatchingWorkbook from "./pages/finance/MatchingWorkbook";
 import UploadHistory from "./pages/finance/UploadHistory";
@@ -255,6 +256,14 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="form_filler">
                     <JobMappingPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/documents/usage"
+                element={
+                  <ProtectedRoute user={user} module="documents_admin_usage">
+                    <DocumentsUsagePage />
                   </ProtectedRoute>
                 }
               />

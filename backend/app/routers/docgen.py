@@ -12,11 +12,17 @@ import asyncio
 import io
 import logging
 import urllib.parse
+import uuid
+from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database import get_db
 from app.dependencies import get_current_user, require_module
+from app.models.form_filler import FormJob
 from app.modules.constants import Module
 from app.models.user import User
 from pydantic import TypeAdapter, ValidationError
@@ -81,6 +87,42 @@ async def _read_uploads(
     return uploaded
 
 
+async def _persist_generate_job(
+    db: AsyncSession,
+    user: User,
+    source_mode: SourceMode,
+    doc,
+) -> None:
+    """성공한 문서 생성을 form_jobs(kind='generate')에 best-effort 영속화.
+
+    비용·토큰 회계는 부차적이므로, 영속화 실패가 사용자의 생성 응답을 막지 않도록
+    try/except 로 감싸 로그만 남긴다(문서가 본 product, 회계는 best-effort).
+    """
+    try:
+        job = FormJob(
+            id=uuid.uuid4(),
+            kind="generate",
+            source_mode=source_mode,
+            template_id=None,  # generate 잡은 양식 없음(nullable).
+            user_id=user.id,
+            department=user.department,
+            status="completed",  # 동기 단일호출 — 성공 시 바로 completed.
+            cost_usd=Decimal(str(doc.cost_usd)),
+            total_tokens_in=doc.input_tokens,
+            total_tokens_out=doc.output_tokens,
+            langfuse_trace_id=doc.trace_id,
+            completed_at=datetime.now(timezone.utc),
+        )
+        db.add(job)
+        await db.commit()
+    except Exception:  # noqa: BLE001 - 회계 영속화 실패가 생성 응답을 막아선 안 됨
+        logger.exception("docgen 잡 영속화 실패 — 생성 응답은 정상 반환")
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 @router.post("/generate", response_model=DocGenResponse)
 async def generate(
     topic: str = Form(..., max_length=4000),
@@ -89,6 +131,7 @@ async def generate(
     limit: int = Form(8, ge=0, le=20),
     files: list[UploadFile] | None = File(None),
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> DocGenResponse:
     """주제 + 출처(NAS RAG / 사용자 업로드 / 둘다) → 제안서/계획서/보고서 초안.
 
@@ -129,12 +172,16 @@ async def generate(
     by_path: dict[str, float] = {}
     for c in src_chunks:
         by_path[c.file_path] = max(by_path.get(c.file_path, 0.0), float(c.score))
+
+    # 성공한 생성을 잡으로 영속화(비용/토큰 회계). best-effort — 실패해도 응답은 정상.
+    await _persist_generate_job(db, user, source_mode, doc)
+
+    # cost_usd 는 응답에서 제외(관리자 전용). 비용은 계산·영속화되지만 일반 사용자에 미노출.
     return DocGenResponse(
         title=doc.title,
         sections=[DocSection(heading=s["heading"], body=s["body"]) for s in doc.sections],
         markdown=render_markdown(doc.title, doc.sections),
         sources=[DocSourceRef(path=p, score=round(s, 4)) for p, s in by_path.items()],
-        cost_usd=doc.cost_usd,
         model=doc.model,
     )
 
@@ -163,7 +210,7 @@ async def regenerate_section_endpoint(
         limit=limit,
     )
     try:
-        section, cost, model = await asyncio.to_thread(
+        section, _cost, model = await asyncio.to_thread(
             regenerate_section,
             topic,
             doc_type,
@@ -180,9 +227,9 @@ async def regenerate_section_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"섹션 재생성 실패: {exc}",
         ) from exc
+    # cost 는 응답에서 제외(관리자 전용). 재생성 비용 집계는 v1 미반영(접근 b 후속).
     return DocSectionRegenResponse(
         section=DocSection(heading=section["heading"], body=section["body"]),
-        cost_usd=cost,
         model=model,
     )
 
@@ -221,7 +268,7 @@ async def review(
     )
     sections = [{"heading": s.heading, "body": s.body} for s in parsed_sections]
     try:
-        result, cost, model = await asyncio.to_thread(
+        result, _cost, model = await asyncio.to_thread(
             review_document, topic, doc_type, title, sections, chunks
         )
     except ValueError as exc:
@@ -232,12 +279,12 @@ async def review(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"문서 검수 실패: {exc}",
         ) from exc
+    # cost 는 응답에서 제외(관리자 전용).
     return DocReviewResponse(
         overall_score=result["overall_score"],
         summary=result["summary"],
         section_reviews=[DocSectionReview(**r) for r in result["section_reviews"]],
         missing=result["missing"],
-        cost_usd=cost,
         model=model,
     )
 

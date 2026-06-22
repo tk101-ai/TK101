@@ -33,7 +33,7 @@ class DocGenResponse(BaseModel):
     sections: list[DocSection]
     markdown: str
     sources: list[DocSourceRef]
-    cost_usd: float
+    # cost_usd 는 관리자 전용(GET /api/documents/admin/usage)이라 응답에서 제외.
     model: str
 
 
@@ -46,7 +46,6 @@ class DocRenderRequest(BaseModel):
 
 class DocSectionRegenResponse(BaseModel):
     section: DocSection
-    cost_usd: float
     model: str
 
 
@@ -62,5 +61,4 @@ class DocReviewResponse(BaseModel):
     summary: str
     section_reviews: list[DocSectionReview] = Field(default_factory=list)
     missing: list[str] = Field(default_factory=list)
-    cost_usd: float
     model: str

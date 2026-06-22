@@ -62,6 +62,10 @@ class GeneratedDoc:
     used_sources: list[str]
     cost_usd: float
     model: str
+    # 잡 영속화(form_jobs)·관리자 토큰 집계용 — LLMResponse 에서 채운다(가산적).
+    input_tokens: int = 0
+    output_tokens: int = 0
+    trace_id: str | None = None
 
 
 def _build_user_prompt(topic: str, doc_type: str, chunks: list) -> str:
@@ -122,6 +126,9 @@ def generate_document(topic: str, doc_type: str, chunks: list) -> GeneratedDoc:
         used_sources=[str(s) for s in (data.get("used_sources") or []) if s],
         cost_usd=resp.cost_usd,
         model=resp.model,
+        input_tokens=resp.input_tokens,
+        output_tokens=resp.output_tokens,
+        trace_id=resp.trace_id,
     )
 
 
