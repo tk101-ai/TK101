@@ -125,6 +125,9 @@ class Settings(BaseSettings):
     # NAS는 T2 정책상 read-only 마운트라 별도 docker volume 사용 (form_filler_data).
     form_filler_output_root: str = "/var/lib/form_filler/outputs"
     form_filler_upload_root: str = "/var/lib/form_filler/uploads"
+    # 생성/채움 문서 결과물을 부서별로 NAS에 사본 저장하는 루트 (RW 마운트).
+    # 경로 스킴: {루트}/{부서}/{YYYY-MM-DD}/{파일명}. best-effort — 실패해도 다운로드는 정상.
+    docwork_nas_output_root: str = "/mnt/nas-rw/문서작업"
     # 단일 양식 업로드 한도 (FR-01).
     form_filler_max_form_mb: int = 50
     # 문서 생성기(docgen) — 디자인/구조 품질 옵션 -------------------------------
