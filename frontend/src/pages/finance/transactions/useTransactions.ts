@@ -22,6 +22,7 @@ import { listCategoriesFlat, type CategoryRead } from "../../../api/categories";
 import { listAccounts, type Account } from "../../../api/accounts";
 import { extractErrorDetail } from "../../../utils/errorUtils";
 import { triggerBlobDownload } from "../../../utils/download";
+import { runBatched, type BatchResult } from "../../../utils/concurrency";
 import { DEFAULT_PAGE_SIZE } from "./types";
 
 type Filters = Omit<TransactionFilter, "limit" | "offset">;
@@ -58,10 +59,6 @@ export function useTransactions() {
   const accountMap = useMemo(
     () => new Map(accounts.map((a) => [a.id, a])),
     [accounts],
-  );
-  const categoryMap = useMemo(
-    () => new Map(categories.map((c) => [c.id, c])),
-    [categories],
   );
 
   // -------------------------------------------------------------------------
@@ -188,7 +185,7 @@ export function useTransactions() {
     try {
       const res = await runMatching();
       message.success((res.data.matched_count ?? 0) + "건 매칭 완료");
-      fetchTransactions(page, pageSize, filters);
+      void fetchTransactions(page, pageSize, filters);
     } catch (err) {
       message.error(extractErrorDetail(err, "매칭 실패"));
     }
@@ -203,7 +200,7 @@ export function useTransactions() {
       const res = await uploadTransactions(uploadAccountId, file);
       message.success((res.data?.row_count ?? 0) + "건 업로드 완료");
       setUploadModal(false);
-      fetchTransactions(page, pageSize, filters);
+      void fetchTransactions(page, pageSize, filters);
     } catch (err) {
       message.error(extractErrorDetail(err, "업로드 실패"));
     }
@@ -216,7 +213,7 @@ export function useTransactions() {
       await createTransaction(body);
       message.success("거래 등록 완료");
       setCreateModal(false);
-      fetchTransactions(page, pageSize, filters);
+      void fetchTransactions(page, pageSize, filters);
     } catch (err) {
       message.error(extractErrorDetail(err, "거래 등록 실패"));
     } finally {
@@ -241,7 +238,7 @@ export function useTransactions() {
     try {
       await deleteTransaction(id);
       message.success("거래 삭제 (비활성화)");
-      fetchTransactions(page, pageSize, filters);
+      void fetchTransactions(page, pageSize, filters);
     } catch (err) {
       message.error(extractErrorDetail(err, "삭제 실패"));
     }
@@ -251,7 +248,7 @@ export function useTransactions() {
     try {
       await restoreTransaction(id);
       message.success("복원 완료");
-      fetchTransactions(page, pageSize, filters);
+      void fetchTransactions(page, pageSize, filters);
     } catch (err) {
       message.error(extractErrorDetail(err, "복원 실패"));
     }
@@ -261,52 +258,54 @@ export function useTransactions() {
     try {
       await removeMatch(id);
       message.success("매칭 해제");
-      fetchTransactions(page, pageSize, filters);
+      void fetchTransactions(page, pageSize, filters);
     } catch (err) {
       message.error(extractErrorDetail(err, "매칭 해제 실패"));
     }
   };
 
+  // 일괄 작업 결과(부분 성공 포함)를 사용자에게 보고.
+  // 전용 일괄 엔드포인트가 생기면 단일 요청으로 대체 가능(현재는 행별 PATCH 를
+  // 동시성 상한으로 묶어 실행 + 부분 성공 집계).
+  const reportBulkResult = (result: BatchResult, action: string) => {
+    const { succeeded, failed } = result;
+    if (failed === 0) {
+      message.success(`${succeeded}건 ${action} 완료`);
+    } else if (succeeded === 0) {
+      message.error(`${action} 실패 (${failed}건)`);
+    } else {
+      message.warning(`${action} 부분 완료 (성공 ${succeeded}건 / 실패 ${failed}건)`);
+    }
+  };
+
   const handleBulkCategory = async (categoryId: string | null) => {
     const ids = selectedRowKeys.map(String);
-    try {
-      await Promise.all(
-        ids.map((id) =>
-          updateTransaction(id, { category_id: categoryId }),
-        ),
-      );
-      message.success(`${ids.length}건 카테고리 변경 완료`);
-      setBulkCategoryOpen(false);
-      setSelectedRowKeys([]);
-      fetchTransactions(page, pageSize, filters);
-    } catch (err) {
-      message.error(extractErrorDetail(err, "일괄 카테고리 변경 실패"));
-    }
+    const result = await runBatched(ids, (id) =>
+      updateTransaction(id, { category_id: categoryId }),
+    );
+    reportBulkResult(result, "카테고리 변경");
+    setBulkCategoryOpen(false);
+    setSelectedRowKeys([]);
+    void fetchTransactions(page, pageSize, filters);
   };
 
   const handleBulkMemo = async (memo: string | null) => {
     const ids = selectedRowKeys.map(String);
-    try {
-      await Promise.all(ids.map((id) => updateTransaction(id, { memo })));
-      message.success(`${ids.length}건 메모 변경 완료`);
-      setBulkMemoOpen(false);
-      setSelectedRowKeys([]);
-      fetchTransactions(page, pageSize, filters);
-    } catch (err) {
-      message.error(extractErrorDetail(err, "일괄 메모 변경 실패"));
-    }
+    const result = await runBatched(ids, (id) =>
+      updateTransaction(id, { memo }),
+    );
+    reportBulkResult(result, "메모 변경");
+    setBulkMemoOpen(false);
+    setSelectedRowKeys([]);
+    void fetchTransactions(page, pageSize, filters);
   };
 
   const handleBulkDelete = async () => {
     const ids = selectedRowKeys.map(String);
-    try {
-      await Promise.all(ids.map((id) => deleteTransaction(id)));
-      message.success(`${ids.length}건 삭제`);
-      setSelectedRowKeys([]);
-      fetchTransactions(page, pageSize, filters);
-    } catch (err) {
-      message.error(extractErrorDetail(err, "일괄 삭제 실패"));
-    }
+    const result = await runBatched(ids, (id) => deleteTransaction(id));
+    reportBulkResult(result, "삭제");
+    setSelectedRowKeys([]);
+    void fetchTransactions(page, pageSize, filters);
   };
 
   return {
@@ -320,7 +319,6 @@ export function useTransactions() {
     pageSize,
     filters,
     accountMap,
-    categoryMap,
     // 모달/UI 상태
     uploadModal,
     setUploadModal,

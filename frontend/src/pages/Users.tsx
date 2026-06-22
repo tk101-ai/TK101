@@ -20,6 +20,7 @@ import {
   getRoleLabel,
   type RoleKey,
 } from "../config/modules";
+import { useAuth } from "../hooks/useAuth";
 
 const STATUS_META: Record<string, { color: string; label: string }> = {
   pending: { color: "orange", label: "승인대기" },
@@ -28,6 +29,8 @@ const STATUS_META: Record<string, { color: string; label: string }> = {
 };
 
 export default function Users() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [data, setData] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [createModal, setCreateModal] = useState(false);
@@ -194,46 +197,52 @@ export default function Users() {
       width: 110,
       render: (v: string) => dayjs(v).format("YYYY-MM-DD"),
     },
-    {
-      title: "",
-      width: 150,
-      render: (_, record) =>
-        record.status === "pending" ? (
-          <>
-            <Button type="link" size="small" icon={<CheckOutlined />} onClick={() => openApprove(record)}>
-              승인
-            </Button>
-            <Popconfirm title="가입을 거절할까요?" onConfirm={() => handleReject(record)} okText="거절" cancelText="취소">
-              <Button type="link" size="small" danger icon={<CloseOutlined />}>
-                거절
-              </Button>
-            </Popconfirm>
-          </>
-        ) : (
-          <>
-            <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)} />
-            <Popconfirm
-              title={`${record.name} 계정 삭제`}
-              description="영구 삭제되며 되돌릴 수 없습니다."
-              onConfirm={() => handleDelete(record)}
-              okText="삭제"
-              okButtonProps={{ danger: true }}
-              cancelText="취소"
-            >
-              <Button type="link" danger icon={<DeleteOutlined />} />
-            </Popconfirm>
-          </>
-        ),
-    },
+    ...(isAdmin
+      ? [
+          {
+            title: "",
+            width: 150,
+            render: (_: unknown, record: User) =>
+              record.status === "pending" ? (
+                <>
+                  <Button type="link" size="small" icon={<CheckOutlined />} onClick={() => openApprove(record)}>
+                    승인
+                  </Button>
+                  <Popconfirm title="가입을 거절할까요?" onConfirm={() => handleReject(record)} okText="거절" cancelText="취소">
+                    <Button type="link" size="small" danger icon={<CloseOutlined />}>
+                      거절
+                    </Button>
+                  </Popconfirm>
+                </>
+              ) : (
+                <>
+                  <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)} />
+                  <Popconfirm
+                    title={`${record.name} 계정 삭제`}
+                    description="영구 삭제되며 되돌릴 수 없습니다."
+                    onConfirm={() => handleDelete(record)}
+                    okText="삭제"
+                    okButtonProps={{ danger: true }}
+                    cancelText="취소"
+                  >
+                    <Button type="link" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                </>
+              ),
+          },
+        ]
+      : []),
   ];
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
         <h2>사용자 관리</h2>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>
-          사용자 추가
-        </Button>
+        {isAdmin && (
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>
+            사용자 추가
+          </Button>
+        )}
       </div>
 
       {pending.length > 0 && (

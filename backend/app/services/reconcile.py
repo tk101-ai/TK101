@@ -1,6 +1,4 @@
-from datetime import timedelta
-
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tax_invoice import TaxInvoice
@@ -20,9 +18,12 @@ async def reconcile_invoices(db: AsyncSession, date_tolerance_days: int = 5):
     )
     invoices = list(unmatched_invoices.scalars().all())
 
+    # 내부이체로 이미 매칭된 거래(match_status='matched'/'manual')는 후보에서 제외.
+    # 그렇지 않으면 한 거래가 내부이체와 세금계산서 양쪽에 중복 점유될 수 있다.
+    # auto_match_internal_transactions 와 동일하게 'unmatched' 만 후보로 본다.
     unmatched_txns = await db.execute(
         select(Transaction).where(
-            Transaction.match_status.in_(["unmatched", "matched"]),
+            Transaction.match_status == "unmatched",
             Transaction.is_deleted.is_(False),
         )
     )

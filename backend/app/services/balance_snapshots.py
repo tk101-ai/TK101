@@ -106,6 +106,38 @@ async def compute_balance_at(
     return result.scalar_one_or_none()
 
 
+async def _daily_closing_balances(
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    to_date: date | None,
+) -> list[tuple[date, Decimal]]:
+    """계좌별 일별 마감 잔액을 단일 쿼리로 조회 (N+1 제거). 오름차순.
+
+    각 transaction_date 에 대해 (transaction_date, created_at) desc 기준 마지막 행의
+    balance(NULL 제외)를 채택한다. compute_balance_at(d) 와 동일하게 "그 날짜의 마지막
+    비-NULL balance" 를 반환한다. 그 날짜에 비-NULL balance 가 하나도 없으면 결과에 없으며,
+    호출부에서 이전 날짜 잔액을 캐리포워드한다(compute_balance_at 의 transaction_date<=d
+    의미와 동일). from_date 하한은 두지 않는다 — compute_balance_at 도 과거 전체를 본다.
+    """
+    # Postgres DISTINCT ON (transaction_date): ORDER BY 의 첫 행만 날짜별로 채택.
+    # created_at desc 로 같은 날짜의 마지막 거래 balance 를 가져온다.
+    query = (
+        select(Transaction.transaction_date, Transaction.balance)
+        .where(Transaction.account_id == account_id)
+        .where(Transaction.is_deleted.is_(False))
+        .where(Transaction.balance.isnot(None))
+        .distinct(Transaction.transaction_date)
+        .order_by(
+            Transaction.transaction_date,
+            Transaction.created_at.desc(),
+        )
+    )
+    if to_date is not None:
+        query = query.where(Transaction.transaction_date <= to_date)
+    result = await db.execute(query)
+    return [(row.transaction_date, row.balance) for row in result.all()]
+
+
 async def recompute_snapshots(
     db: AsyncSession,
     account_id: uuid.UUID | None = None,
@@ -129,17 +161,26 @@ async def recompute_snapshots(
         if not txn_dates:
             continue
 
+        # 일별 마감 잔액을 단일 쿼리로 가져온 뒤, 두 정렬 리스트를 포인터로 병합하며
+        # 캐리포워드한다 (날짜 d 의 잔액 = d 이하 마지막 비-NULL 마감 잔액).
+        # 이는 날짜마다 compute_balance_at 을 호출하던 것과 동일한 값을 낸다.
+        closings = await _daily_closing_balances(db, acct_id, to_date)
+
         rows_to_upsert: list[dict] = []
+        ptr = 0
+        last_balance: Decimal | None = None
         for d in txn_dates:
-            balance = await compute_balance_at(db, acct_id, d)
-            if balance is None:
+            while ptr < len(closings) and closings[ptr][0] <= d:
+                last_balance = closings[ptr][1]
+                ptr += 1
+            if last_balance is None:
                 continue
             rows_to_upsert.append(
                 {
                     "id": uuid.uuid4(),
                     "account_id": acct_id,
                     "snapshot_date": d,
-                    "balance": balance,
+                    "balance": last_balance,
                     "currency": currency,
                 }
             )

@@ -16,6 +16,7 @@ export function useAuth() {
       setUser(res.data);
     } catch {
       localStorage.removeItem("token");
+      setUser(null);
     } finally {
       setLoading(false);
     }
