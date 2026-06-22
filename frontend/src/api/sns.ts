@@ -35,6 +35,9 @@ export interface SnsPost {
   external_id: string | null;
   is_manual: boolean;
   created_at: string;
+  // 댓글 AI 요약 캐시 (마이그레이션 034) — 저장된 요약을 즉시 표시하는 데 사용.
+  comment_summary: string | null;
+  comment_summary_at: string | null;
 }
 
 export interface MetricSnapshot {
@@ -326,11 +329,17 @@ export interface CommentAnalysis {
   post_id: string;
   comment_count: number;
   summary: string;
+  summary_at: string | null;
 }
 
 // 게시물 댓글 AI 분석/요약 (한국어). 먼저 댓글 수집 필요 + ANTHROPIC_API_KEY.
-export const analyzePostComments = (postId: string) =>
-  api.post<CommentAnalysis>(`/api/sns/posts/${postId}/comments/analyze`);
+// force=true면 캐시된 요약이 있어도 다시 분석한다(명시적 재요약).
+export const analyzePostComments = (postId: string, force = false) =>
+  api.post<CommentAnalysis>(
+    `/api/sns/posts/${postId}/comments/analyze`,
+    null,
+    { params: { force } },
+  );
 
 // 게시물 댓글 다국어→한국어 번역. 원문 보존, 번역문만 캐시. force=true면 재번역.
 export const translatePostComments = (postId: string, force = false) =>

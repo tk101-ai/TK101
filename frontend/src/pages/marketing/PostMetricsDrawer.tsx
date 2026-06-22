@@ -81,7 +81,9 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
   const [loading, setLoading] = useState(false);
   const [comments, setComments] = useState<SnsComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
-  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<string | null>(
+    post?.comment_summary ?? null,
+  );
   const [analyzing, setAnalyzing] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -109,14 +111,16 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
     if (!post) return;
     setAnalyzing(true);
     try {
-      const res = await analyzePostComments(post.id);
+      // 요약이 이미 있으면 사용자가 명시적으로 "재분석"을 누른 것이므로 force=true.
+      const force = Boolean(analysis);
+      const res = await analyzePostComments(post.id, force);
       setAnalysis(res.data.summary);
     } catch (err) {
       message.error(extractErrorDetail(err, "댓글 분석 실패"));
     } finally {
       setAnalyzing(false);
     }
-  }, [post]);
+  }, [post, analysis]);
 
   const fetchMetrics = useCallback(async () => {
     if (!post) return;
@@ -137,6 +141,8 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
     try {
       const res = await listPostComments(post.id);
       setComments(res.data);
+      // 저장된 한국어 번역이 있으면 재열람 시 바로 번역을 보여준다(원문/번역 토글은 유지).
+      if (res.data.some((c) => c.translated_text)) setShowTranslation(true);
     } catch (err) {
       message.error(extractErrorDetail(err, "댓글 조회 실패"));
     } finally {
@@ -155,9 +161,9 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
     else if (!post) setComments([]);
   }, [post, activeTab, fetchComments]);
 
-  // 게시물 바뀌면 이전 분석/번역 상태 초기화.
+  // 게시물 바뀌면 저장된 요약을 즉시 표시(없으면 null). 번역 보기는 댓글 로드 후 결정.
   useEffect(() => {
-    setAnalysis(null);
+    setAnalysis(post?.comment_summary ?? null);
     setShowTranslation(false);
   }, [post]);
 
@@ -282,7 +288,7 @@ export default function PostMetricsDrawer({ post, onClose }: PostMetricsDrawerPr
                   void handleAnalyze();
                 }}
               >
-                AI 분석/요약
+                {analysis ? "재분석" : "AI 분석/요약"}
               </Button>
             </Space>
           </div>

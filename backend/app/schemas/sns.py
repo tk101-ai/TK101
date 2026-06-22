@@ -147,6 +147,9 @@ class PostRead(BaseModel):
     is_manual: bool = False
     extra_metadata: dict[str, Any] | None
     created_at: datetime
+    # 댓글 AI 요약 캐시 (마이그레이션 034) — 프런트가 목록만으로 저장된 요약을 표시.
+    comment_summary: str | None = None
+    comment_summary_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -343,6 +346,7 @@ class CommentAnalysisResponse(BaseModel):
     post_id: uuid.UUID
     comment_count: int
     summary: str
+    summary_at: datetime | None = None
 
 
 # ---------------- Excel Import ----------------

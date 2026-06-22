@@ -1263,17 +1263,28 @@ async def list_post_comments(
 )
 async def analyze_post_comments(
     post_id: str,
+    force: bool = Query(False, description="True면 캐시된 요약이 있어도 다시 분석"),
     db: AsyncSession = Depends(get_db),
 ):
     """게시물에 수집된 댓글을 Claude 로 분석/요약 (한국어).
 
     먼저 댓글 수집이 되어 있어야 한다. ANTHROPIC_API_KEY 필요.
+    이미 요약이 저장돼 있으면(force=False) LLM 호출 없이 캐시를 반환한다.
     """
     post = (
         await db.execute(select(SocialPost).where(SocialPost.id == post_id))
     ).scalar_one_or_none()
     if post is None:
         raise HTTPException(status_code=404, detail="게시물을 찾을 수 없습니다")
+
+    # 캐시 적중: 저장된 요약이 있고 강제 재분석이 아니면 LLM 비용 없이 반환.
+    if not force and post.comment_summary:
+        return CommentAnalysisResponse(
+            post_id=post.id,
+            comment_count=post.comment_count or 0,
+            summary=post.comment_summary,
+            summary_at=post.comment_summary_at,
+        )
 
     rows = await db.execute(
         select(SocialPostComment.text)
@@ -1306,8 +1317,17 @@ async def analyze_post_comments(
     except Exception as exc:  # noqa: BLE001 — 외부 LLM 호출 실패 격리
         raise HTTPException(status_code=502, detail=f"댓글 분석 실패: {type(exc).__name__}")
 
+    # 요약을 영속화 — 새로고침/드로어 재열람 시 재분석(비용) 방지.
+    post.comment_summary = summary
+    post.comment_summary_at = func.now()
+    await db.commit()
+    await db.refresh(post)
+
     return CommentAnalysisResponse(
-        post_id=post.id, comment_count=len(comments), summary=summary
+        post_id=post.id,
+        comment_count=len(comments),
+        summary=summary,
+        summary_at=post.comment_summary_at,
     )
 
 
