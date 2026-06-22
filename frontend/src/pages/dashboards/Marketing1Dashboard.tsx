@@ -317,7 +317,9 @@ export default function Marketing1Dashboard() {
       if (topLanguage !== "all") topParams.language = topLanguage;
       if (topPlatform !== "all") topParams.platform = topPlatform;
 
-      const [weeklyRes, growthRes, topRes, trendRes] = await Promise.all([
+      // 위젯별 독립 fetch: 한 엔드포인트가 실패해도 나머지는 그대로 표시한다
+      // (예전엔 Promise.all 이라 trend 한 건 실패가 전체 대시보드를 비웠음).
+      const [weeklyR, growthR, topR, trendR] = await Promise.allSettled([
         api.get<WeeklyKpiRow[]>("/api/sns/stats/weekly", {
           params: { year, month },
         }),
@@ -325,10 +327,17 @@ export default function Marketing1Dashboard() {
         api.get<TopPost[]>("/api/sns/stats/top-posts", { params: topParams }),
         listTrend({ months: 6 }),
       ]);
-      setWeeklyData(weeklyRes.data ?? []);
-      setGrowthData(growthRes.data ?? []);
-      setTopPosts(topRes.data ?? []);
-      setTrendData(trendRes.data ?? []);
+      setWeeklyData(weeklyR.status === "fulfilled" ? (weeklyR.value.data ?? []) : []);
+      setGrowthData(growthR.status === "fulfilled" ? (growthR.value.data ?? []) : []);
+      setTopPosts(topR.status === "fulfilled" ? (topR.value.data ?? []) : []);
+      setTrendData(trendR.status === "fulfilled" ? (trendR.value.data ?? []) : []);
+
+      const failed = [weeklyR, growthR, topR, trendR].filter(
+        (r) => r.status === "rejected",
+      ).length;
+      if (failed > 0) {
+        message.warning(`일부 데이터를 불러오지 못했습니다 (${failed}건). 표시된 값만 갱신됨.`);
+      }
     } catch {
       message.error("대시보드 데이터를 불러오는데 실패했습니다.");
     } finally {
