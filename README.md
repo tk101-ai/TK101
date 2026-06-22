@@ -39,7 +39,7 @@ uvicorn app.main:app --reload
 ## 커밋 규약
 
 모든 커밋은 `<type>(<scope>): <subject>` 형식을 따른다.
-상세: [`docs/COMMIT_CONVENTION.md`](docs/COMMIT_CONVENTION.md)
+상세: [`docs/decisions/COMMIT_CONVENTION.md`](docs/decisions/COMMIT_CONVENTION.md)
 
 ```bash
 # 템플릿 활성화 (1회)

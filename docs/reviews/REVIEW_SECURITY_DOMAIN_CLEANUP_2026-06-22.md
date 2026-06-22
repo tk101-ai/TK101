@@ -5,7 +5,7 @@
 > - 성격: 멀티에이전트 병렬 조사 결과(읽기 전용). **이 문서 작성 시점에 서버는 아무것도 변경하지 않음.**
 > - 서버: `VM-1-17-ubuntu` · Tencent Cloud CVM(서울) · 공인 IP `43.155.202.112`
 > - 목적: 나중에 검토하며 실행 여부를 결정하기 위한 참고 문서
-> - 관련: [PRD_DOCWORK_UNIFY_2026-06-22.md](PRD_DOCWORK_UNIFY_2026-06-22.md)
+> - 관련: [PRD_DOCWORK_UNIFY_2026-06-22.md](../prd/PRD_DOCWORK_UNIFY_2026-06-22.md)
 
 ---
 

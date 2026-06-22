@@ -674,7 +674,7 @@ def build_strategy() -> None:
 # -----------------------------------------------------------------------------
 def build_discussion() -> None:
     print("[6/6] DISCUSSION PDF (회의 논의 자료)")
-    md_path = DOCS / "DISCUSSION_2026-05-20.md"
+    md_path = DOCS / "cost" / "DISCUSSION_2026-05-20.md"
     if not md_path.exists():
         print(f"  SKIP — {md_path.name} 없음")
         return
@@ -699,7 +699,7 @@ def build_discussion() -> None:
 # -----------------------------------------------------------------------------
 def build_cost_simulation() -> None:
     print("[7/7] COST SIMULATION PDF (비용 시뮬레이션)")
-    md_path = DOCS / "COST_SIMULATION_2026-05-20.md"
+    md_path = DOCS / "cost" / "COST_SIMULATION_2026-05-20.md"
     if not md_path.exists():
         print(f"  SKIP — {md_path.name} 없음")
         return

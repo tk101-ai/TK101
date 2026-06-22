@@ -5,7 +5,7 @@
 - uploaded: 업로드 파일을 추출·청크해 같은 NasChunkHit 형태로 변환(통째 주입, 임베딩 불필요 → 토큰/검색 비용 0)
 - both:     두 결과 합침
 
-설계: docs/PRD_DOCWORK_UNIFY_2026-06-22.md (PR-B 출처 레이어).
+설계: docs/prd/PRD_DOCWORK_UNIFY_2026-06-22.md (PR-B 출처 레이어).
 ※ extractor 는 추후 documents/ 로 이전 예정(현재는 form_filler 재사용).
 """
 from __future__ import annotations
