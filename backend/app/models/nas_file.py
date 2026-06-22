@@ -1,10 +1,10 @@
-"""NAS 파일 인덱스 + 텍스트 청크 모델.
+"""NAS 파일 인덱스 모델.
 
-v0.6.0 PoC: 텍스트 임베딩만 지원. 이미지 임베딩/OCR은 다음 버전.
+검색 코퍼스는 Qdrant(Qwen3) 단일 소스다. 과거 레거시 pgvector 청크 테이블
+(nas_text_chunks, e5 1024-dim)은 검색 미반영 dead data여서 제거됨(032 마이그레이션).
+이 모델은 NAS 파일 메타(목록/다운로드/상태)만 담는다.
 """
-from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import BigInteger, Column, DateTime, Text
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
@@ -26,18 +26,3 @@ class NasFile(UUIDMixin, TimestampMixin, Base):
     indexed_at = Column(DateTime(timezone=True), nullable=True)
     # 인덱싱 실패 사유. 정상 처리되면 NULL로 리셋.
     last_error = Column(Text, nullable=True)
-
-
-class NasTextChunk(UUIDMixin, TimestampMixin, Base):
-    __tablename__ = "nas_text_chunks"
-
-    file_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("nas_files.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    chunk_index = Column(Integer, nullable=False)
-    content = Column(Text, nullable=False)
-    embedding = Column(Vector(1024), nullable=False)
-    token_count = Column(Integer, nullable=True)
