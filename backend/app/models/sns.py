@@ -63,6 +63,9 @@ class SocialPost(UUIDMixin, TimestampMixin, Base):
     # 수동 등록 콘텐츠 여부 (FALLBACK 모드). True면 사용자가 배포일/제목/형태/URL 직접 입력. (마이그레이션 022)
     is_manual = Column(Boolean, default=False, nullable=False)
     extra_metadata = Column(JSONB, nullable=True)
+    # 댓글 AI 요약 캐시 (analyze 엔드포인트가 채움 — 재요약 비용 절감). 마이그레이션 034.
+    comment_summary = Column(Text, nullable=True)
+    comment_summary_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class SocialPostMetricSnapshot(UUIDMixin, TimestampMixin, Base):
