@@ -10,17 +10,23 @@ import {
   Spin,
   message,
   Space,
+  Tooltip,
 } from "antd";
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
   LinkOutlined,
+  ReloadOutlined,
+  YoutubeFilled,
+  FacebookFilled,
+  InstagramFilled,
+  TeamOutlined,
 } from "@ant-design/icons";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import dayjs from "dayjs";
 import api from "../../api/client";
 import type { ColumnsType } from "antd/es/table";
-import { listTrend, type TrendPoint } from "../../api/sns";
+import { listTrend, refreshAll, type TrendPoint } from "../../api/sns";
 import FollowerTrendChart from "../../components/sns/FollowerTrendChart";
 
 // ----- Types -----
@@ -187,6 +193,108 @@ const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
   label: `${i + 1}월`,
 }));
 
+// ----- Per-platform aggregation for the unified summary -----
+const PLATFORM_ICONS: Record<string, React.ReactNode> = {
+  youtube: <YoutubeFilled style={{ color: "#ff0000" }} />,
+  facebook: <FacebookFilled style={{ color: "#1877f2" }} />,
+  instagram: <InstagramFilled style={{ color: "#d62976" }} />,
+};
+
+const PLATFORM_DISPLAY_ORDER = ["youtube", "facebook", "instagram"];
+
+interface PlatformSummary {
+  platform: string;
+  followers: number; // 최신 스냅샷 합산
+  growthRate: number; // 가중 평균 성장률(팔로워 비중)
+  postCount: number; // 이번 달 게시물 수
+  viewCount: number;
+}
+
+// growth(채널별 최신/직전 팔로워) + weekly(게시물 집계)를 platform 단위로 합산.
+function aggregateByPlatform(
+  growth: GrowthCard[],
+  weekly: WeeklyKpiRow[],
+): PlatformSummary[] {
+  const byPlatform = new Map<string, PlatformSummary>();
+  const ensure = (platform: string): PlatformSummary => {
+    const existing = byPlatform.get(platform);
+    if (existing) return existing;
+    const fresh: PlatformSummary = {
+      platform,
+      followers: 0,
+      growthRate: 0,
+      postCount: 0,
+      viewCount: 0,
+    };
+    byPlatform.set(platform, fresh);
+    return fresh;
+  };
+
+  // 팔로워 + 성장률(가중합 누적 → 마지막에 나눔). prev 합으로 가중.
+  const prevByPlatform = new Map<string, number>();
+  for (const card of growth) {
+    const row = ensure(card.platform);
+    row.followers += card.current_followers;
+    const prev = prevByPlatform.get(card.platform) ?? 0;
+    prevByPlatform.set(card.platform, prev + card.prev_followers);
+  }
+  for (const [platform, prevSum] of prevByPlatform) {
+    const row = byPlatform.get(platform);
+    if (row && prevSum > 0) {
+      row.growthRate = (row.followers - prevSum) / prevSum;
+    }
+  }
+
+  // 게시물 수 / 조회수 (이번 달, 주차 합산).
+  for (const r of weekly) {
+    const row = ensure(r.platform);
+    row.postCount += r.post_count ?? 0;
+    row.viewCount += r.view_count ?? 0;
+  }
+
+  return Array.from(byPlatform.values()).sort((a, b) => {
+    const ai = PLATFORM_DISPLAY_ORDER.indexOf(a.platform);
+    const bi = PLATFORM_DISPLAY_ORDER.indexOf(b.platform);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+}
+
+interface TotalsSummary {
+  totalFollowers: number;
+  followerGrowthRate: number;
+  monthPostCount: number;
+  totalViews: number;
+  totalReactions: number;
+  avgEngagementRate: number; // 반응수 / 조회수
+}
+
+function computeTotals(
+  platforms: PlatformSummary[],
+  weekly: WeeklyKpiRow[],
+): TotalsSummary {
+  const totalFollowers = platforms.reduce((s, p) => s + p.followers, 0);
+  const prevFollowers = platforms.reduce(
+    (s, p) => s + (p.growthRate !== 0 ? p.followers / (1 + p.growthRate) : p.followers),
+    0,
+  );
+  const followerGrowthRate =
+    prevFollowers > 0 ? (totalFollowers - prevFollowers) / prevFollowers : 0;
+
+  const monthPostCount = weekly.reduce((s, r) => s + (r.post_count ?? 0), 0);
+  const totalViews = weekly.reduce((s, r) => s + (r.view_count ?? 0), 0);
+  const totalReactions = weekly.reduce((s, r) => s + (r.reaction_count ?? 0), 0);
+  const avgEngagementRate = totalViews > 0 ? totalReactions / totalViews : 0;
+
+  return {
+    totalFollowers,
+    followerGrowthRate,
+    monthPostCount,
+    totalViews,
+    totalReactions,
+    avgEngagementRate,
+  };
+}
+
 export default function Marketing1Dashboard() {
   const [year, setYear] = useState<number>(dayjs().year());
   const [month, setMonth] = useState<number>(dayjs().month() + 1);
@@ -200,6 +308,7 @@ export default function Marketing1Dashboard() {
   const [topPlatform, setTopPlatform] = useState<string>("all");
 
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -233,9 +342,52 @@ export default function Marketing1Dashboard() {
     void fetchData();
   }, [fetchData]);
 
+  // 전체 갱신: 모든 활성 계정 동기 일괄 수집 → 완료 후 대시보드 재요청.
+  const handleRefreshAll = useCallback(async () => {
+    setRefreshing(true);
+    const hide = message.loading("전체 갱신 중… (수 초~수십 초 소요)", 0);
+    try {
+      const { data } = await refreshAll({ includeMetrics: true });
+      hide();
+      if (data.failed_count > 0) {
+        message.warning(
+          `갱신 완료 — 성공 ${data.ok_count}건, 실패 ${data.failed_count}건. ` +
+            `실패 계정은 토큰/권한을 확인하세요.`,
+        );
+      } else {
+        message.success(`전체 갱신 완료 — ${data.ok_count}개 계정 갱신됨.`);
+      }
+      // 부분 실패(메트릭만 실패 등) 사유를 추가로 안내.
+      const partial = data.results.filter((r) => r.ok && r.errors.length > 0);
+      if (partial.length > 0) {
+        message.info(
+          `일부 지표 미수집: ${partial
+            .map((r) => `${r.platform}/${r.language}`)
+            .join(", ")}`,
+        );
+      }
+      await fetchData();
+    } catch {
+      hide();
+      message.error("전체 갱신에 실패했습니다. 잠시 후 다시 시도하세요.");
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchData]);
+
   // ----- Pivoted weekly rows + totals -----
   const pivotedRows = useMemo(() => pivotWeeklyRows(weeklyData), [weeklyData]);
   const totalRow = useMemo(() => buildTotalRow(pivotedRows), [pivotedRows]);
+
+  // ----- 통합 요약: 플랫폼별 합산 + 전체 합계 -----
+  const platformSummaries = useMemo(
+    () => aggregateByPlatform(growthData, weeklyData),
+    [growthData, weeklyData],
+  );
+  const totals = useMemo(
+    () => computeTotals(platformSummaries, weeklyData),
+    [platformSummaries, weeklyData],
+  );
 
   const weeklyColumns: ColumnsType<PivotedRow> = [
     {
@@ -437,8 +589,142 @@ export default function Marketing1Dashboard() {
               style={{ width: 90 }}
               aria-label="월 선택"
             />
+            <Tooltip title="모든 플랫폼·계정의 팔로워·게시물·지표를 지금 갱신합니다 (수 초~수십 초).">
+              <Button
+                type="primary"
+                icon={<ReloadOutlined />}
+                loading={refreshing}
+                onClick={() => void handleRefreshAll()}
+              >
+                전체 갱신
+              </Button>
+            </Tooltip>
           </Space>
         </div>
+
+        {/* 통합 요약 스트립: 전 플랫폼·전 계정 합산 */}
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+          <Col xs={12} sm={12} md={6}>
+            <Card styles={{ body: { padding: "16px 20px" } }}>
+              <Statistic
+                title="총 팔로워"
+                value={totals.totalFollowers}
+                prefix={<TeamOutlined style={{ color: "#1677ff" }} />}
+                formatter={(val) => formatNumber(Number(val))}
+                valueStyle={{ fontSize: 24, fontWeight: 700 }}
+              />
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: totals.followerGrowthRate >= 0 ? "#52c41a" : "#cf1322",
+                }}
+              >
+                {totals.followerGrowthRate >= 0 ? (
+                  <ArrowUpOutlined />
+                ) : (
+                  <ArrowDownOutlined />
+                )}{" "}
+                {formatPercent(totals.followerGrowthRate * 100)}
+                <span style={{ color: "rgba(0,0,0,0.45)", fontWeight: 400, marginLeft: 4 }}>
+                  전 주 대비
+                </span>
+              </div>
+            </Card>
+          </Col>
+          <Col xs={12} sm={12} md={6}>
+            <Card styles={{ body: { padding: "16px 20px" } }}>
+              <Statistic
+                title={`이번 달 게시물 (${month}월)`}
+                value={totals.monthPostCount}
+                formatter={(val) => formatNumber(Number(val))}
+                valueStyle={{ fontSize: 24, fontWeight: 700 }}
+                suffix="건"
+              />
+            </Card>
+          </Col>
+          <Col xs={12} sm={12} md={6}>
+            <Card styles={{ body: { padding: "16px 20px" } }}>
+              <Statistic
+                title="총 조회수"
+                value={totals.totalViews}
+                formatter={(val) => formatNumber(Number(val))}
+                valueStyle={{ fontSize: 24, fontWeight: 700 }}
+              />
+            </Card>
+          </Col>
+          <Col xs={12} sm={12} md={6}>
+            <Card styles={{ body: { padding: "16px 20px" } }}>
+              <Statistic
+                title="평균 참여율"
+                value={totals.avgEngagementRate * 100}
+                precision={2}
+                suffix="%"
+                valueStyle={{ fontSize: 24, fontWeight: 700 }}
+              />
+              <div style={{ marginTop: 6, fontSize: 12, color: "rgba(0,0,0,0.45)" }}>
+                반응수 / 조회수
+              </div>
+            </Card>
+          </Col>
+        </Row>
+
+        {/* 플랫폼별 카드 행: 계정 집합에서 동적 파생 */}
+        {platformSummaries.length > 0 && (
+          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            {platformSummaries.map((p) => {
+              const positive = p.growthRate >= 0;
+              const accent = positive ? "#52c41a" : "#cf1322";
+              return (
+                <Col xs={24} sm={12} md={8} key={p.platform}>
+                  <Card hoverable styles={{ body: { padding: "18px 20px" } }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 12,
+                        fontSize: 16,
+                        fontWeight: 600,
+                      }}
+                    >
+                      <span style={{ fontSize: 22 }}>
+                        {PLATFORM_ICONS[p.platform] ?? null}
+                      </span>
+                      {PLATFORM_LABELS[p.platform] ?? p.platform}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+                      <div>
+                        <div style={{ fontSize: 12, color: "rgba(0,0,0,0.45)" }}>
+                          팔로워
+                        </div>
+                        <div style={{ fontSize: 22, fontWeight: 700 }}>
+                          {formatNumber(p.followers)}
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: accent, marginTop: 2 }}>
+                          {positive ? <ArrowUpOutlined /> : <ArrowDownOutlined />}{" "}
+                          {formatPercent(p.growthRate * 100)}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 12, color: "rgba(0,0,0,0.45)" }}>
+                          게시물 / 조회수
+                        </div>
+                        <div style={{ fontSize: 15, fontWeight: 600 }}>
+                          {formatNumber(p.postCount)}건
+                        </div>
+                        <div style={{ fontSize: 13, color: "rgba(0,0,0,0.65)" }}>
+                          {formatNumber(p.viewCount)}
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                </Col>
+              );
+            })}
+          </Row>
+        )}
 
         {/* Widget 1: Weekly KPI Table */}
         <Card
