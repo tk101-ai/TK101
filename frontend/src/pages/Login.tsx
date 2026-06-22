@@ -7,7 +7,7 @@ const { Text } = Typography;
 
 const { Title } = Typography;
 
-export default function Login({ onLogin }: { onLogin: () => void }) {
+export default function Login({ onLogin }: { onLogin: () => void | Promise<void> }) {
   const navigate = useNavigate();
   const [form] = Form.useForm();
 
@@ -15,7 +15,7 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
     try {
       const res = await login(values);
       localStorage.setItem("token", res.data.access_token);
-      onLogin();
+      await onLogin();
       navigate("/");
     } catch {
       message.error("로그인 실패: 이메일 또는 비밀번호를 확인해주세요");

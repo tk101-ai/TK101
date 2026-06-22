@@ -151,7 +151,7 @@ function App() {
               <Route
                 path="/users"
                 element={
-                  <ProtectedRoute user={user} module="users">
+                  <ProtectedRoute user={user} module="users" role="admin">
                     <Users />
                   </ProtectedRoute>
                 }
