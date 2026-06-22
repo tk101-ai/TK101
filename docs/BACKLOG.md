@@ -8,7 +8,9 @@
 ---
 
 ## NOW (다음 세션에 바로)
-- [ ] ⭐ **최우선 — 코드 품질/아키텍처 전용 리뷰** (오너 요청). 보안/버그 리뷰와 **다른 렌즈**: 설계가 옳은가 · 더 단순하게 할 수 있나 · 모듈 간 일관성 · 가독성/네이밍 · 테스트 용이성 · 과설계/결합도. 모듈별 병렬(6~8개 동시, 16코어) → 점수+보완목록. 에이전트: code-architect·code-simplifier·type-design-analyzer·comment-analyzer·refactor-cleaner. 보안리뷰(B−, docs/reviews/CODE_REVIEW_FULL_2026-06-22.md)와 합치면 전체 그림 완성. → 끝나면 보완도 병렬로.
+- [ ] **코드리뷰 커버리지 검증 패스** (오너 질문 후속) — 전체 리뷰가 *범위*는 전부 커버했으나 71K LOC를 전 줄 정독한 건 아님(큰 파일 위주). 전 파일 체크리스트로 "모든 파일에 눈이 닿았나" 확정 + 빠진 파일만 추가 리뷰. (`pages/Transactions.tsx`처럼 글롭 밖 파일 점검)
+- [ ] **품질 P1 — 거대 파일 분할** (테스트 적어 신중·증분): sns.py 2181 · playground.py 1412 · forms.py 1350 · Transactions.tsx 1115 · session_service.py 997 등 → 도메인별 분할 + 비즈니스 로직 서비스 하강. 각 분할마다 tsc/build/import 검증.
+- [ ] **품질 P3 — 일관성/플랫폼** (점진): BE 에러 한국어 통일·uuid 통일 · FE 라우트 데이터주도(NAV 단일소스) · TanStack Query 도입 · 데드코드 제거(file_walker.py 등)
 
 ## NEXT (조만간)
 - [ ] **포매터/린터 셋업** — prettier(frontend) + ruff/black(backend) 추가. 현재 미설치라 ECC 품질 훅(`stop:format-typecheck` 등) 포매터 절반이 no-op. 깔면 자동포맷·린트 살아남
