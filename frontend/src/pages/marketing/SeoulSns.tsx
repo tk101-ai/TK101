@@ -7,7 +7,6 @@ import {
   Form,
   Input,
   Modal,
-  Segmented,
   Select,
   Space,
   Spin,
@@ -35,26 +34,23 @@ import {
   createManualContent,
   exportPosts,
   getContentTypeLabel,
-  getLanguageLabel,
-  getPlatformLabel,
   listAccounts,
   listPosts,
   type CreateContentRequest,
-  type Language,
-  type Platform,
   type SnsAccount,
   type SnsPost,
 } from "../../api/sns";
-import AccountSelector, { buildAccountLabel } from "../../components/sns/AccountSelector";
+import AccountSelector, {
+  buildAccountLabel,
+  isConnectedAccount,
+} from "../../components/sns/AccountSelector";
 import { extractErrorDetail } from "../../utils/errorUtils";
 import PostMetricsDrawer from "./PostMetricsDrawer";
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
-// 서울시 SNS — Meta 우선. 페이스북/인스타그램, 영문 먼저.
-const META_PLATFORMS: Platform[] = ["facebook", "instagram"];
-const LANGUAGE_ORDER: Language[] = ["en", "zh", "ja"];
+// 서울시 SNS — Meta 우선. 페이스북/인스타그램.
 const NUMBER_FORMATTER = new Intl.NumberFormat("ko-KR");
 const POSTS_PER_ACCOUNT = 500;
 
@@ -74,8 +70,8 @@ interface ContentFormValues {
 /**
  * SNS 콘텐츠 DB 페이지 — 마케팅 전 직원 공용 SNS 단일 페이지 (T1, Meta 우선).
  *
- * - 채널 빠른 필터 = 플랫폼(facebook/instagram) × 어권(en/zh/ja) 선택. 수집·수동등록의 대상 계정.
  * - 다중 계정 선택(AccountSelector) + 기간(RangePicker) 으로 조회 대상을 자유롭게 구성.
+ *   계정을 정확히 1개 선택하면 그 계정이 수집·수동등록의 대상이 된다(미선택 시 전체 연결 계정 조회).
  * - 콘텐츠 리스트 테이블: 배포일/계정/제목/형태/조회수/좋아요/댓글/공유/합계/URL.
  * - 수동 콘텐츠 추가 폼 (배포일/제목/형태/제작주체/URL) → is_manual.
  * - 게시물별 메트릭 시계열 보기 (Drawer).
@@ -85,9 +81,8 @@ interface ContentFormValues {
  */
 export default function SeoulSns() {
   const [accounts, setAccounts] = useState<SnsAccount[]>([]);
-  const [platform, setPlatform] = useState<Platform>("facebook");
-  const [language, setLanguage] = useState<Language>("en");
-  // 조회(뷰) 필터 — 채널과 독립. 여러 계정/기간을 동시에 볼 수 있다.
+  // 조회(뷰) 필터 — 여러 계정/기간을 동시에 볼 수 있다.
+  // 정확히 1개 선택 시 그 계정이 수집·수동등록의 대상(actionAccount)이 된다.
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState<string | undefined>();
   const [dateTo, setDateTo] = useState<string | undefined>();
@@ -113,19 +108,19 @@ export default function SeoulSns() {
     void fetchAccounts();
   }, [fetchAccounts]);
 
-  // 채널 = 플랫폼×어권으로 결정되는 단일 계정 — 수집/수동등록의 대상.
-  const channel = useMemo(
-    () => accounts.find((a) => a.platform === platform && a.language === language) ?? null,
-    [accounts, platform, language],
-  );
-
   const accountMap = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
-  // 조회 대상 계정: 다중 선택이 있으면 그 계정들, 없으면 채널 단일 계정(기본 동작 유지).
+  // 수집/수동등록의 대상 계정: 정확히 1개를 선택했을 때만 결정된다.
+  const actionAccount = useMemo(
+    () => (selectedAccountIds.length === 1 ? accountMap.get(selectedAccountIds[0]) ?? null : null),
+    [selectedAccountIds, accountMap],
+  );
+
+  // 조회 대상 계정: 선택이 있으면 그 계정들, 없으면 전체 연결 계정(기본은 모두 보기).
   const viewAccountIds = useMemo(() => {
     if (selectedAccountIds.length > 0) return selectedAccountIds;
-    return channel ? [channel.id] : [];
-  }, [selectedAccountIds, channel]);
+    return accounts.filter(isConnectedAccount).map((a) => a.id);
+  }, [selectedAccountIds, accounts]);
 
   const fetchPosts = useCallback(async () => {
     if (viewAccountIds.length === 0) {
@@ -161,8 +156,8 @@ export default function SeoulSns() {
   }, [fetchPosts]);
 
   const handleAdd = async (values: ContentFormValues) => {
-    if (!channel) {
-      message.warning("먼저 채널(플랫폼×어권)을 선택하세요");
+    if (!actionAccount) {
+      message.warning("콘텐츠를 추가할 계정을 1개 선택하세요");
       return;
     }
     const payload: CreateContentRequest = {
@@ -173,7 +168,7 @@ export default function SeoulSns() {
       url: values.url ?? null,
     };
     try {
-      await createManualContent(channel.id, payload);
+      await createManualContent(actionAccount.id, payload);
       message.success("콘텐츠 등록 완료");
       setAddOpen(false);
       form.resetFields();
@@ -184,10 +179,13 @@ export default function SeoulSns() {
   };
 
   const handleCollectMetrics = async () => {
-    if (!channel) return;
+    if (!actionAccount) {
+      message.warning("수집/추가할 계정을 정확히 1개 선택하세요");
+      return;
+    }
     setCollecting(true);
     try {
-      const res = await collectMetrics(channel.id, "daily");
+      const res = await collectMetrics(actionAccount.id, "daily");
       const {
         posts_processed,
         snapshots_added,
@@ -216,10 +214,13 @@ export default function SeoulSns() {
   };
 
   const handleCollectComments = async () => {
-    if (!channel) return;
+    if (!actionAccount) {
+      message.warning("수집/추가할 계정을 정확히 1개 선택하세요");
+      return;
+    }
     setCollectingComments(true);
     try {
-      const res = await collectComments(channel.id);
+      const res = await collectComments(actionAccount.id);
       const { posts_processed, comments_added, comments_updated, failures } = res.data;
       message.success(
         `댓글 수집 완료 — 게시물 ${posts_processed} · 신규 ${comments_added} · 갱신 ${comments_updated}`,
@@ -388,19 +389,9 @@ export default function SeoulSns() {
           SNS 콘텐츠
         </Title>
         <Text type="secondary">
-          페이스북 · 인스타그램 등 채널을 어권별로 관리합니다. 자동(메타 API) / 수동(직접 입력) 두 모드 지원.
+          페이스북 · 인스타그램 등 계정을 한 곳에서 조회합니다. 자동(메타 API) / 수동(직접 입력) 두 모드 지원.
         </Text>
       </header>
-
-      {!channel && accounts.length > 0 && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="선택한 채널(플랫폼×어권)이 아직 없습니다"
-          description="SNS 계정 페이지에서 해당 페이스북/인스타그램 채널을 먼저 등록하거나, 엑셀을 가져오세요. (조회는 아래 다중 계정 선택으로도 가능합니다.)"
-        />
-      )}
 
       <Alert
         type="warning"
@@ -410,57 +401,15 @@ export default function SeoulSns() {
         description="토큰 미설정 시 자동 수집은 비활성화되며, 수동 콘텐츠 등록은 정상 동작합니다. '게시물·메트릭 수집'을 누르면 신규 게시물을 가져오고 조회수/좋아요/댓글/공유를 채웁니다. (페이스북 일반 게시물은 메타가 조회수를 제공하지 않아 영상/릴스만 표시됩니다.)"
       />
 
-      <ChannelSelector
-        platform={platform}
-        language={language}
-        accounts={accounts}
-        onPlatform={setPlatform}
-        onLanguage={setLanguage}
-      />
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          gap: 8,
-          margin: "16px 0",
-        }}
-      >
-        <Button
-          icon={<ThunderboltOutlined />}
-          loading={collecting}
-          disabled={!channel}
-          onClick={handleCollectMetrics}
-        >
-          게시물·메트릭 수집
-        </Button>
-        <Button
-          icon={<CommentOutlined />}
-          loading={collectingComments}
-          disabled={!channel}
-          onClick={handleCollectComments}
-        >
-          댓글 수집 (자동)
-        </Button>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          disabled={!channel}
-          onClick={() => setAddOpen(true)}
-        >
-          콘텐츠 추가 (수동)
-        </Button>
-      </div>
-
-      {/* 조회(뷰) 필터 — 채널과 독립한 다중 계정 + 기간. */}
+      {/* 조회(뷰) 필터 — 다중 계정 + 기간. 1개만 선택하면 그 계정이 수집/추가 대상이 된다. */}
       <Space wrap size={12} style={{ marginBottom: 12 }}>
         <AccountSelector
           mode="multi"
           accounts={accounts}
           value={selectedAccountIds}
           onChange={setSelectedAccountIds}
-          placeholder="조회할 계정 선택 (여러 개 가능, 비우면 위 채널)"
-          style={{ minWidth: 320 }}
+          placeholder="조회할 계정 선택 (여러 개 가능 · 수집/추가는 1개만)"
+          style={{ minWidth: 360 }}
         />
         <RangePicker
           onChange={(_, dates) => {
@@ -477,6 +426,57 @@ export default function SeoulSns() {
           엑셀 내보내기
         </Button>
       </Space>
+
+      {/* 수집/수동등록 액션 — 계정을 정확히 1개 선택했을 때만 활성화. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-end",
+          gap: 8,
+          margin: "12px 0",
+        }}
+      >
+        {actionAccount && (
+          <Text type="secondary" style={{ marginInlineEnd: 4 }}>
+            대상: <Text strong>{buildAccountLabel(actionAccount)}</Text>
+          </Text>
+        )}
+        <Tooltip
+          title={
+            actionAccount
+              ? undefined
+              : "조회 계정을 정확히 1개 선택하면 그 계정에 수집/추가합니다"
+          }
+        >
+          <Space size={8}>
+            <Button
+              icon={<ThunderboltOutlined />}
+              loading={collecting}
+              disabled={!actionAccount}
+              onClick={handleCollectMetrics}
+            >
+              게시물·메트릭 수집
+            </Button>
+            <Button
+              icon={<CommentOutlined />}
+              loading={collectingComments}
+              disabled={!actionAccount}
+              onClick={handleCollectComments}
+            >
+              댓글 수집 (자동)
+            </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              disabled={!actionAccount}
+              onClick={() => setAddOpen(true)}
+            >
+              콘텐츠 추가 (수동)
+            </Button>
+          </Space>
+        </Tooltip>
+      </div>
 
       <Alert
         type="info"
@@ -501,7 +501,7 @@ export default function SeoulSns() {
             locale={{ emptyText: <Empty description="콘텐츠가 없습니다" /> }}
           />
         ) : (
-          <Empty description="채널 또는 조회할 계정을 선택하세요" style={{ padding: "48px 0" }} />
+          <Empty description="표시할 콘텐츠가 없습니다" style={{ padding: "48px 0" }} />
         )}
       </Spin>
 
@@ -546,61 +546,5 @@ export default function SeoulSns() {
         onClose={() => setMetricsPost(null)}
       />
     </div>
-  );
-}
-
-interface ChannelSelectorProps {
-  platform: Platform;
-  language: Language;
-  accounts: SnsAccount[];
-  onPlatform: (p: Platform) => void;
-  onLanguage: (l: Language) => void;
-}
-
-function ChannelSelector({
-  platform,
-  language,
-  accounts,
-  onPlatform,
-  onLanguage,
-}: ChannelSelectorProps) {
-  const hasChannel = (p: Platform, l: Language) =>
-    accounts.some((a) => a.platform === p && a.language === l);
-
-  return (
-    <Space direction="vertical" size={12} style={{ width: "100%" }}>
-      <Space size={12} wrap>
-        <Text type="secondary" style={{ width: 56, display: "inline-block" }}>
-          플랫폼
-        </Text>
-        <Segmented
-          value={platform}
-          onChange={(v) => onPlatform(v as Platform)}
-          options={META_PLATFORMS.map((p) => ({ value: p, label: getPlatformLabel(p) }))}
-        />
-      </Space>
-      <Space size={12} wrap>
-        <Text type="secondary" style={{ width: 56, display: "inline-block" }}>
-          어권
-        </Text>
-        <Segmented
-          value={language}
-          onChange={(v) => onLanguage(v as Language)}
-          options={LANGUAGE_ORDER.map((l) => ({
-            value: l,
-            label: (
-              <Space size={4}>
-                {getLanguageLabel(l)}
-                {hasChannel(platform, l) ? null : (
-                  <Tag color="default" style={{ marginInlineEnd: 0, fontSize: 11 }}>
-                    미등록
-                  </Tag>
-                )}
-              </Space>
-            ),
-          }))}
-        />
-      </Space>
-    </Space>
   );
 }
