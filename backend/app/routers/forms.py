@@ -66,6 +66,7 @@ from app.database import get_db
 from app.dependencies import get_current_user, require_internal_token, require_module
 from app.models.user import User
 from app.modules.constants import Module
+from app.services.documents.nas_output import save_to_nas
 from app.services.form_filler import analyzer, extractor, guardrails, mapper, renderer
 from app.services.nas_search import bridge as nas_bridge
 
@@ -1095,6 +1096,17 @@ async def render_job(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from exc
+
+    # 결과물을 부서별 NAS 폴더(문서작업/{부서}/{날짜})에도 사본 저장.
+    # 기존 form_filler_output_root 저장과 별개 — best-effort, 실패해도 렌더 정상.
+    try:
+        save_to_nas(
+            rendered.file_bytes,
+            department=job.department or user.department,
+            filename=rendered.filename,
+        )
+    except Exception:  # noqa: BLE001 - NAS 저장은 비치명적
+        logger.warning("forms render NAS 사본 저장 실패(무시)", exc_info=True)
 
     job.output_path = rendered.output_path
     job.status = "completed"

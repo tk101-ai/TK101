@@ -40,6 +40,7 @@ from app.services.docgen import (
     render_markdown,
     review_document,
 )
+from app.services.documents.nas_output import save_to_nas
 from app.services.documents.sources import collect_sources
 
 # 업로드 참고자료 가드 — 파일 수/크기 상한.
@@ -256,6 +257,15 @@ async def render(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"docx 렌더 실패: {exc}",
         ) from exc
+    # 결과물을 부서별 NAS 폴더에 사본 저장 (best-effort, 실패해도 다운로드 정상).
+    try:
+        save_to_nas(
+            data,
+            department=user.department,
+            filename=f"{body.title[:60]}.docx",
+        )
+    except Exception:  # noqa: BLE001 - NAS 저장은 비치명적
+        logger.warning("docgen render NAS 사본 저장 실패(무시)", exc_info=True)
     filename = urllib.parse.quote(f"{body.title[:60]}.docx")
     return StreamingResponse(
         io.BytesIO(data),
@@ -279,6 +289,15 @@ async def render_pptx(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"pptx 렌더 실패: {exc}",
         ) from exc
+    # 결과물을 부서별 NAS 폴더에 사본 저장 (best-effort, 실패해도 다운로드 정상).
+    try:
+        save_to_nas(
+            data,
+            department=user.department,
+            filename=f"{body.title[:60]}.pptx",
+        )
+    except Exception:  # noqa: BLE001 - NAS 저장은 비치명적
+        logger.warning("docgen render_pptx NAS 사본 저장 실패(무시)", exc_info=True)
     filename = urllib.parse.quote(f"{body.title[:60]}.pptx")
     return StreamingResponse(
         io.BytesIO(data),
