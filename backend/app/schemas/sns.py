@@ -188,6 +188,9 @@ class WeeklyKpiRow(BaseModel):
 class GrowthCard(BaseModel):
     language: str
     platform: str
+    # 채널 식별축 — 브랜드(광고주)·핸들. 백필 전 기존 계정은 client=None.
+    handle: str | None = None
+    client: str | None = None
     current_followers: int
     prev_followers: int
     growth_rate: float

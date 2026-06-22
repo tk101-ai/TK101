@@ -45,6 +45,9 @@ interface WeeklyKpiRow {
 interface GrowthCard {
   language: string;
   platform: string;
+  // 채널 식별축 — 브랜드(광고주)·핸들. 백필 전 기존 계정은 client=null.
+  handle: string | null;
+  client: string | null;
   current_followers: number;
   prev_followers: number;
   growth_rate: number;
@@ -786,14 +789,17 @@ export default function Marketing1Dashboard() {
               {growthData.map((card) => {
                 const isPositive = card.growth_rate >= 0;
                 const accent = isPositive ? "#52c41a" : "#cf1322";
-                const channelName = `${PLATFORM_LABELS[card.platform] ?? card.platform} (${LANGUAGE_LABELS[card.language] ?? card.language})`;
+                const platformLabel = PLATFORM_LABELS[card.platform] ?? card.platform;
+                const languageLabel = LANGUAGE_LABELS[card.language] ?? card.language;
+                // 채널 식별: 브랜드 · 플랫폼 · 언어 · 핸들. 백필 전(client=null)이면 브랜드를 생략한다.
+                const channelName = `${card.client ? `${card.client} · ` : ""}${platformLabel} · ${languageLabel}${card.handle ? ` · ${card.handle}` : ""}`;
                 return (
                   <Col
                     xs={24}
                     sm={12}
                     md={8}
                     lg={6}
-                    key={`${card.language}-${card.platform}`}
+                    key={`${card.platform}-${card.language}-${card.handle ?? ""}`}
                   >
                     <Card
                       hoverable

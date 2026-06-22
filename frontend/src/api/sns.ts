@@ -132,6 +132,8 @@ export interface CreateAccountRequest {
   page_url?: string | null;
   external_id?: string | null;
   is_active?: boolean;
+  // 브랜드(광고주). 예: "서울시", "신세계". 채널 식별축.
+  client?: string | null;
 }
 
 export interface UpdateAccountRequest {
@@ -141,6 +143,7 @@ export interface UpdateAccountRequest {
   page_url?: string | null;
   external_id?: string | null;
   is_active?: boolean;
+  client?: string | null;
 }
 
 export interface PostFilter {
