@@ -28,7 +28,7 @@ import {
 } from "../../api/sns";
 import { useAuth } from "../../hooks/useAuth";
 
-const COLLECTABLE_PLATFORMS: ReadonlySet<Platform> = new Set<Platform>(["youtube"]);
+const COLLECTABLE_PLATFORMS: ReadonlySet<Platform> = new Set<Platform>(["youtube", "facebook", "instagram"]);
 
 function extractDetail(err: unknown): string | null {
   if (err && typeof err === "object" && "response" in err) {
