@@ -11,7 +11,8 @@
 - [ ] **코드리뷰 커버리지 검증 패스** (오너 질문 후속) — 전체 리뷰가 *범위*는 전부 커버했으나 71K LOC를 전 줄 정독한 건 아님(큰 파일 위주). 전 파일 체크리스트로 "모든 파일에 눈이 닿았나" 확정 + 빠진 파일만 추가 리뷰. (`pages/Transactions.tsx`처럼 글롭 밖 파일 점검)
 - [x] **품질 P1 (1차) 완료** — sns.py 2173→패키지, forms.py 1350→패키지, Transactions.tsx 1114→254, SessionDetailPage 1070→171. 라우트 보존(OpenAPI 검증). ⚠️배포 1회 실패(tsc -b 미사용import)→`npm run build` 검증으로 전환.
 - [x] **품질 P1 (2차) 완료·배포** — playground.py 1412→패키지(라우트27 보존) · session_service.py 997→패키지(15 공개API 보존) · ProductsPage 930→123 · Marketing1Dashboard 888→120 · AnalyticsPage 871→181 · MediaGenPanel 835→446. OpenAPI 188경로 보존. npm run build 배포전 검증(빌드실패 0). **→ P1 거대파일 10개 전부 분할 완료.**
-- [ ] **커버리지 패스 후속 발견(~21건)** — 🔴 Users.tsx 라우트 role 가드(백엔드 admin강제라 안전, UI 심층방어) · usePlaygroundChat streamChat 거부 미처리(입력잠김) · reconcile.py 후보집합 느슨(이체↔세금계산서 중복) · TaxInvoices 필터 자동조회 안됨 · 기타 low(금액포맷 중복·floating promise·죽은코드). 상세: 대화 로그
+- [x] **커버리지 발견 보완 완료·배포(~20건)** — ProtectedRoute role 가드+/users admin게이트 · streamChat 입력잠김 해결 · 첨부 clear · TaxInvoices 자동조회·NaN가드 · Transactions bulk 동시성캡+부분성공·죽은코드 · Register 검증 · reconcile 후보집합 정정(중복청구) · upload_log 스키마 · balance N+1→단일쿼리 · attachments uuid. npm run build 검증.
+- [ ] ⚠️논의 **#1 localStorage JWT → httpOnly 쿠키** (커버리지서도 재확인된 HIGH) — 인증 저장모델 변경, 로그인 흐름 위험. 별도 논의 후 (= 기존 C 항목과 동일)
 - [ ] **품질 P3 — 일관성/플랫폼** (점진): BE 에러 한국어 통일·uuid 통일 · FE 라우트 데이터주도(NAV 단일소스) · TanStack Query 도입 · 데드코드 제거(file_walker.py 등)
 
 ## NEXT (조만간)
