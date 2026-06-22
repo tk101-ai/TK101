@@ -8,7 +8,6 @@ import {
   getSession,
   rejectSession,
   sendSessionNow,
-  updateMessage,
   type MessageItem,
   type SessionDetail,
 } from "../../../api/distribution";
