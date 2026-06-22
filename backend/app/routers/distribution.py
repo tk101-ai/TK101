@@ -58,6 +58,10 @@ from app.services.distribution import (
     persona_service,
 )
 from app.services.distribution.encryption import EncryptionError
+from app.services.translation.translator import (
+    RateLimitExceeded,
+    check_rate_limit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -215,11 +219,44 @@ async def list_companies() -> dict[str, list[str]]:
 # Generation Trigger (Phase B-2)
 # ---------------------------------------------------------------------------
 
+# D2: LLM 생성 비용 폭주 차단. 사용자별 분당/일일 호출 한도.
+# translator.check_rate_limit(인메모리 슬라이딩 윈도우) 재사용 — 단일 인스턴스 전제.
+# 일일 캡은 window_sec=86400 으로 같은 util 을 재사용하되, 분당 버킷과
+# 충돌하지 않도록 키에 ":daily" 접미사를 붙인다.
+_GEN_PER_MIN_MAX = 5
+_GEN_DAILY_MAX = 50
+_GEN_DAILY_WINDOW_SEC = 86_400
+
+
+def _enforce_generation_limit(user_id: str) -> None:
+    """생성 엔드포인트 공통 레이트리밋 (분당 + 일일 캡).
+
+    Raises:
+        HTTPException(429): 분당 또는 일일 한도 초과.
+    """
+    try:
+        check_rate_limit(
+            f"distgen:{user_id}",
+            max_calls=_GEN_PER_MIN_MAX,
+            window_sec=60,
+        )
+        check_rate_limit(
+            f"distgen:daily:{user_id}",
+            max_calls=_GEN_DAILY_MAX,
+            window_sec=_GEN_DAILY_WINDOW_SEC,
+        )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="생성 요청이 너무 잦습니다. 잠시 후 다시 시도해주세요.",
+        ) from exc
+
 
 @router.post("/generate-weekly")
 async def generate_weekly(
     payload: GenerateWeeklyRequest,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
 ) -> GenerateWeeklyResult:
     """4페어 (한국 N명 × 베트남 1명) × 시나리오 동시 생성.
 
@@ -230,7 +267,10 @@ async def generate_weekly(
     - 결과 세션은 status='pending' — UI 검수 화면에서 승인 후 송신
 
     자격증명 없는 페르소나는 skip + warnings 누적.
+
+    권한: **admin only** (D2 — LLM 생성 비용 가드). 사용자별 분당/일일 호출 한도 적용.
     """
+    _enforce_generation_limit(str(user.id))
     summary = await generation_service.generate_weekly_for_all_pairs(
         db,
         scenario_names=payload.scenario_names or None,

@@ -17,6 +17,7 @@ import logging
 import uuid
 from datetime import date, datetime
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -95,7 +96,7 @@ class UploadErrorsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # 내부 헬퍼
 # ---------------------------------------------------------------------------
-async def _get_log(db: AsyncSession, upload_id: str) -> UploadLog:
+async def _get_log(db: AsyncSession, upload_id: uuid.UUID) -> UploadLog:
     result = await db.execute(select(UploadLog).where(UploadLog.id == upload_id))
     log = result.scalar_one_or_none()
     if log is None:
@@ -208,7 +209,7 @@ async def list_upload_history(
 # ---------------------------------------------------------------------------
 @router.get("/{upload_id}", response_model=UploadHistoryDetail)
 async def get_upload_detail(
-    upload_id: str,
+    upload_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
     log = await _get_log(db, upload_id)
@@ -220,7 +221,7 @@ async def get_upload_detail(
 # ---------------------------------------------------------------------------
 @router.get("/{upload_id}/errors", response_model=UploadErrorsResponse)
 async def get_upload_errors(
-    upload_id: str,
+    upload_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
     """업로드 에러 메타 + xlsx 다운로드 URL."""
@@ -239,10 +240,14 @@ async def get_upload_errors(
 
 @router.get("/{upload_id}/errors/download")
 async def download_upload_errors(
-    upload_id: str,
+    upload_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """에러 행을 xlsx 로 묶어 다운로드."""
+    """에러 행을 xlsx 로 묶어 다운로드.
+
+    H5: upload_id 는 ``uuid.UUID`` 타입(형식 오류는 422). 파일명은 RFC5987 로
+    인코딩해 Content-Disposition 헤더 인젝션(CR/LF·따옴표) 을 차단한다.
+    """
     log = await _get_log(db, upload_id)
     rows = _coerce_error_rows(log.error_detail)
     if not rows:
@@ -260,12 +265,19 @@ async def download_upload_errors(
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
+    # upload_id 는 UUID 라 안전하지만, 파일명은 RFC5987 로 항상 인코딩해
+    # 헤더 인젝션 가능성을 원천 차단한다 (방어적).
     filename = f"upload_{upload_id}_errors.xlsx"
+    quoted = quote(filename, safe="")
+    content_disposition = (
+        f"attachment; filename=\"{filename}\"; "
+        f"filename*=UTF-8''{quoted}"
+    )
     return StreamingResponse(
         buf,
         media_type=(
             "application/vnd.openxmlformats-officedocument."
             "spreadsheetml.sheet"
         ),
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={"Content-Disposition": content_disposition},
     )

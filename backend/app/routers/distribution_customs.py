@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
 from fastapi import (
     APIRouter,
@@ -179,15 +180,19 @@ async def list_customs(
 
 @router.delete("/{declaration_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_customs(
-    declaration_id: str,
+    declaration_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """면장 1행 삭제. 잘못 업로드한 행을 사용자가 직접 제거할 수 있게 한다.
 
+    H2: declaration_id 는 ``uuid.UUID`` 타입 — 형식 오류는 FastAPI 가 422 로 거른다
+    (DB 캐스트 500 방지).
+
     Errors:
     - 404: 해당 id 없음 (이미 삭제됐거나 존재하지 않음).
+    - 422: declaration_id 가 UUID 형식이 아님.
     """
-    deleted = await customs_service.delete_declaration(db, declaration_id)
+    deleted = await customs_service.delete_declaration(db, str(declaration_id))
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
