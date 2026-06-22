@@ -183,7 +183,7 @@ async def list_transactions(
 
 @router.patch("/{transaction_id}/memo", response_model=TransactionRead)
 async def update_memo(
-    transaction_id: str, body: MemoUpdate, db: AsyncSession = Depends(get_db)
+    transaction_id: uuid.UUID, body: MemoUpdate, db: AsyncSession = Depends(get_db)
 ):
     """메모 단독 업데이트 (기존 프론트 호환)."""
     txn = await _get_transaction_or_404(db, transaction_id)
@@ -548,7 +548,7 @@ async def matching_candidates(
 
 @router.patch("/{transaction_id}/match", response_model=TransactionRead)
 async def manual_match(
-    transaction_id: str,
+    transaction_id: uuid.UUID,
     body: TransactionMatchRequest,
     db: AsyncSession = Depends(get_db),
 ):
@@ -567,7 +567,7 @@ async def manual_match(
 
 
 @router.delete("/{transaction_id}/match", response_model=TransactionRead)
-async def unmatch(transaction_id: str, db: AsyncSession = Depends(get_db)):
+async def unmatch(transaction_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """매칭 해제 — 양방향 unmatched."""
     try:
         tx = await matching_service.remove_match(db, transaction_id)
@@ -660,7 +660,7 @@ async def create_transaction(
 
 @router.patch("/{transaction_id}", response_model=TransactionRead)
 async def update_transaction(
-    transaction_id: str,
+    transaction_id: uuid.UUID,
     body: TransactionUpdate,
     db: AsyncSession = Depends(get_db),
 ):
@@ -691,7 +691,7 @@ async def update_transaction(
     dependencies=[Depends(require_admin)],
 )
 async def soft_delete_transaction(
-    transaction_id: str,
+    transaction_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
     """Soft delete — is_deleted=True. 실제 row 보존. 관리자 전용."""
@@ -724,7 +724,7 @@ async def soft_delete_transaction(
     dependencies=[Depends(require_admin)],
 )
 async def restore_transaction(
-    transaction_id: str,
+    transaction_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
     """Soft delete 복구. 관리자 전용. 매칭 상태는 복구하지 않음."""

@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +41,7 @@ async def create_account(body: AccountCreate, db: AsyncSession = Depends(get_db)
 
 
 @router.patch("/{account_id}", response_model=AccountRead, dependencies=[Depends(require_admin)])
-async def update_account(account_id: str, body: AccountUpdate, db: AsyncSession = Depends(get_db)):
+async def update_account(account_id: uuid.UUID, body: AccountUpdate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Account).where(Account.id == account_id))
     account = result.scalar_one_or_none()
     if account is None:
@@ -57,7 +59,7 @@ async def update_account(account_id: str, body: AccountUpdate, db: AsyncSession 
     dependencies=[Depends(require_admin)],
 )
 async def delete_account(
-    account_id: str,
+    account_id: uuid.UUID,
     force: bool = Query(False, description="true면 거래내역도 함께 삭제 (CASCADE)"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -102,4 +104,4 @@ async def delete_account(
 
     await db.delete(account)
     await db.commit()
-    return {"deleted": True, "account_id": account_id, "transactions_deleted": tx_count}
+    return {"deleted": True, "account_id": str(account_id), "transactions_deleted": tx_count}

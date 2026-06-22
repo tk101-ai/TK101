@@ -11,9 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 
-from app.config import settings
+from app.services.llm.client import call_claude
 
 logger = logging.getLogger(__name__)
 
@@ -30,16 +29,6 @@ SYSTEM_PROMPT = (
     "3) 자주 나온 의견/요청, 4) 눈에 띄는 댓글 2~3개(원문 인용), "
     "5) 마케팅 시사점/개선 제안. 댓글에 없는 내용을 지어내지 마세요."
 )
-
-
-def _build_anthropic_client() -> Any:
-    if not settings.anthropic_api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY 미설정 — 댓글 분석 사용 불가.")
-    try:
-        from anthropic import Anthropic
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError(f"anthropic SDK 미설치: {exc}") from exc
-    return Anthropic(api_key=settings.anthropic_api_key)
 
 
 def _join_comments(comments: list[str]) -> str:
@@ -59,24 +48,21 @@ def _join_comments(comments: list[str]) -> str:
 
 
 def _call_haiku_sync(post_title: str, joined: str, comment_count: int) -> str:
-    client = _build_anthropic_client()
     user_content = (
         f"게시물 제목/본문: {post_title or '(제목 없음)'}\n"
         f"수집된 댓글 수: {comment_count}개\n\n"
         f"[댓글 목록]\n{joined}\n\n"
         f"→ 위 항목 구성대로 한국어 분석 요약:"
     )
-    response = client.messages.create(
+    response = call_claude(
+        system_prompt=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_content}],
         model=HAIKU_MODEL,
         max_tokens=MAX_OUTPUT_TOKENS,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
+        cache_system=False,
+        trace_name="sns_comment_analyzer",
     )
-    parts: list[str] = []
-    for block in getattr(response, "content", []) or []:
-        if getattr(block, "type", None) == "text":
-            parts.append(getattr(block, "text", "") or "")
-    return "".join(parts).strip()
+    return response.text.strip()
 
 
 async def analyze_comments(

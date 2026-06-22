@@ -6,7 +6,13 @@ from app.models.account import Account
 from app.models.transaction import Transaction
 from app.models.tax_invoice import TaxInvoice
 from app.models.upload_log import UploadLog
-from app.models.sns import SocialAccount, SocialWeeklySnapshot, SocialPost
+from app.models.sns import (
+    SocialAccount,
+    SocialPost,
+    SocialPostComment,
+    SocialPostMetricSnapshot,
+    SocialWeeklySnapshot,
+)
 from app.models.nas_file import NasFile
 from app.models.form_filler import (
     FormDataSource,
@@ -20,12 +26,14 @@ from app.models.category import Category
 from app.models.counterpart import Counterpart
 from app.models.account_balance_snapshot import AccountBalanceSnapshot
 from app.models.playground import (
+    PlaygroundAttachment,
     PlaygroundMedia,
     PlaygroundMessage,
     PlaygroundSession,
 )
 from app.models.distribution import (
     DistributionBlRecord,
+    DistributionCustomsDeclaration,
     DistributionMessage,
     DistributionPersona,
     DistributionProduct,
@@ -47,6 +55,8 @@ __all__ = [
     "SocialAccount",
     "SocialWeeklySnapshot",
     "SocialPost",
+    "SocialPostMetricSnapshot",
+    "SocialPostComment",
     "NasFile",
     "FormTemplate",
     "FormJob",
@@ -60,6 +70,7 @@ __all__ = [
     "PlaygroundSession",
     "PlaygroundMessage",
     "PlaygroundMedia",
+    "PlaygroundAttachment",
     "DistributionPersona",
     "DistributionBlRecord",
     "DistributionScenario",
@@ -68,4 +79,5 @@ __all__ = [
     "DistributionSendLog",
     "DistributionWeeklySummary",
     "DistributionProduct",
+    "DistributionCustomsDeclaration",
 ]

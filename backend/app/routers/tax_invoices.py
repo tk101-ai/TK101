@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
@@ -42,7 +43,7 @@ async def list_invoices(
 
 @router.patch("/{invoice_id}/transaction", dependencies=[Depends(require_admin)])
 async def link_invoice_to_transaction(
-    invoice_id: str,
+    invoice_id: uuid.UUID,
     transaction_id: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
