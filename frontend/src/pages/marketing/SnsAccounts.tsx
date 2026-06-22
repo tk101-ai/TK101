@@ -44,6 +44,7 @@ interface AccountFormValues {
   page_url?: string;
   external_id?: string;
   is_active: boolean;
+  client?: string;
 }
 
 export default function SnsAccounts() {
@@ -86,6 +87,7 @@ export default function SnsAccounts() {
         page_url: values.page_url ?? null,
         external_id: values.external_id ?? null,
         is_active: values.is_active ?? true,
+        client: values.client?.trim() || null,
       });
       message.success("계정 등록 완료");
       setCreateModal(false);
@@ -106,6 +108,7 @@ export default function SnsAccounts() {
         page_url: values.page_url ?? null,
         external_id: values.external_id ?? null,
         is_active: values.is_active,
+        client: values.client?.trim() || null,
       });
       message.success("계정 정보 수정 완료");
       setEditModal(false);
@@ -252,6 +255,7 @@ export default function SnsAccounts() {
       page_url: record.page_url ?? undefined,
       external_id: record.external_id ?? undefined,
       is_active: record.is_active,
+      client: record.client ?? undefined,
     });
     setEditModal(true);
   };
@@ -268,6 +272,12 @@ export default function SnsAccounts() {
       dataIndex: "language",
       width: 90,
       render: (v: string) => <Tag>{getLanguageLabel(v)}</Tag>,
+    },
+    {
+      title: "브랜드",
+      dataIndex: "client",
+      width: 120,
+      render: (v: string | null) => (v ? <Tag color="purple">{v}</Tag> : "-"),
     },
     { title: "핸들", dataIndex: "handle", width: 180, render: (v: string | null) => v ?? "-" },
     {
@@ -371,6 +381,9 @@ export default function SnsAccounts() {
           <Form.Item name="language" label="어권" rules={[{ required: true, message: "어권을 선택하세요" }]}>
             <Select options={LANGUAGE_OPTIONS} placeholder="어권 선택" />
           </Form.Item>
+          <Form.Item name="client" label="브랜드(광고주)">
+            <Input placeholder="예: 서울시, 신세계" maxLength={32} />
+          </Form.Item>
           <Form.Item name="handle" label="핸들">
             <Input placeholder="@계정명" />
           </Form.Item>
@@ -404,6 +417,9 @@ export default function SnsAccounts() {
           </Form.Item>
           <Form.Item name="language" label="어권" rules={[{ required: true, message: "어권을 선택하세요" }]}>
             <Select options={LANGUAGE_OPTIONS} placeholder="어권 선택" />
+          </Form.Item>
+          <Form.Item name="client" label="브랜드(광고주)">
+            <Input placeholder="예: 서울시, 신세계" maxLength={32} />
           </Form.Item>
           <Form.Item name="handle" label="핸들">
             <Input placeholder="@계정명" />

@@ -464,6 +464,8 @@ async def stats_growth(db: AsyncSession = Depends(get_db)):
             GrowthCard(
                 language=acc.language,
                 platform=acc.platform,
+                handle=acc.handle,
+                client=acc.client,
                 current_followers=current,
                 prev_followers=prev,
                 growth_rate=growth_rate,
