@@ -8,7 +8,7 @@
 ---
 
 ## NOW (다음 세션에 바로)
-- [ ] (여기에 가장 급한 것)
+- [ ] ⭐ **최우선 — 코드 품질/아키텍처 전용 리뷰** (오너 요청). 보안/버그 리뷰와 **다른 렌즈**: 설계가 옳은가 · 더 단순하게 할 수 있나 · 모듈 간 일관성 · 가독성/네이밍 · 테스트 용이성 · 과설계/결합도. 모듈별 병렬(6~8개 동시, 16코어) → 점수+보완목록. 에이전트: code-architect·code-simplifier·type-design-analyzer·comment-analyzer·refactor-cleaner. 보안리뷰(B−, docs/reviews/CODE_REVIEW_FULL_2026-06-22.md)와 합치면 전체 그림 완성. → 끝나면 보완도 병렬로.
 
 ## NEXT (조만간)
 - [ ] **포매터/린터 셋업** — prettier(frontend) + ruff/black(backend) 추가. 현재 미설치라 ECC 품질 훅(`stop:format-typecheck` 등) 포매터 절반이 no-op. 깔면 자동포맷·린트 살아남
@@ -18,7 +18,9 @@
 - [ ] **docwork PR-C** — 검수(LLM-judge)·렌더를 form_filler와 공유화, `form_filler/extractor`를 `services/documents/`로 이전
 
 ## 전체 코드리뷰 후속 (2026-06-22, → docs/reviews/CODE_REVIEW_FULL_2026-06-22.md)
-- [~] **그룹1 보완 병렬 진행 중** — 입력검증→422 · path통일 · React버그(대량fetch/regex/디바운스/5주차) · pool_pre_ping · IntegrityError→409 · 재무 매칭정합 · 에러메시지 일관 · 하드코딩 + 오늘 #1~5 + **D 레이트리밋**(로그인·LLM생성)
+- [x] **그룹1 + D 보완 완료 — PR#59 배포** — 입력검증→422 · path통일 · React버그(대량fetch/regex/디바운스/5주차) · pool_pre_ping · IntegrityError→409 · 토큰무효화 · 매칭 불변식(E1) · 에러메시지 일관 · 하드코딩 + #1~5 + D 레이트리밋(로그인·LLM·생성, 신사업팀 접근 보존). 6에이전트 병렬→통합→검증→배포
+- [ ] **G2 후속**: ProductsPage 서버사이드 페이지네이션(이번엔 cap+경고만, 회사별집계 때문에 보류) · MappingTable 부분갱신(키스토크 디바운스는 완료, 부모 PATCH+refetch는 남음)
+- [ ] **H3 후속**: `UserCreate.password` min/max_length (schemas/user.py — 소유밖이라 미처리)
 - [ ] ⚠️논의 **C: localStorage JWT → httpOnly 쿠키 단일화** — XSS 방어 강화지만 로그인 흐름 변경 위험, 신중히 테스트 후 (보류, 추후 논의)
 - [ ] ⚠️논의 **S-1: 테스트 인프라 구축** — 인증·금액·매칭 핵심 로직 pytest/vitest 안전망(현재 8개뿐). 보완의 전제조건이라 별도 큰 작업
 - [ ] **결정기록**: NAS검색 = **전사 공유 유지**(부서 스코핑 OFF 의도적). confidential 플래그 필터링은 추후 검토. by-path 다운로드 인가도 추후.
