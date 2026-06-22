@@ -256,6 +256,40 @@ export const importMarketing1Excel = (file: File) => {
 export const triggerCollect = (accountId: string, options: { full?: boolean } = {}) =>
   api.post<SnsIngestResponse>(`/api/sns/collect/${accountId}`, null, { params: options });
 
+export interface RefreshAccountResult {
+  account_id: string;
+  platform: Platform;
+  language: Language;
+  handle: string | null;
+  ok: boolean;
+  posts_added: number;
+  posts_updated: number;
+  snapshots_added: number;
+  snapshots_updated: number;
+  metrics_processed: number;
+  errors: string[];
+}
+
+export interface RefreshAllResponse {
+  ok_count: number;
+  failed_count: number;
+  total: number;
+  include_metrics: boolean;
+  results: RefreshAccountResult[];
+}
+
+// 전체 갱신 — 모든 활성 계정의 게시물/팔로워(+옵션 메트릭)를 동기 일괄 수집(관리자).
+// 계정별 실패는 격리되어 응답 results 에 담긴다. 갱신은 수 초~수십 초가 걸릴 수 있다.
+export const refreshAll = (
+  options: { includeMetrics?: boolean; period?: "daily" | "weekly" } = {},
+) =>
+  api.post<RefreshAllResponse>("/api/sns/refresh-all", null, {
+    params: {
+      include_metrics: options.includeMetrics ?? true,
+      period: options.period ?? "daily",
+    },
+  });
+
 export const resetAccountPosts = (accountId: string) =>
   api.delete<{ deleted: number }>(`/api/sns/accounts/${accountId}/posts`);
 

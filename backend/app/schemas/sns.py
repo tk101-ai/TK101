@@ -216,6 +216,39 @@ class TrendPoint(BaseModel):
     followers: int
 
 
+class RefreshAccountResult(BaseModel):
+    """전체 갱신 시 계정 1개의 처리 결과 (성공/실패 격리 단위)."""
+
+    account_id: uuid.UUID
+    platform: str
+    language: str
+    handle: str | None = None
+    ok: bool
+    # 게시물/팔로워 수집 단계 (모든 SUPPORTED_PLATFORMS).
+    posts_added: int = 0
+    posts_updated: int = 0
+    snapshots_added: int = 0
+    snapshots_updated: int = 0
+    # 메트릭 수집 단계 (METRICS_PLATFORMS=fb/ig 만 해당).
+    metrics_processed: int = 0
+    # 실패/부분실패 사유 (한국어). 빈 배열이면 완전 성공.
+    errors: list[str] = Field(default_factory=list)
+
+
+class RefreshAllResponse(BaseModel):
+    """전체 갱신 결과 요약 — 계정별 성공/실패 격리.
+
+    `ok_count`/`failed_count` 는 계정 단위 집계. 게시물 수집은 성공했으나 메트릭만
+    실패한 부분 실패는 그 계정을 ok=True 로 두되 사유를 `results[].errors` 에 남긴다.
+    """
+
+    ok_count: int
+    failed_count: int
+    total: int
+    include_metrics: bool
+    results: list[RefreshAccountResult] = Field(default_factory=list)
+
+
 class AccountDeleteResponse(BaseModel):
     """계정 삭제 결과. hard=False면 소프트삭제(is_active=False), True면 영구 삭제."""
 

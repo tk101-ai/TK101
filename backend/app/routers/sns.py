@@ -37,6 +37,8 @@ from app.schemas.sns import (
     PostCreate,
     PostRead,
     PostUpdate,
+    RefreshAccountResult,
+    RefreshAllResponse,
     SnapshotCreate,
     SnapshotRead,
     TopPost,
@@ -1403,6 +1405,128 @@ async def reset_account_posts(account_id: str, db: AsyncSession = Depends(get_db
     deleted = delete_result.rowcount or 0
     await db.commit()
     return {"deleted": deleted}
+
+
+# ---------------- 전체 갱신 (사용자 트리거) ----------------
+
+
+async def _refresh_one_account(
+    db: AsyncSession,
+    account: SocialAccount,
+    period: str,
+    include_metrics: bool,
+) -> RefreshAccountResult:
+    """계정 1개 갱신 — 게시물/팔로워 수집 + (옵션) 메트릭 수집. 실패는 격리.
+
+    1) `_collect_for_account` 로 게시물·팔로워 스냅샷 수집(모든 플랫폼).
+    2) include_metrics 면 fb/ig 한정 `_collect_metrics_for_account` 로 메트릭 수집.
+       메트릭만 실패해도 1)이 성공했으면 계정은 ok=True(부분 성공)로 본다.
+    각 단계는 자체 commit 을 수행하므로, 한 단계 실패 시 rollback 후 다음으로 진행한다.
+    """
+    label = f"{account.platform}/{account.language}"
+    posts_ok = False
+    errors: list[str] = []
+    posts_added = posts_updated = snapshots_added = snapshots_updated = 0
+    metrics_processed = 0
+
+    # 1) 게시물 + 팔로워 스냅샷
+    try:
+        collected = await _collect_for_account(db, account)
+        posts_added = collected.posts_added
+        posts_updated = collected.posts_updated
+        snapshots_added = collected.snapshots_added
+        snapshots_updated = collected.snapshots_updated
+        posts_ok = True
+    except HTTPException as exc:
+        await db.rollback()
+        errors.append(f"게시물 수집: {exc.detail}")
+    except Exception as exc:  # noqa: BLE001 — 계정 단위 격리
+        await db.rollback()
+        errors.append(f"게시물 수집 실패: {type(exc).__name__}")
+
+    # 2) 메트릭 (fb/ig 한정, 동기 상한 적용)
+    if include_metrics and account.platform in METRICS_PLATFORMS:
+        try:
+            metrics = await _collect_metrics_for_account(
+                db, account, period, max_posts=METRICS_MAX_POSTS_PER_RUN
+            )
+            metrics_processed = metrics.posts_processed
+            # 게시물별 부분 실패는 metrics.failures 에 누적됨 → 일부만 노출.
+            if metrics.failures:
+                errors.extend(f"메트릭: {f}" for f in metrics.failures[:3])
+        except HTTPException as exc:
+            await db.rollback()
+            errors.append(f"메트릭 수집: {exc.detail}")
+        except Exception as exc:  # noqa: BLE001 — 메트릭 실패는 게시물 성공을 무효화하지 않음
+            await db.rollback()
+            errors.append(f"메트릭 수집 실패: {type(exc).__name__}")
+
+    return RefreshAccountResult(
+        account_id=account.id,
+        platform=account.platform,
+        language=account.language,
+        handle=account.handle,
+        ok=posts_ok,
+        posts_added=posts_added,
+        posts_updated=posts_updated,
+        snapshots_added=snapshots_added,
+        snapshots_updated=snapshots_updated,
+        metrics_processed=metrics_processed,
+        errors=errors,
+    )
+
+
+@router.post(
+    "/refresh-all",
+    response_model=RefreshAllResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def refresh_all(
+    include_metrics: bool = Query(
+        True,
+        description="True면 fb/ig 게시물 메트릭(조회/도달/좋아요 등)까지 수집. "
+        "False면 게시물·팔로워만 빠르게 갱신.",
+    ),
+    period: str = Query("daily", description="메트릭 수집 period: daily | weekly"),
+    db: AsyncSession = Depends(get_db),
+):
+    """사용자(관리자)가 누르는 '전체 갱신' — 모든 활성 계정을 동기 일괄 수집.
+
+    내부 cron 용 `/api/internal/sns/collect-all`(X-Internal-Token) 과 동일한 수집 로직
+    (`_collect_for_account`, `_collect_metrics_for_account`)을 재사용하되, 일반 SNS 모듈
+    권한(라우터 `require_module(MARKETING_SNS)`) + 관리자(`require_admin`)로 게이트한다.
+
+    계정별 실패는 격리(`_refresh_one_account`)하고 계정 단위 성공/실패 요약을 반환한다.
+    동기 처리: 계정 수가 소수(현재 3개 수준)이고 nginx /api/ 타임아웃이 300s 이므로
+    동기로 충분. 계정·게시물이 크게 늘어 300s 초과가 우려되면 비동기 잡(설계 §2.3 안 A)으로
+    전환한다(현재는 미적용).
+    """
+    if period not in VALID_PERIODS:
+        raise HTTPException(status_code=422, detail="period 는 daily 또는 weekly 여야 합니다")
+
+    accounts_q = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.is_active.is_(True),
+            SocialAccount.platform.in_(SUPPORTED_PLATFORMS),
+        )
+    )
+    accounts = accounts_q.scalars().all()
+
+    results: list[RefreshAccountResult] = []
+    for account in accounts:
+        results.append(
+            await _refresh_one_account(db, account, period, include_metrics)
+        )
+
+    ok_count = sum(1 for r in results if r.ok)
+    failed_count = sum(1 for r in results if not r.ok)
+    return RefreshAllResponse(
+        ok_count=ok_count,
+        failed_count=failed_count,
+        total=len(results),
+        include_metrics=include_metrics,
+        results=results,
+    )
 
 
 # ---------------- 내부(시스템) 라우터 ----------------
