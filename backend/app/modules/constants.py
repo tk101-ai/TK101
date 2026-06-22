@@ -67,3 +67,6 @@ class Module(str, Enum):
     # T9 트랙: 신사업유통 텔레그램 대화 자동화 (T9 PRD).
     # 신사업팀 + admin 접근. 검수/페르소나 관리 등 세부 권한은 라우터 단 require_admin 으로 추가 게이팅.
     DISTRIBUTION = "distribution"
+    # PR-E #1: 문서 토큰/비용 사용량 패널 — admin only. ALL_MODULES 로 admin 만 자동 부여.
+    # 백엔드 권위는 GET /api/documents/admin/usage 의 require_admin(403).
+    DOCUMENTS_ADMIN_USAGE = "documents_admin_usage"

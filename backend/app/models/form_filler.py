@@ -47,6 +47,14 @@ FormJobStatusType = ENUM(
     create_type=False,
 )
 
+# 잡 종류 — fill(양식 작성) / generate(문서 생성). 마이그레이션 033 에서 생성.
+FormJobKindType = ENUM(
+    "fill",
+    "generate",
+    name="form_job_kind",
+    create_type=False,
+)
+
 FormSourceKindType = ENUM(
     "nas_file",
     "user_upload",
@@ -121,6 +129,12 @@ class FormJob(Base):
         nullable=False,
     )
     department: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # fill(양식 작성) / generate(문서 생성). server_default 'fill' 로 기존 fill 잡 호환.
+    kind: Mapped[str] = mapped_column(
+        FormJobKindType, nullable=False, server_default="fill"
+    )
+    # 문서 생성(generate) 잡의 출처 모드(rag/uploaded/both). fill 잡은 NULL.
+    source_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(FormJobStatusType, nullable=False)
     output_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     cost_usd: Mapped[Decimal] = mapped_column(

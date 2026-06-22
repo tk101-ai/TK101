@@ -100,7 +100,7 @@ export default function DocGenPage() {
       setSections(res.sections);
       setFeedbacks({});
       setReview(null);
-      message.success(`초안 생성 완료 (참고 ${res.sources.length}건 · $${res.cost_usd.toFixed(4)})`);
+      message.success(`초안 생성 완료 (참고 ${res.sources.length}건)`);
     } catch {
       message.error("문서 생성 실패");
     } finally {
@@ -131,7 +131,7 @@ export default function DocGenPage() {
       });
       updateSection(i, res.section);
       setFeedbacks((prev) => ({ ...prev, [i]: "" }));
-      message.success(`섹션 재생성 완료 ($${res.cost_usd.toFixed(4)})`);
+      message.success("섹션 재생성 완료");
     } catch {
       message.error("섹션 재생성 실패");
     } finally {
@@ -241,7 +241,7 @@ export default function DocGenPage() {
         files,
       });
       setReview(res);
-      message.success(`품질 검증 완료 — 점수 ${res.overall_score}/100 ($${res.cost_usd.toFixed(4)})`);
+      message.success(`품질 검증 완료 — 점수 ${res.overall_score}/100`);
     } catch {
       message.error("품질 검증 실패");
     } finally {

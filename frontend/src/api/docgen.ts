@@ -30,7 +30,7 @@ export interface DocGenResponse {
   sections: DocSection[];
   markdown: string;
   sources: DocSourceRef[];
-  cost_usd: number;
+  // cost_usd 는 관리자 전용 패널로 이전 — 일반 응답에서 제외.
   model: string;
 }
 
@@ -60,7 +60,6 @@ export interface RegenerateSectionRequest {
 
 export interface RegenerateSectionResponse {
   section: DocSection;
-  cost_usd: number;
   model: string;
 }
 
@@ -142,7 +141,6 @@ export interface DocReviewResponse {
   summary: string;
   section_reviews: DocSectionReview[];
   missing: string[];
-  cost_usd: number;
   model: string;
 }
 
