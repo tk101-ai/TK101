@@ -13,51 +13,39 @@ import asyncio
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     HTTPException,
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database import async_session, get_db
+from app.database import get_db
 from app.dependencies import get_current_user, require_admin, require_module
-from app.models.nas_file import NasFile, NasTextChunk
+from app.models.nas_file import NasFile
 from app.models.user import User
 from app.modules.constants import Module
 from app.schemas.nas_file import (
     NasCorpusDeptStat,
     NasCorpusStats,
     NasIndexProgress,
-    NasIndexRunRequest,
-    NasIndexRunResponse,
     NasSearchHit,
     NasSearchRequest,
     NasSearchResponse,
     NasStatus,
     NasTopFoldersResponse,
 )
-from app.services.nas_search import (
-    INDEX_PROGRESS,
-    SUMMARY_PROGRESS,
-    is_indexing,
-    is_summarizing,
-    run_indexing,
-)
-from app.services.nas_search.embedder import embed_passages
+from app.services.nas_search import INDEX_PROGRESS, SUMMARY_PROGRESS
 from app.services.nas_search.hybrid import (
     DEFAULT_RRF_K as RRF_K,
     reciprocal_rank_fusion,
     tokenize_query,
 )
-from app.services.nas_search.indexer import build_filename_header
 from app.services.nas_search.query_embedder import embed_query as embed_query_vec
 from app.services.nas_search.reranker import rerank as rerank_passages
 from app.services.nas_search.romanize import has_hangul, romanize_hangul
@@ -67,7 +55,6 @@ from app.services.nas_search.qdrant_search import (
     keyword_arm,
     vector_arm,
 )
-from app.services.nas_search.summarizer import summarize_document
 
 logger = logging.getLogger(__name__)
 
@@ -121,17 +108,17 @@ async def get_corpus_stats() -> NasCorpusStats:
 
 
 def _indexing_disabled() -> None:
-    """인앱 인덱싱/backfill 비활성(deprecated).
+    """인앱 인덱싱/backfill 비활성(deprecated/410).
 
-    이 경로들은 레거시 e5(1024-dim)→pgvector(nas_text_chunks)에 적재하는데, 현재 검색은
-    Qwen3(2560-dim)→Qdrant docs_text 단일 소스라 **여기서 만든 임베딩은 검색에 보이지 않는다**
-    (죽은 데이터 + backfill_summaries는 Haiku 비용까지 발생). 실제 적재는 외부 파이프라인
-    /home/ubuntu/tk101-rag 가 담당. 프론트 인덱싱 UI도 제거됨. 혼선·비용 방지를 위해 비활성.
+    검색 코퍼스는 Qwen3(2560-dim)→Qdrant docs_text 단일 소스이며, 실제 적재는 외부
+    파이프라인 /home/ubuntu/tk101-rag 가 담당한다. 과거 인앱 인덱싱은 레거시
+    e5(1024-dim)→pgvector(nas_text_chunks)에 적재했으나 검색 미반영 dead data였고,
+    해당 테이블·pgvector 확장은 032 마이그레이션에서 제거됨. 혼선·비용 방지를 위해 비활성.
     """
     raise HTTPException(
         status_code=status.HTTP_410_GONE,
         detail=(
-            "인앱 인덱싱/backfill 은 비활성화되었습니다(레거시 e5/pgvector — 검색 미반영). "
+            "인앱 인덱싱/backfill 은 제거되었습니다(레거시 e5/pgvector — 검색 미반영). "
             "임베딩 적재는 tk101-rag 파이프라인(Qwen3/Qdrant)을 사용하세요."
         ),
     )
@@ -139,132 +126,37 @@ def _indexing_disabled() -> None:
 
 @router.post(
     "/index/run",
-    response_model=NasIndexRunResponse,
-    status_code=status.HTTP_202_ACCEPTED,
+    status_code=status.HTTP_410_GONE,
     dependencies=[Depends(require_admin)],
 )
-async def start_indexing(
-    background_tasks: BackgroundTasks,
-    body: NasIndexRunRequest = NasIndexRunRequest(),
-) -> NasIndexRunResponse:
-    """[deprecated/410] 레거시 e5/pgvector 인덱싱 — 검색 미반영이라 비활성."""
+async def start_indexing() -> None:
+    """[deprecated/410] 레거시 e5/pgvector 인덱싱 — 제거됨."""
     _indexing_disabled()
-    if is_indexing():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="이미 인덱싱이 진행 중입니다",
-        )
-    if not _mount_ok(settings.nas_mount_path):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"NAS 마운트를 읽을 수 없습니다: {settings.nas_mount_path}",
-        )
-
-    async def _runner() -> None:
-        try:
-            await run_indexing(full_rescan=body.full_rescan, subdir=body.subdir)
-        except Exception:  # noqa: BLE001
-            logger.exception("NAS 인덱싱 백그라운드 태스크 실패")
-
-    background_tasks.add_task(_runner)
-    started_at = datetime.now(tz=timezone.utc)
-    INDEX_PROGRESS.running = True
-    INDEX_PROGRESS.started_at = started_at
-    # task_id는 단일 워커 프로세스 가정의 임시 식별자(타임스탬프).
-    return NasIndexRunResponse(
-        task_id=started_at.isoformat(),
-        status="running",
-    )
 
 
 @router.post(
     "/index/backfill_filenames",
-    status_code=status.HTTP_202_ACCEPTED,
+    status_code=status.HTTP_410_GONE,
     dependencies=[Depends(require_admin)],
 )
-async def start_filename_backfill(
-    background_tasks: BackgroundTasks,
-) -> NasIndexRunResponse:
-    """v0.6.7 — 모든 nas_files에 파일명 청크(chunk_index=-1) 1개를 추가/갱신.
-
-    본문 인덱싱은 건드리지 않고 파일명+상대경로 단일 청크만 처리.
-    이미 존재하는 chunk_index=-1은 새 임베딩으로 덮어쓰기 (idempotent).
-    [deprecated/410] 레거시 e5/pgvector — 검색 미반영이라 비활성.
-    """
+async def start_filename_backfill() -> None:
+    """[deprecated/410] 레거시 파일명 청크 backfill — 제거됨."""
     _indexing_disabled()
-    if is_indexing():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="인덱싱 또는 backfill이 이미 진행 중입니다",
-        )
-
-    async def _runner() -> None:
-        try:
-            await _run_filename_backfill()
-        except Exception:  # noqa: BLE001
-            logger.exception("파일명 backfill 실패")
-
-    background_tasks.add_task(_runner)
-    started_at = datetime.now(tz=timezone.utc)
-    INDEX_PROGRESS.running = True
-    INDEX_PROGRESS.started_at = started_at
-    INDEX_PROGRESS.current_path = "(backfill_filenames)"
-    return NasIndexRunResponse(task_id=started_at.isoformat(), status="running")
 
 
-async def _run_filename_backfill() -> None:
-    """모든 nas_files를 순회. chunk_index=-1 파일명 청크 추가/갱신."""
-    async with async_session() as db:
-        files = (await db.execute(select(NasFile))).scalars().all()
-
-    INDEX_PROGRESS.reset(total=len(files))
-    INDEX_PROGRESS.current_path = "(backfill_filenames)"
-    logger.info("파일명 backfill 시작 — 대상 %d개", len(files))
-
-    try:
-        for f in files:
-            try:
-                content = build_filename_header(f.name, f.path, settings.nas_mount_path)
-                if not content or content == "()":
-                    INDEX_PROGRESS.processed += 1
-                    continue
-                vec = await asyncio.to_thread(embed_passages, [content])
-                async with async_session() as db2:
-                    await db2.execute(
-                        delete(NasTextChunk).where(
-                            NasTextChunk.file_id == f.id,
-                            NasTextChunk.chunk_index == -1,
-                        )
-                    )
-                    db2.add(
-                        NasTextChunk(
-                            file_id=f.id,
-                            chunk_index=-1,
-                            content=content,
-                            embedding=vec[0].tolist(),
-                            token_count=len(content),
-                        )
-                    )
-                    await db2.commit()
-            except Exception as exc:  # noqa: BLE001
-                INDEX_PROGRESS.errors += 1
-                INDEX_PROGRESS.last_error = f"{f.path}: {exc}"
-                logger.exception("backfill 실패: %s", f.path)
-            finally:
-                INDEX_PROGRESS.processed += 1
-                INDEX_PROGRESS.current_path = f.path
-    finally:
-        INDEX_PROGRESS.finish()
-        logger.info(
-            "파일명 backfill 종료 — 처리 %d/%d, 실패 %d",
-            INDEX_PROGRESS.processed,
-            INDEX_PROGRESS.total,
-            INDEX_PROGRESS.errors,
-        )
+@router.post(
+    "/index/backfill_summaries",
+    status_code=status.HTTP_410_GONE,
+    dependencies=[Depends(require_admin)],
+)
+async def start_summary_backfill() -> None:
+    """[deprecated/410] 레거시 요약 청크 backfill — 제거됨."""
+    _indexing_disabled()
 
 
 @router.get("/index/status", response_model=NasIndexProgress)
 async def get_index_status() -> NasIndexProgress:
+    """인덱싱 진행률(legacy 호환). 인앱 인덱싱은 비활성이라 항상 idle."""
     return NasIndexProgress(
         running=INDEX_PROGRESS.running,
         processed=INDEX_PROGRESS.processed,
@@ -277,60 +169,9 @@ async def get_index_status() -> NasIndexProgress:
     )
 
 
-# v0.7.x — Claude Haiku 4.5 기반 한국어 키워드 요약 backfill ----------------------
-# chunk_index=-2 청크로 임베딩 저장. 본 인덱싱(INDEX_PROGRESS)과 분리된 별도 진행률.
-# Anthropic API 호출이 자원 충돌 없이 본 인덱싱과 동시 실행 가능.
-
-# 요약 backfill 동시성 — 동시 호출 수. 너무 높이면 Anthropic rate limit 걸림.
-SUMMARY_CONCURRENCY = 3
-# 본문 텍스트가 너무 짧으면(파일명만 있는 경우 등) skip.
-SUMMARY_MIN_TEXT_CHARS = 30
-
-
-@router.post(
-    "/index/backfill_summaries",
-    status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(require_admin)],
-)
-async def start_summary_backfill(
-    background_tasks: BackgroundTasks,
-) -> NasIndexRunResponse:
-    """v0.7.x — 모든 nas_files에 키워드 요약 청크(chunk_index=-2)를 추가/갱신.
-
-    Claude Haiku 4.5 호출로 100~200자 한국어 키워드 요약을 생성해
-    본문/파일명 청크와 함께 cosine 매칭되도록 임베딩 저장.
-
-    비용 추산: 12K 파일 × Haiku 4.5 ≈ $15~20.
-    [deprecated/410] 레거시 e5/pgvector — 검색 미반영인데 Haiku 비용만 발생해 비활성.
-    """
-    _indexing_disabled()
-    if is_summarizing():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="이미 요약 backfill이 진행 중입니다",
-        )
-    if not settings.anthropic_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ANTHROPIC_API_KEY가 설정되지 않았습니다",
-        )
-
-    async def _runner() -> None:
-        try:
-            await _run_summary_backfill()
-        except Exception:  # noqa: BLE001
-            logger.exception("요약 backfill 실패")
-
-    background_tasks.add_task(_runner)
-    started_at = datetime.now(tz=timezone.utc)
-    SUMMARY_PROGRESS.running = True
-    SUMMARY_PROGRESS.started_at = started_at
-    SUMMARY_PROGRESS.current_path = "(backfill_summaries)"
-    return NasIndexRunResponse(task_id=started_at.isoformat(), status="running")
-
-
 @router.get("/index/summary_status", response_model=NasIndexProgress)
 async def get_summary_status() -> NasIndexProgress:
+    """요약 backfill 진행률(legacy 호환). 비활성이라 항상 idle."""
     return NasIndexProgress(
         running=SUMMARY_PROGRESS.running,
         processed=SUMMARY_PROGRESS.processed,
@@ -341,97 +182,6 @@ async def get_summary_status() -> NasIndexProgress:
         finished_at=SUMMARY_PROGRESS.finished_at,
         last_error=SUMMARY_PROGRESS.last_error,
     )
-
-
-async def _load_file_text(file_id) -> str:
-    """파일의 본문 청크(chunk_index >= 0)를 join. -1/-2 메타 청크 제외."""
-    async with async_session() as db:
-        result = await db.execute(
-            select(NasTextChunk.content)
-            .where(
-                NasTextChunk.file_id == file_id,
-                NasTextChunk.chunk_index >= 0,
-            )
-            .order_by(NasTextChunk.chunk_index.asc())
-        )
-        contents = [row[0] for row in result.all() if row[0]]
-    return "\n\n".join(contents)
-
-
-async def _process_one_summary(file: NasFile, semaphore: asyncio.Semaphore) -> None:
-    """파일 1건 요약 + 임베딩 + DB upsert. 실패 시 SUMMARY_PROGRESS.errors++."""
-    async with semaphore:
-        SUMMARY_PROGRESS.current_path = file.path
-        try:
-            text = await _load_file_text(file.id)
-            if not text or len(text.strip()) < SUMMARY_MIN_TEXT_CHARS:
-                # 본문 짧으면 요약 가치 낮음 → skip.
-                return
-
-            summary = await summarize_document(text, file.name or "")
-            if not summary:
-                return
-
-            # 임베딩은 동기 CPU 작업 → 스레드.
-            vec = await asyncio.to_thread(embed_passages, [summary])
-            async with async_session() as db:
-                await db.execute(
-                    delete(NasTextChunk).where(
-                        NasTextChunk.file_id == file.id,
-                        NasTextChunk.chunk_index == -2,
-                    )
-                )
-                db.add(
-                    NasTextChunk(
-                        file_id=file.id,
-                        chunk_index=-2,
-                        content=summary,
-                        embedding=vec[0].tolist(),
-                        token_count=len(summary),
-                    )
-                )
-                await db.commit()
-        except Exception as exc:  # noqa: BLE001
-            SUMMARY_PROGRESS.errors += 1
-            SUMMARY_PROGRESS.last_error = f"{file.path}: {exc}"
-            SUMMARY_PROGRESS.failures.append(SUMMARY_PROGRESS.last_error)
-            logger.exception("요약 backfill 실패: %s", file.path)
-        finally:
-            SUMMARY_PROGRESS.processed += 1
-
-
-async def _run_summary_backfill() -> None:
-    """모든 nas_files 순회 — Haiku 4.5 요약 → chunk_index=-2 청크 upsert.
-
-    동시성은 SUMMARY_CONCURRENCY로 제한 (Anthropic rate limit 보호).
-    실패해도 다음 파일로 진행. 본 인덱싱(INDEX_PROGRESS)과 분리된 진행률 사용.
-    """
-    async with async_session() as db:
-        files = (await db.execute(select(NasFile))).scalars().all()
-
-    SUMMARY_PROGRESS.reset(total=len(files))
-    SUMMARY_PROGRESS.current_path = "(backfill_summaries)"
-    logger.info(
-        "요약 backfill 시작 — 대상 %d개 (동시성=%d)",
-        len(files),
-        SUMMARY_CONCURRENCY,
-    )
-
-    semaphore = asyncio.Semaphore(SUMMARY_CONCURRENCY)
-    try:
-        # gather로 묶되 semaphore가 실제 동시성을 제한.
-        await asyncio.gather(
-            *(_process_one_summary(f, semaphore) for f in files),
-            return_exceptions=True,
-        )
-    finally:
-        SUMMARY_PROGRESS.finish()
-        logger.info(
-            "요약 backfill 종료 — 처리 %d/%d, 실패 %d",
-            SUMMARY_PROGRESS.processed,
-            SUMMARY_PROGRESS.total,
-            SUMMARY_PROGRESS.errors,
-        )
 
 
 def _build_snippet(content: str) -> str:

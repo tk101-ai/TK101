@@ -7,7 +7,7 @@ from app.models.transaction import Transaction
 from app.models.tax_invoice import TaxInvoice
 from app.models.upload_log import UploadLog
 from app.models.sns import SocialAccount, SocialWeeklySnapshot, SocialPost
-from app.models.nas_file import NasFile, NasTextChunk
+from app.models.nas_file import NasFile
 from app.models.form_filler import (
     FormDataSource,
     FormJob,
@@ -48,7 +48,6 @@ __all__ = [
     "SocialWeeklySnapshot",
     "SocialPost",
     "NasFile",
-    "NasTextChunk",
     "FormTemplate",
     "FormJob",
     "FormDataSource",
