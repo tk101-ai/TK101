@@ -7,6 +7,9 @@ from pydantic import BaseModel, Field
 
 DocType = Literal["제안서", "계획서", "보고서", "일반"]
 
+# 출처 모드 — 회사 NAS RAG만 / 사용자 업로드만 / 둘다.
+SourceMode = Literal["rag", "uploaded", "both"]
+
 
 class DocGenRequest(BaseModel):
     topic: str = Field(min_length=2, max_length=4000, description="작성 요구/주제")
