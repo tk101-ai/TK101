@@ -4,7 +4,7 @@
 회사 자료를 끌어와 LLM이 제안서/계획서/보고서 초안을 구조화 생성한다. 생성 결과는
 마크다운 미리보기 + 섹션 구조로 반환하고, 별도 엔드포인트에서 .docx로 렌더한다.
 
-재사용: form_filler.nas_bridge(Qdrant RAG), form_filler.llm_client(call_claude).
+재사용: nas_search.bridge(Qdrant RAG), llm.client(call_claude).
 """
 from app.services.docgen.docx_builder import build_docx
 from app.services.docgen.generator import (

@@ -11,7 +11,7 @@
 4. JSON 을 CustomsRow 로 매핑하고 reverse_calc_actual_price 로 실가 역산.
 
 설계 메모:
-- LLM 호출은 ``app.services.form_filler.llm_client.call_claude`` 어댑터를 그대로
+- LLM 호출은 ``app.services.llm.client.call_claude`` 어댑터를 그대로
   재사용한다 — Langfuse 트레이스/비용 계산/캐싱 정책이 한 곳에 모인다.
 - 나중에 텐센트 통합 API 로 전환할 때는 어댑터(call_claude) 한 곳만 텐센트
   엔드포인트로 교체하면 된다. 호출자(이 모듈)는 시그니처를 보고 변경 없음.
@@ -33,7 +33,7 @@ from app.services.distribution.customs_parser import (
     CustomsRow,
     reverse_calc_actual_price,
 )
-from app.services.form_filler.llm_client import call_claude
+from app.services.llm.client import call_claude
 
 logger = logging.getLogger(__name__)
 

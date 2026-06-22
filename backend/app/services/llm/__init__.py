@@ -1,7 +1,7 @@
 """공통 LLM 모듈 (M-7 클라이언트 이원화 정리).
 
 TK101 은 두 LLM 클라이언트를 운영한다:
-- ``app.services.form_filler.llm_client``: Anthropic SDK 동기 호출 (form_filler/docgen).
+- ``app.services.llm.client``: Anthropic SDK 동기 호출 (form_filler/docgen).
 - ``app.services.playground.tencent_aigc_client``: Tencent MaaS OpenAI 호환 async 스트리밍 (playground).
 
 이 패키지는 두 클라이언트가 **공유**하는 횡단 관심사를 단일 소스로 모은다:

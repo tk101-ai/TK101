@@ -2,7 +2,7 @@
 
 채팅 답변 전에 회사 NAS 문서(Qdrant 코퍼스, 68만+ 청크)에서 관련 청크를 검색해
 LLM system 컨텍스트로 주입한다. 검색 인프라는 문서작성 모듈과 동일한
-``form_filler.nas_bridge.search_relevant_chunks`` 를 **재사용**(읽기/import 만)한다.
+``nas_search.bridge.search_relevant_chunks`` 를 **재사용**(읽기/import 만)한다.
 
 설계 원칙(MVP):
 - 임베딩/검색 실패는 채팅을 막지 않는다 — 경고 로깅 후 빈 결과로 graceful fallback.
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from app.services.form_filler.nas_bridge import (
+from app.services.nas_search.bridge import (
     NasChunkHit,
     search_relevant_chunks,
 )

@@ -22,7 +22,7 @@ from typing import Any
 
 from app.config import settings
 from app.services.form_filler import guardrails, prompts
-from app.services.form_filler.llm_client import LLMResponse, call_claude
+from app.services.llm.client import LLMResponse, call_claude
 
 logger = logging.getLogger(__name__)
 

@@ -20,7 +20,7 @@ from collections import deque
 from typing import Literal
 
 from app.config import settings
-from app.services.form_filler.llm_client import LLMResponse, call_claude
+from app.services.llm.client import LLMResponse, call_claude
 
 logger = logging.getLogger(__name__)
 

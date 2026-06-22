@@ -66,7 +66,8 @@ from app.database import get_db
 from app.dependencies import get_current_user, require_internal_token, require_module
 from app.models.user import User
 from app.modules.constants import Module
-from app.services.form_filler import analyzer, extractor, guardrails, mapper, nas_bridge, renderer
+from app.services.form_filler import analyzer, extractor, guardrails, mapper, renderer
+from app.services.nas_search import bridge as nas_bridge
 
 logger = logging.getLogger(__name__)
 
