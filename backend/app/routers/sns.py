@@ -1,10 +1,13 @@
 import io
 import logging
 import os
+import urllib.parse
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import Integer, and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,8 +51,26 @@ from app.schemas.sns import (
     WeeklyPostCountRow,
 )
 from app.services.sns_collectors.base import BaseCollector, CollectorError
+from app.services.sns_export import (
+    build_content_status_workbook,
+    build_posts_workbook,
+    build_snapshots_workbook,
+)
 
 logger = logging.getLogger(__name__)
+
+# .xlsx MIME — 내보내기 응답에 쓴다.
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _xlsx_response(buf: io.BytesIO, filename: str) -> StreamingResponse:
+    """openpyxl 바이트를 attachment .xlsx 다운로드로 감싼다(UTF-8 파일명)."""
+    quoted = urllib.parse.quote(filename)
+    return StreamingResponse(
+        buf,
+        media_type=_XLSX_MIME,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
+    )
 
 # 자동 수집 가능한 플랫폼. Collector 추가 시 여기에 등록.
 SUPPORTED_PLATFORMS = ("youtube", "facebook", "instagram")
@@ -500,6 +521,136 @@ async def stats_weekly_posts(
         by_account.values(),
         key=lambda x: (x.platform, x.language, x.handle or ""),
     )
+
+
+# ---------------- 엑셀 내보내기 (읽기전용 다운로드) ----------------
+
+
+@router.get("/export/content-status")
+async def export_content_status(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """콘텐츠 현황(계정별 주차별 게재건수 + 합계) → .xlsx.
+
+    페이지와 동일한 stats_weekly_posts 집계를 재사용한다. 계정 식별 컬럼
+    (브랜드/플랫폼/어권/핸들)을 포함하며 특정 발주처를 하드코딩하지 않는다.
+    """
+    rows = await stats_weekly_posts(year=year, month=month, db=db)
+    buf = build_content_status_workbook(rows)
+    return _xlsx_response(buf, f"콘텐츠현황_{year}-{month:02d}.xlsx")
+
+
+@router.get("/export/snapshots")
+async def export_snapshots(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """주간 팔로워(계정별 1~5주차) → .xlsx.
+
+    snapshots 쿼리(social_weekly_snapshots × social_accounts)를 재사용해
+    계정별로 주차 팔로워 수를 피벗한다. 계정이 추가되면 자동 반영된다.
+    """
+    q = (
+        select(
+            SocialAccount.id.label("account_id"),
+            SocialAccount.client.label("client"),
+            SocialAccount.platform.label("platform"),
+            SocialAccount.language.label("language"),
+            SocialAccount.handle.label("handle"),
+            SocialWeeklySnapshot.week_number.label("week_number"),
+            SocialWeeklySnapshot.followers.label("followers"),
+        )
+        .join(SocialAccount, SocialAccount.id == SocialWeeklySnapshot.account_id)
+        .where(
+            SocialWeeklySnapshot.year == year,
+            SocialWeeklySnapshot.month == month,
+        )
+    )
+    result = await db.execute(q)
+
+    # 계정별로 주차(1~5) 팔로워를 피벗.
+    by_account: dict[uuid.UUID, SimpleNamespace] = {}
+    for r in result.all():
+        row = by_account.get(r.account_id)
+        if row is None:
+            row = SimpleNamespace(
+                client=r.client,
+                platform=r.platform,
+                language=r.language,
+                handle=r.handle,
+                week1=None,
+                week2=None,
+                week3=None,
+                week4=None,
+                week5=None,
+            )
+            by_account[r.account_id] = row
+        if 1 <= int(r.week_number) <= 5:
+            setattr(row, f"week{int(r.week_number)}", r.followers)
+
+    rows = sorted(
+        by_account.values(),
+        key=lambda x: (x.platform or "", x.language or "", x.handle or ""),
+    )
+    buf = build_snapshots_workbook(rows)
+    return _xlsx_response(buf, f"주간팔로워_{year}-{month:02d}.xlsx")
+
+
+@router.get("/export/posts")
+async def export_posts(
+    account_id: str | None = Query(None),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """게시물 목록 → .xlsx. account_id 생략 시 기간 내 모든 계정 게시물.
+
+    list_posts 와 동일한 필터(account_id/date_from/date_to)를 쓰되, 계정 식별
+    컬럼(브랜드/플랫폼/어권/핸들)을 위해 social_accounts 를 JOIN 한다.
+    """
+    q = (
+        select(
+            SocialAccount.client.label("client"),
+            SocialAccount.platform.label("platform"),
+            SocialAccount.language.label("language"),
+            SocialAccount.handle.label("handle"),
+            SocialPost.posted_at.label("posted_at"),
+            SocialPost.title.label("title"),
+            SocialPost.content_type.label("content_type"),
+            SocialPost.producer.label("producer"),
+            SocialPost.view_count.label("view_count"),
+            SocialPost.reach_count.label("reach_count"),
+            SocialPost.comment_count.label("comment_count"),
+            SocialPost.like_count.label("like_count"),
+            SocialPost.share_count.label("share_count"),
+            SocialPost.total_engagement.label("total_engagement"),
+            SocialPost.url.label("url"),
+        )
+        .join(SocialAccount, SocialAccount.id == SocialPost.account_id)
+        .order_by(SocialPost.posted_at.desc())
+    )
+    if account_id:
+        q = q.where(SocialPost.account_id == account_id)
+    if date_from:
+        q = q.where(SocialPost.posted_at >= date_from)
+    if date_to:
+        q = q.where(SocialPost.posted_at <= date_to)
+    result = await db.execute(q)
+    rows = result.all()  # 각 Row 는 .client/.platform/... 으로 접근 가능.
+
+    if date_from and date_to:
+        period = f"{date_from.isoformat()}_{date_to.isoformat()}"
+    elif date_from:
+        period = f"{date_from.isoformat()}_이후"
+    elif date_to:
+        period = f"~{date_to.isoformat()}"
+    else:
+        period = "전체"
+    buf = build_posts_workbook(rows)
+    return _xlsx_response(buf, f"게시물_{period}.xlsx")
 
 
 @router.get("/stats/growth", response_model=list[GrowthCard])
