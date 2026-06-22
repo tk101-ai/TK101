@@ -70,7 +70,7 @@ interface ContentFormValues {
 }
 
 /**
- * 서울시 글로벌 SNS DB 페이지 — 마케팅 전 직원 공용 SNS 단일 페이지 (T1, Meta 우선).
+ * SNS 콘텐츠 DB 페이지 — 마케팅 전 직원 공용 SNS 단일 페이지 (T1, Meta 우선).
  *
  * - 채널 빠른 필터 = 플랫폼(facebook/instagram) × 어권(en/zh/ja) 선택. 수집·수동등록의 대상 계정.
  * - 다중 계정 선택(AccountSelector) + 기간(RangePicker) 으로 조회 대상을 자유롭게 구성.
@@ -364,7 +364,7 @@ export default function SeoulSns() {
     <div style={{ maxWidth: 1320 }}>
       <header style={{ marginBottom: 24 }}>
         <Title level={3} style={{ margin: 0, letterSpacing: "-0.02em" }}>
-          서울시 글로벌 SNS
+          SNS 콘텐츠
         </Title>
         <Text type="secondary">
           페이스북 · 인스타그램 등 채널을 어권별로 관리합니다. 자동(메타 API) / 수동(직접 입력) 두 모드 지원.
