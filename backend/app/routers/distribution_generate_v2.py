@@ -30,7 +30,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_admin, require_module
+from app.dependencies import get_current_user, require_module
 from app.models.distribution import (
     DistributionPersona,
     DistributionScenario,
@@ -261,11 +261,11 @@ async def _scenarios_by_names_active(
 async def generate_custom(
     payload: GenerateCustomRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    user: User = Depends(get_current_user),
 ) -> GenerateCustomResult:
     """사용자가 명시한 (페르소나 × 시나리오 × 주차) 조합으로 세션 생성.
 
-    권한: **admin only** (D2 — LLM 생성 비용 가드). 사용자별 분당/일일 호출 한도 적용.
+    권한: DISTRIBUTION 모듈(admin + 신사업팀). LLM 생성 비용은 사용자별 분당/일일 호출 한도로 가드(D2).
 
     검증:
     - period_label 형식 ``YYYY_MMDD`` 외 입력은 400.

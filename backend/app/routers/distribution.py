@@ -256,7 +256,7 @@ def _enforce_generation_limit(user_id: str) -> None:
 async def generate_weekly(
     payload: GenerateWeeklyRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    user: User = Depends(get_current_user),
 ) -> GenerateWeeklyResult:
     """4페어 (한국 N명 × 베트남 1명) × 시나리오 동시 생성.
 
@@ -268,7 +268,7 @@ async def generate_weekly(
 
     자격증명 없는 페르소나는 skip + warnings 누적.
 
-    권한: **admin only** (D2 — LLM 생성 비용 가드). 사용자별 분당/일일 호출 한도 적용.
+    권한: DISTRIBUTION 모듈(admin + 신사업팀). LLM 생성 비용은 사용자별 분당/일일 호출 한도로 가드(D2).
     """
     _enforce_generation_limit(str(user.id))
     summary = await generation_service.generate_weekly_for_all_pairs(
