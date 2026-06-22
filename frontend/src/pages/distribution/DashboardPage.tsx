@@ -32,6 +32,7 @@ import {
   type WeeklySummaryOut,
 } from "../../api/distribution";
 import { extractErrorDetail } from "../../utils/errorUtils";
+import { formatNumber, formatMoney, toIsoDate } from "../../utils/format";
 
 const { Title, Paragraph, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -56,23 +57,6 @@ const { RangePicker } = DatePicker;
 
 type DateRange = [Dayjs | null, Dayjs | null] | null;
 type CompanyChoice = DistributionCompany | "all";
-
-const NUMBER_FORMATTER = new Intl.NumberFormat("ko-KR");
-
-function formatNumber(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return NUMBER_FORMATTER.format(Math.round(value));
-}
-
-function formatMoney(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return NUMBER_FORMATTER.format(Math.round(value));
-}
-
-function toIsoDate(d: Dayjs | null | undefined): string | undefined {
-  if (!d) return undefined;
-  return d.format("YYYY-MM-DD");
-}
 
 /** 문자열로 들어온 Decimal 합산 — null/NaN 무시. */
 function sumDecimalStr(values: (string | null | undefined)[]): number {

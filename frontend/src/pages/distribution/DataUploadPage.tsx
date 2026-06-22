@@ -22,6 +22,7 @@ import type { UploadProps } from "antd";
 import { Link } from "react-router-dom";
 import {
   COMPANY_SELECT_OPTIONS,
+  DEFAULT_DISTRIBUTION_COMPANY,
   type DistributionCompany,
   uploadDistributionData,
   type DataUploadResult,
@@ -47,7 +48,7 @@ export default function DataUploadPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // 적재 회사 선택 — 기본값 "래더엑스" (기존 단일 회사 운영 호환).
   const [companyLabel, setCompanyLabel] =
-    useState<DistributionCompany>("래더엑스");
+    useState<DistributionCompany>(DEFAULT_DISTRIBUTION_COMPANY);
 
   // 자동 업로드 차단 — 사용자가 "업로드 시작" 버튼을 누를 때만 처리.
   const uploadProps: UploadProps = {

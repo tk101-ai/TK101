@@ -58,6 +58,7 @@ import AccountBalanceCard from "../../components/finance/AccountBalanceCard";
 import TopCounterpartsTable, {
   type PeriodKey,
 } from "../../components/finance/TopCounterpartsTable";
+import { FINANCE_COLORS } from "../../utils/format";
 
 interface DashboardStats {
   accountCount: number;
@@ -74,18 +75,6 @@ const INITIAL_STATS: DashboardStats = {
   matchedCount: 0,
   taxInvoiceCount: 0,
 };
-
-// 카테고리 Pie 색상 — 카테고리에 color가 없을 때 fallback 팔레트
-const PIE_FALLBACK_COLORS = [
-  "#1677ff",
-  "#722ed1",
-  "#52c41a",
-  "#fa8c16",
-  "#eb2f96",
-  "#13c2c2",
-  "#fadb14",
-  "#a0d911",
-];
 
 // dayjs의 'quarter' 플러그인을 추가로 로드하지 않기 위해 분기 경계를 수동 계산.
 function quarterRange(base: Dayjs): [Dayjs, Dayjs] {
@@ -275,7 +264,7 @@ export default function FinanceDashboard() {
       .map((c, idx) => ({
         name: c.name,
         value: 1, // 균등 — 실데이터 API 없을 때는 단순 비주얼
-        color: c.color || PIE_FALLBACK_COLORS[idx % PIE_FALLBACK_COLORS.length],
+        color: c.color || FINANCE_COLORS[idx % FINANCE_COLORS.length],
       }));
   }, [categories]);
 

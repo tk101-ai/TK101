@@ -13,7 +13,7 @@ from app.models.upload_log import UploadLog
 from app.models.user import User
 from app.modules.constants import Module, UserRole
 from app.schemas.upload_log import UploadLogRead
-from app.services.bank_import.orchestrator import compute_transaction_hash
+from app.services.bank_import.hashing import compute_transaction_hash
 from app.services.excel import parse_bank_excel
 
 router = APIRouter(

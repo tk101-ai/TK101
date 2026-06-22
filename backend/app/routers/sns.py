@@ -20,6 +20,7 @@ from app.dependencies import (
 )
 from app.models.user import User
 from app.services.translation import RateLimitExceeded, check_rate_limit
+from app.services.sns_weeks import week_of_month_expr
 from app.models.sns import (
     SocialAccount,
     SocialPost,
@@ -428,11 +429,8 @@ async def stats_weekly(
     snap_rows = snap_result.all()
 
     # Posts aggregated by (language, platform, year, month, week_of_month).
-    # week_of_month 을 snapshot 의 week_number(1~5)와 정렬.
-    # FLOOR((day-1)/7)+1 — 월중 주차(1~5). cast(Integer)는 반올림하므로 floor를
-    # 명시해야 sns_export._week_of_month 의 Python floor((day-1)//7)+1 과 일치한다
-    # (예: 26일 → SQL 반올림이면 5주차, floor면 4주차 = 올바른 월중 주차).
-    week_of_month = (func.floor((func.extract("day", SocialPost.posted_at) - 1) / 7).cast(Integer) + 1).label("week_number")
+    # week_of_month 을 snapshot 의 week_number(1~5)와 정렬(sns_weeks.week_of_month_expr).
+    week_of_month = week_of_month_expr(SocialPost.posted_at)
     post_year = func.extract("year", SocialPost.posted_at).cast(Integer).label("year")
     post_month = func.extract("month", SocialPost.posted_at).cast(Integer).label("month")
 
@@ -506,10 +504,7 @@ async def stats_weekly_posts(
     sns_export._week_of_month 와 동일 공식(floor 월중 주차).
     각 계정 행은 week1~week5(주차별 건수) + total(월 합계)을 가진다.
     """
-    # FLOOR((day-1)/7)+1 — 월중 주차(1~5). cast(Integer)는 반올림하므로 floor를
-    # 명시해야 sns_export._week_of_month 의 Python floor((day-1)//7)+1 과 일치한다
-    # (예: 26일 → SQL 반올림이면 5주차, floor면 4주차 = 올바른 월중 주차).
-    week_of_month = (func.floor((func.extract("day", SocialPost.posted_at) - 1) / 7).cast(Integer) + 1).label("week_number")
+    week_of_month = week_of_month_expr(SocialPost.posted_at)
 
     q = (
         select(
@@ -719,11 +714,8 @@ async def export_workbook(
         )
     account_ids = [a.id for a in accounts]
 
-    # 2) 계정별 주차 게재건수 (선택 월). stats_weekly_posts 와 동일 공식.
-    # FLOOR((day-1)/7)+1 — 월중 주차(1~5). cast(Integer)는 반올림하므로 floor를
-    # 명시해야 sns_export._week_of_month 의 Python floor((day-1)//7)+1 과 일치한다
-    # (예: 26일 → SQL 반올림이면 5주차, floor면 4주차 = 올바른 월중 주차).
-    week_of_month = (func.floor((func.extract("day", SocialPost.posted_at) - 1) / 7).cast(Integer) + 1).label("week_number")
+    # 2) 계정별 주차 게재건수 (선택 월). sns_weeks.week_of_month_expr 단일 산식.
+    week_of_month = week_of_month_expr(SocialPost.posted_at)
     counts_result = await db.execute(
         select(
             SocialPost.account_id.label("account_id"),

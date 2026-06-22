@@ -12,6 +12,7 @@ import {
 import { useMemo } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import type { MonthlySummaryRow } from "../../api/transactions";
+import { formatKRW } from "../../utils/format";
 
 const { RangePicker } = DatePicker;
 
@@ -42,15 +43,6 @@ interface ChartDatum {
   count: number;
 }
 
-function formatKRW(value: number): string {
-  if (Math.abs(value) >= 1_0000_0000) {
-    return `${(value / 1_0000_0000).toFixed(1)}억`;
-  }
-  if (Math.abs(value) >= 1_0000) {
-    return `${(value / 1_0000).toFixed(0)}만`;
-  }
-  return value.toLocaleString("ko-KR");
-}
 
 interface TooltipPayloadItem {
   name?: string;

@@ -23,14 +23,12 @@ import {
   type Transaction,
 } from "../../api/transactions";
 import { listAccounts, type Account } from "../../api/accounts";
-import { extractErrorDetail as extractDetail } from "../../utils/errorUtils";
+import { makeErrorExtractor } from "../../utils/errorUtils";
 
 const { Title, Paragraph, Text } = Typography;
 const { RangePicker } = DatePicker;
 
-function extractErrorDetail(err: unknown, fallback: string): string {
-  return extractDetail(err, fallback, { useAxiosMessage: true });
-}
+const extractErrorDetail = makeErrorExtractor({ useAxiosMessage: true });
 
 function formatAmount(amount: string | number, type: string): string {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;

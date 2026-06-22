@@ -219,7 +219,7 @@ const KIND_LABELS: Record<string, { label: string; color: string }> = {
 function summarizeMime(results: NasSearchHit[]): MimeBucket[] {
   const counts = new Map<string, number>();
   for (const hit of results) {
-    const kind = fileIconType(hit.mime_type, hit.file_type);
+    const kind = fileIconType(hit.mime_type, hit.file_type, hit.name);
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
   }
   return Array.from(counts.entries())

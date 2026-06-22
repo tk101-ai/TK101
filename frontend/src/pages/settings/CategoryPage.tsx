@@ -31,19 +31,21 @@ import {
   type CategoryUpdate,
 } from "../../api/categories";
 import { useAuth } from "../../hooks/useAuth";
-import { extractErrorDetail as extractDetail } from "../../utils/errorUtils";
+import {
+  makeErrorExtractor,
+  NOT_FOUND_MESSAGE,
+  FORBIDDEN_MESSAGE,
+} from "../../utils/errorUtils";
 
 const { Title, Paragraph, Text } = Typography;
 
-function extractErrorDetail(err: unknown, fallback: string): string {
-  return extractDetail(err, fallback, {
-    statusMessages: {
-      404: "백엔드 라우터가 아직 등록되지 않았습니다 (Wave 5 예정).",
-      403: "관리자 권한이 필요합니다",
-    },
-    useAxiosMessage: true,
-  });
-}
+const extractErrorDetail = makeErrorExtractor({
+  statusMessages: {
+    404: NOT_FOUND_MESSAGE,
+    403: FORBIDDEN_MESSAGE,
+  },
+  useAxiosMessage: true,
+});
 
 interface FormValues {
   name: string;

@@ -1,4 +1,5 @@
 import api from "./client";
+import { DEFAULT_DISTRIBUTION_COMPANY } from "./distribution";
 
 /**
  * 신사업유통 — 커스텀 생성 트리거 + 시나리오 조회 API (T9 Phase E-2).
@@ -131,7 +132,7 @@ export async function generateCustom(
       sender_persona_ids: payload.sender_persona_ids,
       scenario_names: payload.scenario_names,
       period_label: payload.period_label ?? null,
-      company_label: payload.company_label ?? "래더엑스",
+      company_label: payload.company_label ?? DEFAULT_DISTRIBUTION_COMPANY,
       timing_profile: payload.timing_profile ?? "normal",
       language: payload.language ?? "ko",
       ad_hoc_instruction: payload.ad_hoc_instruction ?? null,

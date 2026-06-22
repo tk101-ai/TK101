@@ -57,6 +57,7 @@ import { listCategoriesFlat, type CategoryRead } from "../api/categories";
 import { listAccounts, type Account } from "../api/accounts";
 import { useAuth } from "../hooks/useAuth";
 import { extractErrorDetail } from "../utils/errorUtils";
+import { triggerBlobDownload } from "../utils/download";
 import TransactionFormModal from "../components/finance/TransactionFormModal";
 import AttachmentModal from "../components/finance/AttachmentModal";
 import MatchingCandidatesModal from "../components/finance/MatchingCandidatesModal";
@@ -447,12 +448,10 @@ export default function Transactions() {
   const handleDownload = async () => {
     try {
       const res = await downloadExcel(filters);
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "거래내역_" + dayjs().format("YYYYMMDD") + ".xlsx";
-      a.click();
-      window.URL.revokeObjectURL(url);
+      triggerBlobDownload(
+        new Blob([res.data]),
+        "거래내역_" + dayjs().format("YYYYMMDD") + ".xlsx",
+      );
     } catch (err) {
       message.error(extractErrorDetail(err, "다운로드 실패"));
     }

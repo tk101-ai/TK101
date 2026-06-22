@@ -31,6 +31,7 @@ import {
   type CustomsDeclarationOut,
   type CustomsSummaryOut,
   type CustomsUploadResult,
+  DEFAULT_DISTRIBUTION_COMPANY,
   type DistributionCompany,
   deleteCustoms,
   getCustomsSummary,
@@ -38,6 +39,7 @@ import {
   uploadCustoms,
 } from "../../api/distribution";
 import { extractErrorDetail } from "../../utils/errorUtils";
+import { formatMoney } from "../../utils/format";
 
 const { Title, Paragraph, Text } = Typography;
 const { Dragger } = Upload;
@@ -60,14 +62,6 @@ const { Dragger } = Upload;
 
 const NUMBER_FORMATTER = new Intl.NumberFormat("ko-KR");
 
-/** Decimal 문자열(또는 number) → 한국어 천단위 표기. null 은 em-dash. */
-function formatMoney(value: string | number | null | undefined): string {
-  if (value === null || value === undefined || value === "") return "—";
-  const num = typeof value === "string" ? Number(value) : value;
-  if (!Number.isFinite(num)) return "—";
-  return NUMBER_FORMATTER.format(Math.round(num));
-}
-
 function toNumber(value: string | null | undefined): number {
   if (value === null || value === undefined || value === "") return 0;
   const n = Number(value);
@@ -82,7 +76,7 @@ export default function CustomsPage() {
     null,
   );
   const [uploadCompany, setUploadCompany] =
-    useState<DistributionCompany>("래더엑스");
+    useState<DistributionCompany>(DEFAULT_DISTRIBUTION_COMPANY);
 
   // 조회 상태
   const [companyFilter, setCompanyFilter] = useState<

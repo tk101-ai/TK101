@@ -35,6 +35,7 @@ import type {
 } from "../../api/playground";
 import BaseImagePicker from "./BaseImagePicker";
 import QuotaIndicator from "./QuotaIndicator";
+import { triggerBlobDownload } from "../../utils/download";
 
 const { Text, Paragraph } = Typography;
 
@@ -580,14 +581,7 @@ async function downloadTaskOutput(task: ActiveTask): Promise<void> {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(blobUrl);
+      triggerBlobDownload(blob, filename);
       return;
     } catch (err) {
       // fall through 텐센트 URL 시도.
@@ -604,14 +598,7 @@ async function downloadTaskOutput(task: ActiveTask): Promise<void> {
     const res = await fetch(task.outputUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = blobUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(blobUrl);
+    triggerBlobDownload(blob, filename);
   } catch {
     // CORS 거부 시 — 그냥 새 탭 열어서 사용자가 브라우저 다운로드 사용.
     window.open(task.outputUrl, "_blank", "noopener,noreferrer");

@@ -1,11 +1,11 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_admin, require_module
+from app.dependencies import get_object_or_404, require_admin, require_module
 from app.models.tax_invoice import TaxInvoice
 from app.modules.constants import Module
 from app.schemas.tax_invoice import TaxInvoiceRead
@@ -46,10 +46,7 @@ async def link_invoice_to_transaction(
     transaction_id: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(TaxInvoice).where(TaxInvoice.id == invoice_id))
-    invoice = result.scalar_one_or_none()
-    if invoice is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    invoice = await get_object_or_404(db, TaxInvoice, invoice_id)
     invoice.matched_transaction_id = transaction_id
     invoice.match_status = "manual"
     await db.commit()
