@@ -641,7 +641,8 @@ def _save_upload_file(file_bytes: bytes, original_name: str, job_id: str) -> str
     target.write_bytes(file_bytes)
     real_target = os.path.realpath(target)
     real_root = os.path.realpath(settings.form_filler_upload_root)
-    if not real_target.startswith(real_root):
+    # separator 없는 startswith 우회(/root-evil ⊂ /root) 차단 — 경계 검사.
+    if not (real_target == real_root or real_target.startswith(real_root + os.sep)):
         try:
             target.unlink(missing_ok=True)
         except OSError:
@@ -1137,7 +1138,8 @@ async def download_job(
         )
     real_target = os.path.realpath(job.output_path)
     real_root = os.path.realpath(settings.form_filler_output_root)
-    if not real_target.startswith(real_root):
+    # separator 없는 startswith 우회(/root-evil ⊂ /root) 차단 — 경계 검사.
+    if not (real_target == real_root or real_target.startswith(real_root + os.sep)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="출력 경로 위반"
         )

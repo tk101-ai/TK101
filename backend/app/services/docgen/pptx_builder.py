@@ -9,10 +9,13 @@ body 의 불릿/표/차트는 markdown_blocks.parse_blocks 로 해석한다.
 from __future__ import annotations
 
 import io
+import logging
 from datetime import date
 
 from app.services.docgen.markdown_blocks import Block, parse_blocks
 from app.services.docgen.theme import Theme, get_theme
+
+logger = logging.getLogger(__name__)
 
 # 슬라이드 한 장에 들어갈 본문 텍스트 줄 수 상한(넘으면 다음 장으로 분할).
 _MAX_TEXT_LINES = 9
@@ -272,23 +275,32 @@ def _add_chart_slide(prs, theme: Theme, heading: str, data: dict, page_no: int) 
     slide = prs.slides.add_slide(_blank_layout(prs))
     title = data.get("title") or heading
     _add_title_bar(slide, prs, theme, title, False)
-    chart_data = CategoryChartData()
-    chart_data.categories = data["categories"]
-    for s in data["series"]:
-        chart_data.add_series(s["name"], s["values"])
     sw, _ = _slide_dims(prs)
-    graphic = slide.shapes.add_chart(
-        _chart_type(data["type"]), Inches(0.8), Inches(1.7),
-        sw - Inches(1.6), Inches(4.7), chart_data,
-    )
-    chart = graphic.chart
-    chart.has_title = False
-    if len(data["series"]) > 1:
-        chart.has_legend = True
-        chart.legend.position = XL_LEGEND_POSITION.BOTTOM
-        chart.legend.include_in_layout = False
-    else:
-        chart.has_legend = False
+    # 잘못된 LLM 차트 스펙(다중 시리즈 pie·비숫자 값 등)이 python-pptx 내부에서
+    # 예외를 던져 덱 전체 렌더가 500 나는 걸 막는다. 실패 시 해당 차트만 건너뛰고
+    # 플레이스홀더 텍스트로 대체 — 나머지 슬라이드는 정상 렌더.
+    try:
+        chart_data = CategoryChartData()
+        chart_data.categories = data["categories"]
+        for s in data["series"]:
+            chart_data.add_series(s["name"], s["values"])
+        graphic = slide.shapes.add_chart(
+            _chart_type(data["type"]), Inches(0.8), Inches(1.7),
+            sw - Inches(1.6), Inches(4.7), chart_data,
+        )
+        chart = graphic.chart
+        chart.has_title = False
+        if len(data["series"]) > 1:
+            chart.has_legend = True
+            chart.legend.position = XL_LEGEND_POSITION.BOTTOM
+            chart.legend.include_in_layout = False
+        else:
+            chart.has_legend = False
+    except Exception:  # noqa: BLE001 - 차트 깨져도 덱은 나와야 함
+        logger.warning("차트 렌더 실패 — 플레이스홀더로 대체: %s", title, exc_info=True)
+        _add_text(slide, Inches(0.8), Inches(1.7), sw - Inches(1.6), Inches(4.7),
+                  "[차트를 표시할 수 없습니다]", size=16, color=theme.text,
+                  font=theme.body_font, align="left", anchor="middle")
     _add_footer(slide, prs, theme, page_no)
 
 
