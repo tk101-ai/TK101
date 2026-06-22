@@ -13,7 +13,6 @@ import Accounts from "./pages/Accounts";
 import TaxInvoices from "./pages/TaxInvoices";
 import Users from "./pages/Users";
 import SnsAccounts from "./pages/marketing/SnsAccounts";
-import SnsPosts from "./pages/marketing/SnsPosts";
 import SnsWeeklySnapshots from "./pages/marketing/SnsWeeklySnapshots";
 import SnsExcelImport from "./pages/marketing/SnsExcelImport";
 import SeoulSns from "./pages/marketing/SeoulSns";
@@ -161,14 +160,6 @@ function App() {
                 element={
                   <ProtectedRoute user={user} module="marketing_sns">
                     <SnsAccounts />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/sns/posts"
-                element={
-                  <ProtectedRoute user={user} module="marketing_sns">
-                    <SnsPosts />
                   </ProtectedRoute>
                 }
               />

@@ -43,15 +43,18 @@ import {
   type SnsAccount,
   type SnsPost,
 } from "../../api/sns";
+import AccountSelector, { buildAccountLabel } from "../../components/sns/AccountSelector";
 import { extractErrorDetail } from "../../utils/errorUtils";
 import PostMetricsDrawer from "./PostMetricsDrawer";
 
 const { Title, Text } = Typography;
+const { RangePicker } = DatePicker;
 
 // 서울시 SNS — Meta 우선. 페이스북/인스타그램, 영문 먼저.
 const META_PLATFORMS: Platform[] = ["facebook", "instagram"];
 const LANGUAGE_ORDER: Language[] = ["en", "zh", "ja"];
 const NUMBER_FORMATTER = new Intl.NumberFormat("ko-KR");
+const POSTS_PER_ACCOUNT = 500;
 
 function fmt(value: number | null | undefined): string {
   if (value == null) return "-";
@@ -67,21 +70,25 @@ interface ContentFormValues {
 }
 
 /**
- * 서울시 글로벌 SNS DB 페이지 (T1, Meta 우선).
+ * 서울시 글로벌 SNS DB 페이지 — 마케팅 전 직원 공용 SNS 단일 페이지 (T1, Meta 우선).
  *
- * 시트 구조를 그대로 미러링:
- * - 채널 = 플랫폼(facebook/instagram) × 어권(en/zh/ja) 선택.
- * - 콘텐츠 리스트 테이블: 배포일/제목/형태/조회수/좋아요/댓글/공유/합계/URL.
+ * - 채널 빠른 필터 = 플랫폼(facebook/instagram) × 어권(en/zh/ja) 선택. 수집·수동등록의 대상 계정.
+ * - 다중 계정 선택(AccountSelector) + 기간(RangePicker) 으로 조회 대상을 자유롭게 구성.
+ * - 콘텐츠 리스트 테이블: 배포일/계정/제목/형태/조회수/좋아요/댓글/공유/합계/URL.
  * - 수동 콘텐츠 추가 폼 (배포일/제목/형태/제작주체/URL) → is_manual.
  * - 게시물별 메트릭 시계열 보기 (Drawer).
  *
- * AUTO(자동) 모드: 메타 토큰 등록 시 게시물/메트릭 자동 수집.
- * FALLBACK(수동) 모드: 토큰 없어도 수동 콘텐츠 등록 + (토큰 있으면) collect-metrics.
+ * 무료 수집(게시물·메트릭/댓글)은 마케팅 SNS 권한 전 직원에게 개방된다.
+ * 자동 수집은 메타 토큰이 등록된 계정에서만 동작하며, 수동 콘텐츠 등록은 토큰 없이도 동작한다.
  */
 export default function SeoulSns() {
   const [accounts, setAccounts] = useState<SnsAccount[]>([]);
   const [platform, setPlatform] = useState<Platform>("facebook");
   const [language, setLanguage] = useState<Language>("en");
+  // 조회(뷰) 필터 — 채널과 독립. 여러 계정/기간을 동시에 볼 수 있다.
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [dateFrom, setDateFrom] = useState<string | undefined>();
+  const [dateTo, setDateTo] = useState<string | undefined>();
   const [posts, setPosts] = useState<SnsPost[]>([]);
   const [loading, setLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -103,26 +110,48 @@ export default function SeoulSns() {
     void fetchAccounts();
   }, [fetchAccounts]);
 
+  // 채널 = 플랫폼×어권으로 결정되는 단일 계정 — 수집/수동등록의 대상.
   const channel = useMemo(
     () => accounts.find((a) => a.platform === platform && a.language === language) ?? null,
     [accounts, platform, language],
   );
 
+  const accountMap = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
+
+  // 조회 대상 계정: 다중 선택이 있으면 그 계정들, 없으면 채널 단일 계정(기본 동작 유지).
+  const viewAccountIds = useMemo(() => {
+    if (selectedAccountIds.length > 0) return selectedAccountIds;
+    return channel ? [channel.id] : [];
+  }, [selectedAccountIds, channel]);
+
   const fetchPosts = useCallback(async () => {
-    if (!channel) {
+    if (viewAccountIds.length === 0) {
       setPosts([]);
       return;
     }
     setLoading(true);
     try {
-      const res = await listPosts({ account_id: channel.id, limit: 500 });
-      setPosts(res.data);
+      // listPosts 는 단일 account_id 만 지원 → 계정별로 조회 후 병합. 기간은 공통 적용.
+      const responses = await Promise.all(
+        viewAccountIds.map((id) =>
+          listPosts({
+            account_id: id,
+            date_from: dateFrom,
+            date_to: dateTo,
+            limit: POSTS_PER_ACCOUNT,
+          }),
+        ),
+      );
+      const merged = responses
+        .flatMap((res) => res.data)
+        .sort((a, b) => b.posted_at.localeCompare(a.posted_at));
+      setPosts(merged);
     } catch (err) {
       message.error(extractErrorDetail(err, "콘텐츠 목록 조회 실패"));
     } finally {
       setLoading(false);
     }
-  }, [channel]);
+  }, [viewAccountIds, dateFrom, dateTo]);
 
   useEffect(() => {
     void fetchPosts();
@@ -206,6 +235,18 @@ export default function SeoulSns() {
     }
   };
 
+  // 현재 조회 대상(계정·기간) 사람이 읽는 요약. "조회 중: 유튜브·Seoul, 인스타·seoul · 2026-05-01~05-31"
+  const viewingSummary = useMemo(() => {
+    const labels = viewAccountIds
+      .map((id) => accountMap.get(id))
+      .filter((a): a is SnsAccount => !!a)
+      .map((a) => buildAccountLabel(a));
+    const accountsPart = labels.length > 0 ? labels.join(", ") : "선택된 계정 없음";
+    const periodPart =
+      dateFrom || dateTo ? ` · ${dateFrom ?? "처음"}~${dateTo ?? "현재"}` : " · 전체 기간";
+    return `${accountsPart}${periodPart}`;
+  }, [viewAccountIds, accountMap, dateFrom, dateTo]);
+
   const columns: ColumnsType<SnsPost> = [
     {
       title: "배포일",
@@ -214,6 +255,15 @@ export default function SeoulSns() {
       fixed: "left" as const,
       sorter: (a, b) => a.posted_at.localeCompare(b.posted_at),
       defaultSortOrder: "descend" as const,
+    },
+    {
+      title: "계정",
+      dataIndex: "account_id",
+      width: 168,
+      render: (id: string) => {
+        const acct = accountMap.get(id);
+        return acct ? buildAccountLabel(acct) : id.slice(0, 8);
+      },
     },
     {
       title: "제목",
@@ -311,13 +361,13 @@ export default function SeoulSns() {
   ];
 
   return (
-    <div style={{ maxWidth: 1280 }}>
+    <div style={{ maxWidth: 1320 }}>
       <header style={{ marginBottom: 24 }}>
         <Title level={3} style={{ margin: 0, letterSpacing: "-0.02em" }}>
           서울시 글로벌 SNS
         </Title>
         <Text type="secondary">
-          페이스북 · 인스타그램 채널을 어권별로 관리합니다. 자동(메타 API) / 수동(직접 입력) 두 모드 지원.
+          페이스북 · 인스타그램 등 채널을 어권별로 관리합니다. 자동(메타 API) / 수동(직접 입력) 두 모드 지원.
         </Text>
       </header>
 
@@ -327,7 +377,7 @@ export default function SeoulSns() {
           showIcon
           style={{ marginBottom: 16 }}
           message="선택한 채널(플랫폼×어권)이 아직 없습니다"
-          description="SNS 계정 페이지에서 해당 페이스북/인스타그램 채널을 먼저 등록하거나, 엑셀을 가져오세요."
+          description="SNS 계정 페이지에서 해당 페이스북/인스타그램 채널을 먼저 등록하거나, 엑셀을 가져오세요. (조회는 아래 다중 계정 선택으로도 가능합니다.)"
         />
       )}
 
@@ -381,19 +431,48 @@ export default function SeoulSns() {
         </Button>
       </div>
 
+      {/* 조회(뷰) 필터 — 채널과 독립한 다중 계정 + 기간. */}
+      <Space wrap size={12} style={{ marginBottom: 12 }}>
+        <AccountSelector
+          mode="multi"
+          accounts={accounts}
+          value={selectedAccountIds}
+          onChange={setSelectedAccountIds}
+          placeholder="조회할 계정 선택 (여러 개 가능, 비우면 위 채널)"
+          style={{ minWidth: 320 }}
+        />
+        <RangePicker
+          onChange={(_, dates) => {
+            setDateFrom(dates?.[0] || undefined);
+            setDateTo(dates?.[1] || undefined);
+          }}
+        />
+      </Space>
+
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message={
+          <span>
+            조회 중: <Text strong>{viewingSummary}</Text>
+          </span>
+        }
+      />
+
       <Spin spinning={loading}>
-        {channel ? (
+        {viewAccountIds.length > 0 ? (
           <Table
             columns={columns}
             dataSource={posts}
             rowKey="id"
             size="middle"
             pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
-            scroll={{ x: 1180 }}
+            scroll={{ x: 1280 }}
             locale={{ emptyText: <Empty description="콘텐츠가 없습니다" /> }}
           />
         ) : (
-          <Empty description="채널을 선택하세요" style={{ padding: "48px 0" }} />
+          <Empty description="채널 또는 조회할 계정을 선택하세요" style={{ padding: "48px 0" }} />
         )}
       </Spin>
 

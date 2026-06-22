@@ -774,14 +774,13 @@ async def _collect_for_account(
 @router.post(
     "/collect/{account_id}",
     response_model=IngestResponse,
-    dependencies=[Depends(require_admin)],
 )
 async def collect(
     account_id: str,
     full: bool = Query(False, description="True면 전체 페이지네이션, False면 최근 50개만"),
     db: AsyncSession = Depends(get_db),
 ):
-    """관리자가 단일 계정을 수동 트리거. SnsAccounts 페이지의 '지금 수집'/'전체 동기화' 버튼이 사용."""
+    """마케팅 SNS 담당자가 단일 계정을 수동 트리거(무료 수집). '지금 수집'/'전체 동기화' 버튼이 사용."""
     result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
     account = result.scalar_one_or_none()
     if account is None:
@@ -1042,7 +1041,6 @@ async def _collect_metrics_for_account(
 @router.post(
     "/accounts/{account_id}/collect-metrics",
     response_model=CollectMetricsResponse,
-    dependencies=[Depends(require_admin)],
 )
 async def collect_metrics(
     account_id: str,
@@ -1221,7 +1219,6 @@ async def _collect_comments_for_account(
 @router.post(
     "/accounts/{account_id}/collect-comments",
     response_model=CollectCommentsResponse,
-    dependencies=[Depends(require_admin)],
 )
 async def collect_comments(
     account_id: str,
@@ -1499,7 +1496,6 @@ async def _refresh_one_account(
 @router.post(
     "/refresh-all",
     response_model=RefreshAllResponse,
-    dependencies=[Depends(require_admin)],
 )
 async def refresh_all(
     include_metrics: bool = Query(
@@ -1510,11 +1506,11 @@ async def refresh_all(
     period: str = Query("daily", description="메트릭 수집 period: daily | weekly"),
     db: AsyncSession = Depends(get_db),
 ):
-    """사용자(관리자)가 누르는 '전체 갱신' — 모든 활성 계정을 동기 일괄 수집.
+    """마케팅 SNS 담당자가 누르는 '전체 갱신' — 모든 활성 계정을 동기 일괄 수집.
 
     내부 cron 용 `/api/internal/sns/collect-all`(X-Internal-Token) 과 동일한 수집 로직
-    (`_collect_for_account`, `_collect_metrics_for_account`)을 재사용하되, 일반 SNS 모듈
-    권한(라우터 `require_module(MARKETING_SNS)`) + 관리자(`require_admin`)로 게이트한다.
+    (`_collect_for_account`, `_collect_metrics_for_account`)을 재사용하며, 라우터의 일반 SNS
+    모듈 권한(`require_module(MARKETING_SNS)`)으로만 게이트한다(무료 수집 → 전 직원 개방).
 
     계정별 실패는 격리(`_refresh_one_account`)하고 계정 단위 성공/실패 요약을 반환한다.
     동기 처리: 계정 수가 소수(현재 3개 수준)이고 nginx /api/ 타임아웃이 300s 이므로

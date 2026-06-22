@@ -103,7 +103,6 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "settings-counterparts", path: "/settings/counterparts", label: "거래처 관리", icon: <ContactsOutlined />, module: "finance", category: "settings" },
   { key: "marketing-dashboard", path: "/marketing/dashboard", label: "대시보드", icon: <DashboardOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "sns-seoul", path: "/sns/seoul", label: "서울시 글로벌 SNS", icon: <GlobalOutlined />, module: "marketing_sns", category: "marketing_1" },
-  { key: "sns-posts", path: "/sns/posts", label: "SNS 콘텐츠", icon: <FileTextOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "sns-snapshots", path: "/sns/snapshots", label: "주간 팔로워", icon: <RiseOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "sns-accounts", path: "/sns/accounts", label: "SNS 계정", icon: <ShareAltOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "sns-import", path: "/sns/import", label: "엑셀 가져오기", icon: <CloudUploadOutlined />, module: "marketing_sns", category: "marketing_1" },
