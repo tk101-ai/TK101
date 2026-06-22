@@ -2,6 +2,9 @@ import api from "./client";
 
 export type DocType = "제안서" | "계획서" | "보고서" | "일반";
 
+/** 출처 모드 — 회사 NAS RAG만 / 사용자 업로드만 / 둘다. */
+export type SourceMode = "rag" | "uploaded" | "both";
+
 export interface DocSection {
   heading: string;
   body: string;
@@ -15,8 +18,11 @@ export interface DocSourceRef {
 export interface DocGenRequest {
   topic: string;
   doc_type: DocType;
-  use_nas: boolean;
+  /** 출처 모드. 기본 "rag"(NAS만). */
+  source_mode?: SourceMode;
   limit?: number;
+  /** source_mode 가 uploaded/both 일 때 참고할 업로드 파일들. */
+  files?: File[];
 }
 
 export interface DocGenResponse {
@@ -29,12 +35,14 @@ export interface DocGenResponse {
 }
 
 export async function generateDocument(req: DocGenRequest): Promise<DocGenResponse> {
-  const res = await api.post<DocGenResponse>("/api/docgen/generate", {
-    topic: req.topic,
-    doc_type: req.doc_type,
-    use_nas: req.use_nas,
-    limit: req.limit ?? 8,
-  });
+  // 멀티파트 — 업로드 파일을 참고자료로 함께 전송한다.
+  const fd = new FormData();
+  fd.append("topic", req.topic);
+  fd.append("doc_type", req.doc_type);
+  fd.append("source_mode", req.source_mode ?? "rag");
+  fd.append("limit", String(req.limit ?? 8));
+  (req.files ?? []).forEach((f) => fd.append("files", f));
+  const res = await api.post<DocGenResponse>("/api/docgen/generate", fd);
   return res.data;
 }
 

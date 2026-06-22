@@ -13,14 +13,13 @@ import io
 import logging
 import urllib.parse
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.dependencies import get_current_user, require_module
 from app.modules.constants import Module
 from app.models.user import User
 from app.schemas.docgen import (
-    DocGenRequest,
     DocGenResponse,
     DocRenderRequest,
     DocReviewRequest,
@@ -30,6 +29,8 @@ from app.schemas.docgen import (
     DocSectionRegenResponse,
     DocSectionReview,
     DocSourceRef,
+    DocType,
+    SourceMode,
 )
 from app.services.docgen import (
     build_docx,
@@ -39,7 +40,12 @@ from app.services.docgen import (
     render_markdown,
     review_document,
 )
+from app.services.documents.sources import collect_sources
 from app.services.nas_search import bridge as nas_bridge
+
+# 업로드 참고자료 가드 — 파일 수/크기 상한.
+_MAX_UPLOAD_FILES = 5
+_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 파일당 20MB
 
 logger = logging.getLogger(__name__)
 
@@ -55,22 +61,41 @@ _PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.prese
 
 @router.post("/generate", response_model=DocGenResponse)
 async def generate(
-    body: DocGenRequest,
+    topic: str = Form(..., max_length=4000),
+    doc_type: DocType = Form("일반"),
+    source_mode: SourceMode = Form("rag"),
+    limit: int = Form(8, ge=0, le=20),
+    files: list[UploadFile] | None = File(None),
     user: User = Depends(get_current_user),
 ) -> DocGenResponse:
-    """주제 + (선택)NAS RAG → 제안서/계획서/보고서 초안."""
-    chunks = []
-    if body.use_nas and body.limit > 0:
-        try:
-            chunks = await nas_bridge.search_relevant_chunks(query=body.topic, limit=body.limit)
-        except RuntimeError as exc:
-            # 검색 실패는 생성을 막지 않는다(자료 없이 일반 구조로 작성).
-            logger.warning("docgen NAS 검색 실패 — 자료 없이 진행: %s", exc)
-            chunks = []
+    """주제 + 출처(NAS RAG / 사용자 업로드 / 둘다) → 제안서/계획서/보고서 초안.
+
+    멀티파트 폼: source_mode 가 uploaded/both 면 files 의 텍스트를 참고자료로 사용.
+    """
+    if len(topic.strip()) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="작성 요구/주제를 2자 이상 입력하세요",
+        )
+
+    uploaded: list[tuple[bytes, str]] = []
+    if source_mode in ("uploaded", "both") and files:
+        for f in files[:_MAX_UPLOAD_FILES]:
+            data = await f.read()
+            if len(data) > _MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"파일이 너무 큽니다(최대 20MB): {f.filename}",
+                )
+            uploaded.append((data, f.filename or "업로드"))
+
+    chunks = await collect_sources(
+        query=topic, mode=source_mode, uploaded=uploaded, limit=limit
+    )
 
     try:
         doc = await asyncio.to_thread(
-            generate_document, body.topic, body.doc_type, chunks
+            generate_document, topic, doc_type, chunks
         )
     except ValueError as exc:
         raise HTTPException(

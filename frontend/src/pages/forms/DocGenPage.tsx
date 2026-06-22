@@ -9,19 +9,20 @@ import {
   Popconfirm,
   Segmented,
   Space,
-  Switch,
   Tag,
   Typography,
+  Upload,
 } from "antd";
+import type { UploadFile } from "antd";
 import {
   AuditOutlined,
   DeleteOutlined,
   DownloadOutlined,
-  FileSearchOutlined,
   PlusOutlined,
   ReloadOutlined,
   SyncOutlined,
   ThunderboltOutlined,
+  UploadOutlined,
 } from "@ant-design/icons";
 import {
   downloadGeneratedDocx,
@@ -34,10 +35,18 @@ import {
   type DocSection,
   type DocSectionReview,
   type DocType,
+  type SourceMode,
 } from "../../api/docgen";
 
 const { Text } = Typography;
 const DOC_TYPES: DocType[] = ["제안서", "계획서", "보고서", "일반"];
+const SOURCE_OPTIONS: { label: string; value: SourceMode }[] = [
+  { label: "NAS 자료(RAG)", value: "rag" },
+  { label: "업로드 문서", value: "uploaded" },
+  { label: "둘 다", value: "both" },
+];
+const UPLOAD_ACCEPT = ".pdf,.docx,.xlsx,.csv,.txt,.pptx";
+const MAX_UPLOAD_FILES = 5;
 
 /**
  * 요구 기반 문서 생성 (T5 확장).
@@ -46,9 +55,14 @@ const DOC_TYPES: DocType[] = ["제안서", "계획서", "보고서", "일반"];
 export default function DocGenPage() {
   const [topic, setTopic] = useState("");
   const [docType, setDocType] = useState<DocType>("제안서");
-  const [useNas, setUseNas] = useState(true);
+  const [sourceMode, setSourceMode] = useState<SourceMode>("rag");
+  const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DocGenResponse | null>(null);
+
+  // 섹션 재생성/검수는 RAG만 재참조한다(업로드 자료는 초안 생성 시점에만).
+  const useNas = sourceMode !== "uploaded";
+  const showUpload = sourceMode !== "rag";
 
   // 생성 결과를 편집 가능한 상태로 보관(다운로드·재생성은 이 상태 기준).
   const [title, setTitle] = useState("");
@@ -67,9 +81,21 @@ export default function DocGenPage() {
       message.warning("작성 요구/주제를 입력하세요");
       return;
     }
+    const files = fileList
+      .map((f) => f.originFileObj as File | undefined)
+      .filter((f): f is File => !!f);
+    if (sourceMode === "uploaded" && files.length === 0) {
+      message.warning("업로드 문서를 1개 이상 추가하거나 출처를 바꾸세요");
+      return;
+    }
     setBusy(true);
     try {
-      const res = await generateDocument({ topic: t, doc_type: docType, use_nas: useNas });
+      const res = await generateDocument({
+        topic: t,
+        doc_type: docType,
+        source_mode: sourceMode,
+        files,
+      });
       setResult(res);
       setTitle(res.title);
       setSections(res.sections);
@@ -237,19 +263,36 @@ export default function DocGenPage() {
 
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space direction="vertical" style={{ width: "100%" }} size={12}>
-          <Space wrap>
+          <Space wrap size={[12, 8]}>
             <Segmented
               options={DOC_TYPES}
               value={docType}
               onChange={(v) => setDocType(v as DocType)}
             />
             <Space size={6}>
-              <Switch checked={useNas} onChange={setUseNas} size="small" />
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                <FileSearchOutlined /> NAS 자료 참고(RAG)
-              </Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>출처</Text>
+              <Segmented
+                size="small"
+                options={SOURCE_OPTIONS}
+                value={sourceMode}
+                onChange={(v) => setSourceMode(v as SourceMode)}
+              />
             </Space>
           </Space>
+          {showUpload && (
+            <Upload
+              multiple
+              accept={UPLOAD_ACCEPT}
+              fileList={fileList}
+              maxCount={MAX_UPLOAD_FILES}
+              beforeUpload={() => false}
+              onChange={({ fileList: fl }) => setFileList(fl.slice(0, MAX_UPLOAD_FILES))}
+            >
+              <Button icon={<UploadOutlined />} size="small">
+                참고 문서 업로드 (최대 {MAX_UPLOAD_FILES}개 · PDF/DOCX/XLSX/CSV/TXT/PPTX)
+              </Button>
+            </Upload>
+          )}
           <Input.TextArea
             rows={4}
             placeholder="예: 신세계백화점 대상 중국 SNS 운영 대행 제안서를 작성해줘. 운영 채널과 견적 흐름 포함."
