@@ -13,7 +13,9 @@
 - [x] **품질 P1 (2차) 완료·배포** — playground.py 1412→패키지(라우트27 보존) · session_service.py 997→패키지(15 공개API 보존) · ProductsPage 930→123 · Marketing1Dashboard 888→120 · AnalyticsPage 871→181 · MediaGenPanel 835→446. OpenAPI 188경로 보존. npm run build 배포전 검증(빌드실패 0). **→ P1 거대파일 10개 전부 분할 완료.**
 - [x] **커버리지 발견 보완 완료·배포(~20건)** — ProtectedRoute role 가드+/users admin게이트 · streamChat 입력잠김 해결 · 첨부 clear · TaxInvoices 자동조회·NaN가드 · Transactions bulk 동시성캡+부분성공·죽은코드 · Register 검증 · reconcile 후보집합 정정(중복청구) · upload_log 스키마 · balance N+1→단일쿼리 · attachments uuid. npm run build 검증.
 - [ ] ⚠️논의 **#1 localStorage JWT → httpOnly 쿠키** (커버리지서도 재확인된 HIGH) — 인증 저장모델 변경, 로그인 흐름 위험. 별도 논의 후 (= 기존 C 항목과 동일)
-- [ ] **품질 P3 — 일관성/플랫폼** (점진): BE 에러 한국어 통일·uuid 통일 · FE 라우트 데이터주도(NAV 단일소스) · TanStack Query 도입 · 데드코드 제거(file_walker.py 등)
+- [x] **품질 P3 (1차) 완료·배포** — BE 라우터 경로파라미터 15개 uuid화(500→422)·영어에러 한국어 · 데드코드 제거(file_walker.py 191줄 등)·LLM call_claude 일원화·models +4등록 · FE App.tsx 라우트 데이터주도(config/routes.tsx). 라우트 220 보존.
+- [ ] ⚠️대형 **TanStack Query 도입** — 서버상태 관리 전면 교체(useState/useEffect→쿼리). 별도 전용 작업(테스트 적어 신중). 재무·유통·settings 페이지.
+- [ ] ⚠️영향큼 **API `res.data` 언랩 컨벤션 통일** — api/* 반환을 res.data로 일관화. 모든 호출부 영향 → 별도 신중 작업.
 
 ## NEXT (조만간)
 - [ ] **포매터/린터 셋업** — prettier(frontend) + ruff/black(backend) 추가. 현재 미설치라 ECC 품질 훅(`stop:format-typecheck` 등) 포매터 절반이 no-op. 깔면 자동포맷·린트 살아남
