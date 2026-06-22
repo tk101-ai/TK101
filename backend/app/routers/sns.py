@@ -1,6 +1,7 @@
 import io
 import logging
 import os
+import uuid
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -44,6 +45,7 @@ from app.schemas.sns import (
     TopPost,
     TrendPoint,
     WeeklyKpiRow,
+    WeeklyPostCountRow,
 )
 from app.services.sns_collectors.base import BaseCollector, CollectorError
 
@@ -430,6 +432,74 @@ async def stats_weekly(
             )
         )
     return rows
+
+
+# ---------------- 콘텐츠 현황 (계정별 주간 게재건수) ----------------
+
+
+@router.get("/stats/weekly-posts", response_model=list[WeeklyPostCountRow])
+async def stats_weekly_posts(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+):
+    """계정(채널)별 주차별 게재건수 + 월 누적.
+
+    주어진 (year, month)의 social_posts 를 계정 × 주차로 GROUP BY 한다.
+    주차 = ((day-1)/7)+1 (week_of_month, 1~5) — stats_weekly 와 동일 공식.
+    각 계정 행은 week1~week5(주차별 건수) + total(월 합계)을 가진다.
+    """
+    week_of_month = (((func.extract("day", SocialPost.posted_at) - 1) / 7).cast(Integer) + 1).label("week_number")
+
+    q = (
+        select(
+            SocialAccount.id.label("account_id"),
+            SocialAccount.platform.label("platform"),
+            SocialAccount.language.label("language"),
+            SocialAccount.handle.label("handle"),
+            SocialAccount.client.label("client"),
+            week_of_month,
+            func.count(SocialPost.id).label("post_count"),
+        )
+        .join(SocialAccount, SocialAccount.id == SocialPost.account_id)
+        .where(
+            func.extract("year", SocialPost.posted_at) == year,
+            func.extract("month", SocialPost.posted_at) == month,
+        )
+        .group_by(
+            SocialAccount.id,
+            SocialAccount.platform,
+            SocialAccount.language,
+            SocialAccount.handle,
+            SocialAccount.client,
+            week_of_month,
+        )
+    )
+    result = await db.execute(q)
+
+    # 계정별로 주차 건수를 누적 (한 계정이 여러 주차 행으로 나뉘어 나온다).
+    by_account: dict[uuid.UUID, WeeklyPostCountRow] = {}
+    for r in result.all():
+        row = by_account.get(r.account_id)
+        if row is None:
+            row = WeeklyPostCountRow(
+                account_id=r.account_id,
+                platform=r.platform,
+                language=r.language,
+                handle=r.handle,
+                client=r.client,
+            )
+            by_account[r.account_id] = row
+        week = int(r.week_number)
+        count = int(r.post_count)
+        if 1 <= week <= 5:
+            setattr(row, f"week{week}", getattr(row, f"week{week}") + count)
+        row.total += count
+
+    return sorted(
+        by_account.values(),
+        key=lambda x: (x.platform, x.language, x.handle or ""),
+    )
 
 
 @router.get("/stats/growth", response_model=list[GrowthCard])

@@ -185,6 +185,29 @@ class WeeklyKpiRow(BaseModel):
     reaction_count: int
 
 
+# ---------------- 콘텐츠 현황 (계정별 주간 게재건수) ----------------
+
+
+class WeeklyPostCountRow(BaseModel):
+    """계정(채널) 1개의 월간 주차별 게재건수 + 월 누적.
+
+    week1~week5 = 해당 주차(주차=((day-1)//7)+1)에 게재된 게시물 수,
+    total = 해당 월 전체 게재건수. 채널 식별을 위해 platform/language/handle/client 포함.
+    """
+
+    account_id: uuid.UUID
+    platform: str
+    language: str
+    handle: str | None = None
+    client: str | None = None
+    week1: int = 0
+    week2: int = 0
+    week3: int = 0
+    week4: int = 0
+    week5: int = 0
+    total: int = 0
+
+
 class GrowthCard(BaseModel):
     language: str
     platform: str
