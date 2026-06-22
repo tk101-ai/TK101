@@ -270,6 +270,64 @@ export interface WeeklyPostCountRow {
 export const listWeeklyPostCounts = (params: { year: number; month: number }) =>
   api.get<WeeklyPostCountRow[]>("/api/sns/stats/weekly-posts", { params });
 
+// ---------------- 엑셀 내보내기 (.xlsx blob 다운로드) ----------------
+
+const XLSX_MIME =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+/** blob 응답을 받아 브라우저 다운로드를 트리거한다. fallbackName 은 헤더 부재 시 파일명. */
+async function downloadXlsx(
+  path: string,
+  params: Record<string, unknown>,
+  fallbackName: string,
+): Promise<void> {
+  const res = await api.get(path, { params, responseType: "blob" });
+  const blob = new Blob([res.data], { type: XLSX_MIME });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fallbackName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+
+/** 콘텐츠 현황(주차별 게재건수) — 선택한 연/월 .xlsx 다운로드. */
+export const exportContentStatus = (params: { year: number; month: number }) =>
+  downloadXlsx(
+    "/api/sns/export/content-status",
+    params,
+    `콘텐츠현황_${params.year}-${pad2(params.month)}.xlsx`,
+  );
+
+/** 주간 팔로워 — 선택한 연/월 .xlsx 다운로드. */
+export const exportSnapshots = (params: { year: number; month: number }) =>
+  downloadXlsx(
+    "/api/sns/export/snapshots",
+    params,
+    `주간팔로워_${params.year}-${pad2(params.month)}.xlsx`,
+  );
+
+/** 게시물 목록 — 계정/기간 .xlsx 다운로드. account_id 생략 시 기간 내 전체 계정. */
+export const exportPosts = (params: {
+  account_id?: string;
+  date_from?: string;
+  date_to?: string;
+}) => {
+  const period =
+    params.date_from && params.date_to
+      ? `${params.date_from}_${params.date_to}`
+      : params.date_from
+        ? `${params.date_from}_이후`
+        : params.date_to
+          ? `~${params.date_to}`
+          : "전체";
+  return downloadXlsx("/api/sns/export/posts", params, `게시물_${period}.xlsx`);
+};
+
 export const importMarketing1Excel = (file: File) => {
   const form = new FormData();
   form.append("file", file);

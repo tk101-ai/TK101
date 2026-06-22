@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, DatePicker, InputNumber, message, Space, Table, Tag } from "antd";
-import { SaveOutlined } from "@ant-design/icons";
+import { DownloadOutlined, SaveOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
 import {
   bulkUpsertSnapshots,
+  exportSnapshots,
   getLanguageLabel,
   getPlatformLabel,
   listAccounts,
@@ -28,9 +29,21 @@ export default function SnsWeeklySnapshots() {
   const [edits, setEdits] = useState<Record<string, Record<number, number | null>>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const year = period.year();
   const month = period.month() + 1;
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await exportSnapshots({ year, month });
+    } catch {
+      message.error("엑셀 내보내기 실패");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -161,6 +174,14 @@ export default function SnsWeeklySnapshots() {
             allowClear={false}
             format="YYYY년 M월"
           />
+          <Button
+            icon={<DownloadOutlined />}
+            loading={exporting}
+            disabled={accounts.length === 0}
+            onClick={handleExport}
+          >
+            엑셀 내보내기
+          </Button>
           <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
             저장
           </Button>

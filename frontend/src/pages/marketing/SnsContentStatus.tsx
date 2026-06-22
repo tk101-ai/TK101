@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DatePicker, message, Space, Table, Tag } from "antd";
+import { Button, DatePicker, message, Space, Table, Tag } from "antd";
+import { DownloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
 import {
+  exportContentStatus,
   getContentTypeLabel,
   getLanguageLabel,
   getPlatformLabel,
@@ -40,9 +42,21 @@ export default function SnsContentStatus() {
   // 드릴다운: 계정별 게시물 목록 캐시.
   const [postsByAccount, setPostsByAccount] = useState<Record<string, SnsPost[]>>({});
   const [postsLoading, setPostsLoading] = useState<Record<string, boolean>>({});
+  const [exporting, setExporting] = useState(false);
 
   const year = period.year();
   const month = period.month() + 1;
+
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      await exportContentStatus({ year, month });
+    } catch {
+      message.error("엑셀 내보내기 실패");
+    } finally {
+      setExporting(false);
+    }
+  }, [year, month]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -200,6 +214,14 @@ export default function SnsContentStatus() {
             allowClear={false}
             format="YYYY년 M월"
           />
+          <Button
+            icon={<DownloadOutlined />}
+            loading={exporting}
+            disabled={rows.length === 0}
+            onClick={handleExport}
+          >
+            엑셀 내보내기
+          </Button>
         </Space>
       </div>
 

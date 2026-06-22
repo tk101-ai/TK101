@@ -19,6 +19,7 @@ import {
 } from "antd";
 import {
   CommentOutlined,
+  DownloadOutlined,
   LineChartOutlined,
   LinkOutlined,
   PlusOutlined,
@@ -32,6 +33,7 @@ import {
   collectComments,
   collectMetrics,
   createManualContent,
+  exportPosts,
   getContentTypeLabel,
   getLanguageLabel,
   getPlatformLabel,
@@ -95,6 +97,7 @@ export default function SeoulSns() {
   const [metricsPost, setMetricsPost] = useState<SnsPost | null>(null);
   const [collecting, setCollecting] = useState(false);
   const [collectingComments, setCollectingComments] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [form] = Form.useForm<ContentFormValues>();
 
   const fetchAccounts = useCallback(async () => {
@@ -232,6 +235,24 @@ export default function SeoulSns() {
       );
     } finally {
       setCollectingComments(false);
+    }
+  };
+
+  // 현재 조회(뷰) 필터 그대로 게시물 .xlsx 내보내기.
+  // 단일 계정 조회면 account_id 를 보내고, 다중/미선택이면 생략 → 백엔드가 기간 내
+  // 전체 계정 게시물을 (계정 식별 컬럼 포함) 내보낸다.
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await exportPosts({
+        account_id: viewAccountIds.length === 1 ? viewAccountIds[0] : undefined,
+        date_from: dateFrom,
+        date_to: dateTo,
+      });
+    } catch (err) {
+      message.error(extractErrorDetail(err, "엑셀 내보내기 실패"));
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -447,6 +468,14 @@ export default function SeoulSns() {
             setDateTo(dates?.[1] || undefined);
           }}
         />
+        <Button
+          icon={<DownloadOutlined />}
+          loading={exporting}
+          disabled={viewAccountIds.length === 0}
+          onClick={handleExport}
+        >
+          엑셀 내보내기
+        </Button>
       </Space>
 
       <Alert
