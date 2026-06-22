@@ -14,9 +14,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
 
-from app.config import settings
+from app.services.llm.client import call_claude
 
 logger = logging.getLogger(__name__)
 
@@ -34,16 +33,6 @@ SYSTEM_PROMPT = (
     "반드시 입력과 같은 i 값을 갖는 JSON 만 출력하세요. 다른 설명은 출력하지 마세요. "
     'JSON 형식: {"translations":[{"i":0,"t":"번역문"}, ...]}'
 )
-
-
-def _build_anthropic_client() -> Any:
-    if not settings.anthropic_api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY 미설정 — 댓글 번역 사용 불가.")
-    try:
-        from anthropic import Anthropic
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError(f"anthropic SDK 미설치: {exc}") from exc
-    return Anthropic(api_key=settings.anthropic_api_key)
 
 
 def _parse_translations(response_text: str) -> dict[int, str]:
@@ -79,23 +68,20 @@ def _parse_translations(response_text: str) -> dict[int, str]:
 
 def _call_haiku_sync(batch: list[tuple[int, str]]) -> dict[int, str]:
     """배치(인덱스, 원문) → {인덱스: 번역문}. 실패 시 빈 dict."""
-    client = _build_anthropic_client()
     payload = {"comments": [{"i": idx, "t": text} for idx, text in batch]}
     user_content = (
         "다음 댓글들을 한국어로 번역하세요.\n"
         + json.dumps(payload, ensure_ascii=False)
     )
-    response = client.messages.create(
+    response = call_claude(
+        system_prompt=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_content}],
         model=HAIKU_MODEL,
         max_tokens=MAX_OUTPUT_TOKENS,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
+        cache_system=False,
+        trace_name="sns_comment_translator",
     )
-    parts: list[str] = []
-    for block in getattr(response, "content", []) or []:
-        if getattr(block, "type", None) == "text":
-            parts.append(getattr(block, "text", "") or "")
-    return _parse_translations("".join(parts))
+    return _parse_translations(response.text)
 
 
 def _chunk(items: list[tuple[int, str]]) -> list[list[tuple[int, str]]]:

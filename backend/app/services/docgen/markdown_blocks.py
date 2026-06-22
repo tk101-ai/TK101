@@ -42,10 +42,6 @@ def strip_inline(text: str) -> str:
     return text.strip()
 
 
-def _is_table_line(line: str) -> bool:
-    return "|" in line and line.strip().startswith(("|", "")) and line.count("|") >= 1
-
-
 def _looks_like_table(lines: list[str]) -> bool:
     real = [ln for ln in lines if ln.strip()]
     return len(real) >= 2 and all("|" in ln for ln in real[:2])

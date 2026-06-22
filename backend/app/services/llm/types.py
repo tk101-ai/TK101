@@ -28,20 +28,4 @@ class LLMUsage:
     cache_creation_tokens: int = 0
 
 
-@dataclass(frozen=True)
-class LLMResult:
-    """LLM 호출 결과 — provider 공통 정규화 형태.
-
-    기존 ``LLMResponse`` 를 대체하지 않는다(별도 신규 타입). 추후 통합 집계 지점에서
-    두 클라이언트 결과를 공통 형태로 변환할 때 쓴다.
-    """
-
-    text: str
-    usage: LLMUsage
-    model: str
-    cost_usd: float
-    provider: str  # "anthropic" | "tencent_aigc"
-    trace_id: str | None = None
-
-
-__all__ = ["LLMUsage", "LLMResult"]
+__all__ = ["LLMUsage"]

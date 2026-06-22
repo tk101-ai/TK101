@@ -258,30 +258,6 @@ class YouTubeCollector(BaseCollector):
                 break
         return video_ids
 
-    # Backwards-compatible alias kept in case any caller still imports the old name.
-    async def _fetch_recent_video_ids(
-        self,
-        client: httpx.AsyncClient,
-        playlist_id: str,
-    ) -> list[str]:
-        params = {
-            "part": "contentDetails",
-            "playlistId": playlist_id,
-            "maxResults": MAX_PLAYLIST_ITEMS,
-            "key": self._api_key,
-        }
-        response = await client.get(f"{YOUTUBE_API_BASE}/playlistItems", params=params)
-        response.raise_for_status()
-        data = response.json()
-        items = data.get("items") or []
-        video_ids: list[str] = []
-        for item in items:
-            content_details = item.get("contentDetails") or {}
-            video_id = content_details.get("videoId")
-            if video_id:
-                video_ids.append(video_id)
-        return video_ids
-
     async def _fetch_video_details(
         self,
         client: httpx.AsyncClient,
