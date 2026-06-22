@@ -251,6 +251,25 @@ export interface TrendFilter {
 export const listTrend = (filter: TrendFilter = {}) =>
   api.get<TrendPoint[]>("/api/sns/stats/trend", { params: filter });
 
+// 콘텐츠 현황 — 계정(채널)별 주차별 게재건수 + 월 누적.
+export interface WeeklyPostCountRow {
+  account_id: string;
+  platform: Platform;
+  language: Language;
+  handle: string | null;
+  client: string | null;
+  week1: number;
+  week2: number;
+  week3: number;
+  week4: number;
+  week5: number;
+  total: number;
+}
+
+// 선택한 연/월의 계정별 주차별 게재건수 집계.
+export const listWeeklyPostCounts = (params: { year: number; month: number }) =>
+  api.get<WeeklyPostCountRow[]>("/api/sns/stats/weekly-posts", { params });
+
 export const importMarketing1Excel = (file: File) => {
   const form = new FormData();
   form.append("file", file);
