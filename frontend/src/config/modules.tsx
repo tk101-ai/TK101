@@ -63,6 +63,7 @@ type NavCategoryDef = { label: string | null; order: number };
 
 export const NAV_CATEGORIES = {
   common: { label: null, order: 0 },
+  form_work: { label: "문서 작업", order: 5 },
   finance: { label: "재무팀", order: 10 },
   marketing_1: { label: "마케팅1팀", order: 20 },
   marketing_2: { label: "마케팅2팀", order: 30 },
@@ -87,9 +88,9 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { key: "dashboard", path: "/", label: "대시보드", icon: <DashboardOutlined />, module: "dashboard", category: "common" },
   { key: "nas-search", path: "/nas/search", label: "자료 검색", icon: <SearchOutlined />, module: "nas_search", category: "common" },
-  { key: "forms-new", path: "/forms/new", label: "문서 자동 작성 (v0.1)", icon: <EditOutlined />, module: "form_filler", category: "common" },
-  { key: "forms-generate", path: "/forms/generate", label: "문서 생성 (요구 기반)", icon: <RobotOutlined />, module: "form_filler", category: "common" },
-  { key: "forms-library", path: "/forms/library", label: "양식 라이브러리", icon: <FileTextOutlined />, module: "form_filler", category: "common" },
+  { key: "forms-generate", path: "/forms/generate", label: "새 문서 작성", icon: <RobotOutlined />, module: "form_filler", category: "form_work" },
+  { key: "forms-new", path: "/forms/new", label: "양식 채우기", icon: <EditOutlined />, module: "form_filler", category: "form_work" },
+  { key: "forms-library", path: "/forms/library", label: "양식 라이브러리", icon: <FileTextOutlined />, module: "form_filler", category: "form_work" },
   { key: "transactions", path: "/transactions", label: "거래내역", icon: <SwapOutlined />, module: "finance", category: "finance" },
   { key: "finance-import", path: "/finance/import", label: "거래 가져오기", icon: <ImportOutlined />, module: "finance", category: "finance" },
   { key: "finance-matching", path: "/finance/matching", label: "매칭 워크북", icon: <LinkOutlined />, module: "finance", category: "finance" },
