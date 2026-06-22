@@ -544,6 +544,19 @@ export default function SeoulSns() {
       <PostMetricsDrawer
         post={metricsPost}
         onClose={() => setMetricsPost(null)}
+        onAnalysis={(postId, summary) => {
+          // 인앱 AI 요약을 목록과 현재 열린 게시물에 반영 → 재열람 시 새로고침 없이 유지.
+          setPosts((prev) =>
+            prev.map((p) =>
+              p.id === postId ? { ...p, comment_summary: summary } : p,
+            ),
+          );
+          setMetricsPost((prev) =>
+            prev && prev.id === postId
+              ? { ...prev, comment_summary: summary }
+              : prev,
+          );
+        }}
       />
     </div>
   );

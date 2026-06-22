@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -17,6 +18,7 @@ from app.schemas.auth import (
 from app.schemas.user import UserMe, UserRead
 from app.services.auth import create_access_token, hash_password, verify_password
 from app.services.department_sync import set_user_departments
+from app.services.translation import RateLimitExceeded, check_rate_limit
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -25,11 +27,38 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 ACCESS_COOKIE_NAME = "access_token"
 ACCESS_COOKIE_MAX_AGE = 24 * 60 * 60
 
+# 인증 엔드포인트 레이트리밋(D1) — 무차별 대입/계정 열거/가입 스팸 차단.
+# 로그인: 이메일+클라이언트 IP 조합당, 가입: IP당. 인메모리 슬라이딩 윈도우 재사용
+# (check_rate_limit, translation 서비스). 한도 초과 시 429.
+_LOGIN_MAX_CALLS = 10  # 5분 내 동일 (이메일,IP) 로그인 시도 상한
+_LOGIN_WINDOW_SEC = 300
+_REGISTER_MAX_CALLS = 5  # 1시간 내 동일 IP 가입 시도 상한
+_REGISTER_WINDOW_SEC = 3600
+
+
+def _client_ip(request: Request) -> str:
+    """클라이언트 IP. 리버스 프록시(nginx) 뒤이므로 X-Forwarded-For 첫 홉 우선."""
+    fwd = request.headers.get("X-Forwarded-For", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(body: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """직원 셀프 회원가입. 회사 이메일 도메인만 허용, role=member·status=pending 고정.
     관리자 승인 전까지 로그인 불가(login 의 status 게이트)."""
+    try:
+        check_rate_limit(
+            f"register:{_client_ip(request)}",
+            max_calls=_REGISTER_MAX_CALLS,
+            window_sec=_REGISTER_WINDOW_SEC,
+        )
+    except RateLimitExceeded:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="가입 시도가 너무 많습니다. 잠시 후 다시 시도하세요",
+        )
     domains = [d.strip().lower() for d in settings.allowed_signup_domains.split(",") if d.strip()]
     email_domain = body.email.split("@")[-1].lower()
     if not domains or email_domain not in domains:
@@ -53,15 +82,39 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
         is_active=True,
     )
     db.add(user)
-    await db.flush()
-    await set_user_departments(db, user.id, [body.department.value])
-    await db.commit()
+    try:
+        await db.flush()
+        await set_user_departments(db, user.id, [body.department.value])
+        await db.commit()
+    except IntegrityError:
+        # 사전 존재확인과 commit 사이의 경쟁(동시 동일 이메일 가입) → unique 위반을 409로(F2).
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="이미 가입된 이메일입니다"
+        )
     await db.refresh(user)
     return user
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+async def login(
+    body: LoginRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    # (이메일, IP) 조합당 레이트리밋 — 단일 계정 무차별 대입 + 분산 열거 모두 완화(D1).
+    try:
+        check_rate_limit(
+            f"login:{body.email.lower()}:{_client_ip(request)}",
+            max_calls=_LOGIN_MAX_CALLS,
+            window_sec=_LOGIN_WINDOW_SEC,
+        )
+    except RateLimitExceeded:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요",
+        )
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(body.password, user.hashed_password):

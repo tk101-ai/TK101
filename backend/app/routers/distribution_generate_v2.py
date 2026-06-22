@@ -30,12 +30,13 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_module
+from app.dependencies import get_current_user, require_module
 from app.models.distribution import (
     DistributionPersona,
     DistributionScenario,
     DistributionWeeklySummary,
 )
+from app.models.user import User
 from app.modules.constants import Module
 from app.services.distribution.conversation_generator import GenerationError
 from app.services.distribution.generation_service import (
@@ -45,6 +46,10 @@ from app.services.distribution.generation_service import (
     _has_credentials,
     _label_or_id,
     _top_products,
+)
+from app.services.translation.translator import (
+    RateLimitExceeded,
+    check_rate_limit,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +64,38 @@ router = APIRouter(
 
 # period_label 형식: ``YYYY_MMDD`` (예: 2026_0512). 잘못된 입력 차단.
 _PERIOD_LABEL_PATTERN = re.compile(r"^\d{4}_\d{4}$")
+
+# D2: LLM 생성 비용 폭주 차단. 사용자별 분당/일일 호출 한도.
+# translator.check_rate_limit(인메모리 슬라이딩 윈도우) 재사용 — 단일 인스턴스 전제.
+# 일일 캡은 window_sec=86400 으로 같은 util 을 재사용하되, 분당 버킷과
+# 충돌하지 않도록 키에 ":daily" 접미사를 붙인다.
+_GEN_PER_MIN_MAX = 5
+_GEN_DAILY_MAX = 50
+_GEN_DAILY_WINDOW_SEC = 86_400
+
+
+def _enforce_generation_limit(user_id: str) -> None:
+    """생성 엔드포인트 공통 레이트리밋 (분당 + 일일 캡).
+
+    Raises:
+        HTTPException(429): 분당 또는 일일 한도 초과.
+    """
+    try:
+        check_rate_limit(
+            f"distgen:{user_id}",
+            max_calls=_GEN_PER_MIN_MAX,
+            window_sec=60,
+        )
+        check_rate_limit(
+            f"distgen:daily:{user_id}",
+            max_calls=_GEN_DAILY_MAX,
+            window_sec=_GEN_DAILY_WINDOW_SEC,
+        )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="생성 요청이 너무 잦습니다. 잠시 후 다시 시도해주세요.",
+        ) from exc
 
 
 class GenerateCustomRequest(BaseModel):
@@ -224,14 +261,18 @@ async def _scenarios_by_names_active(
 async def generate_custom(
     payload: GenerateCustomRequest,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> GenerateCustomResult:
     """사용자가 명시한 (페르소나 × 시나리오 × 주차) 조합으로 세션 생성.
+
+    권한: DISTRIBUTION 모듈(admin + 신사업팀). LLM 생성 비용은 사용자별 분당/일일 호출 한도로 가드(D2).
 
     검증:
     - period_label 형식 ``YYYY_MMDD`` 외 입력은 400.
     - 한국 페르소나 미존재/역할 불일치는 errors 에 기록 후 진행.
     - 활성 베트남 어드민 없으면 errors + 빈 결과.
     """
+    _enforce_generation_limit(str(user.id))
     result = GenerateCustomResult()
 
     # 0. period_label 형식 검증.

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -33,38 +34,44 @@ import { extractErrorDetail } from "../../utils/errorUtils";
 const { Title, Paragraph, Text } = Typography;
 
 // ---------------------------------------------------------------------------
-// 색상 매핑
+// 색상 매핑 — 라벨을 해시해 색을 결정. 브랜드/카테고리가 나중에 추가돼도
+// 자동으로 일관된 색이 부여된다(하드코딩 매핑 제거: 동적 설계 원칙).
 // ---------------------------------------------------------------------------
 
-const CATEGORY_COLOR: Record<string, string> = {
-  Bag: "blue",
-  Belts: "green",
-  Ring: "gold",
-  Scarf: "purple",
-};
+// antd preset 태그 색상 팔레트(default 제외) — 해시 결과를 이 중 하나로 매핑.
+const TAG_COLORS = [
+  "magenta",
+  "red",
+  "volcano",
+  "orange",
+  "gold",
+  "lime",
+  "green",
+  "cyan",
+  "blue",
+  "geekblue",
+  "purple",
+] as const;
 
-const BRAND_COLOR: Record<string, string> = {
-  루이비통: "magenta",
-  "LOUIS VUITTON": "magenta",
-  고야드: "gold",
-  GOYARD: "gold",
-  Cartier: "red",
-  BURBERRY: "orange",
-  DIOR: "default",
-};
+// 라벨 → 안정적 색상. 동일 라벨은 항상 같은 색(대소문자 무시).
+function colorForLabel(label: string): string {
+  const key = label.trim().toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  }
+  const idx = Math.abs(hash) % TAG_COLORS.length;
+  return TAG_COLORS[idx];
+}
 
 function getCategoryColor(cat: string | null): string {
   if (!cat) return "default";
-  return CATEGORY_COLOR[cat] ?? "default";
+  return colorForLabel(cat);
 }
 
 function getBrandColor(brand: string): string {
-  if (BRAND_COLOR[brand]) return BRAND_COLOR[brand];
-  const upper = brand.toUpperCase();
-  for (const key of Object.keys(BRAND_COLOR)) {
-    if (key.toUpperCase() === upper) return BRAND_COLOR[key];
-  }
-  return "default";
+  if (!brand) return "default";
+  return colorForLabel(brand);
 }
 
 function formatAmount(value: string | null): string {
@@ -101,9 +108,17 @@ type CompanyChoice = DistributionCompany | "all";
  * - 상단 브랜드별 요약 카드 (가시성 ↑: 브랜드명 큰 글씨 + 제품/재고/매입 수치)
  * - 페이지 사이즈 50
  */
+// 전체 데이터 1회 적재 상한. 회사별 비교 카드(항상 4 업체 전수 집계)와
+// 브랜드/카테고리 필터 옵션이 전체 데이터를 필요로 하므로 서버 페이지네이션
+// 대신 상한을 두고, 상한 도달 시 사용자에게 "표시 N건" 경고를 노출한다.
+// (전수 서버 페이지네이션은 집계 카드 UX를 깨므로 이번 패스에서는 보류.)
+const PRODUCTS_FETCH_LIMIT = 5000;
+
 export default function ProductsPage() {
   const [data, setData] = useState<ProductOut[]>([]);
   const [loading, setLoading] = useState(false);
+  // fetch 결과가 상한과 같으면 잘렸을 수 있다는 신호.
+  const [capped, setCapped] = useState(false);
 
   const [company, setCompany] = useState<CompanyChoice>("all");
   const [brandFilter, setBrandFilter] = useState<string>("all");
@@ -111,12 +126,13 @@ export default function ProductsPage() {
   const [searchInput, setSearchInput] = useState("");
 
   // 회사별 비교 카드를 위해 전체 데이터 1회 fetch — 회사 필터는 클라이언트.
-  // 4 회사 풀 적재 시 ~2000 행 가정, limit 5000 안전 마진.
+  // 상한(PRODUCTS_FETCH_LIMIT) 도달 시 일부만 표시될 수 있어 capped 플래그로 안내.
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const items = await listProducts({ limit: 5000 });
+      const items = await listProducts({ limit: PRODUCTS_FETCH_LIMIT });
       setData(items);
+      setCapped(items.length >= PRODUCTS_FETCH_LIMIT);
     } catch (err: unknown) {
       message.error(extractErrorDetail(err, "명품재고 조회 실패"));
     } finally {
@@ -850,6 +866,15 @@ export default function ProductsPage() {
             ))}
           </div>
         </Card>
+      )}
+
+      {capped && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`최대 ${PRODUCTS_FETCH_LIMIT.toLocaleString("ko-KR")}건만 표시 중입니다. 일부 데이터가 누락됐을 수 있어 회사/브랜드 필터로 좁혀 조회하세요.`}
+        />
       )}
 
       <div

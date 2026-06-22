@@ -233,7 +233,8 @@ def _save_to_nas(file_bytes: bytes, filename: str) -> str | None:
     # path traversal 방지 — root 안인지 확인.
     real_target = os.path.realpath(target)
     real_root = os.path.realpath(root)
-    if not real_target.startswith(real_root):
+    # separator 없는 startswith 는 /nas-evil 가 /nas 에 매칭되는 우회 허용 — 경계 검사.
+    if not (real_target == real_root or real_target.startswith(real_root + os.sep)):
         logger.error("출력 경로가 root 외부로 탈출 — 저장 결과 폐기")
         try:
             target.unlink(missing_ok=True)

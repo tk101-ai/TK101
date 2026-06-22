@@ -27,7 +27,7 @@ from app.services.distribution.customs_llm_extractor import (
     extract_customs_from_text,
 )
 from app.services.distribution.customs_parser import reverse_calc_actual_price
-from app.services.form_filler.llm_client import LLMResponse
+from app.services.llm.client import LLMResponse
 
 
 # ---------------------------------------------------------------------------

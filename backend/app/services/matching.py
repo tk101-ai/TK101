@@ -117,6 +117,7 @@ async def apply_manual_match(
     - 두 거래 모두 존재 + 삭제되지 않음
     - 서로 다른 거래
     - 둘 중 어느 쪽이라도 이미 매칭됐다면 ValueError
+    - 반대 유형(입금↔출금) · 다른 계좌 · 동일 금액 (자동 후보 생성과 동일 불변식)
     """
     if str(tx_id_a) == str(tx_id_b):
         raise ValueError("동일한 거래끼리는 매칭할 수 없습니다")
@@ -137,6 +138,14 @@ async def apply_manual_match(
         "manual",
     ):
         raise ValueError("이미 다른 거래와 매칭된 거래입니다")
+
+    # 자동 후보 생성(find_match_candidates)과 동일한 불변식을 수동 매칭에도 강제.
+    if a.account_id == b.account_id:
+        raise ValueError("같은 계좌의 거래끼리는 매칭할 수 없습니다")
+    if a.amount != b.amount:
+        raise ValueError("금액이 다른 거래는 매칭할 수 없습니다")
+    if a.transaction_type == b.transaction_type:
+        raise ValueError("입금·출금 반대 유형끼리만 매칭할 수 있습니다")
 
     a.matched_transaction_id = b.id
     a.match_status = "manual"

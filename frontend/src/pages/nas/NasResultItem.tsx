@@ -69,10 +69,14 @@ function highlightSnippet(text: string, query: string | undefined): ReactNode {
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
   if (tokens.length === 0) return text;
-  const pattern = new RegExp(`(${tokens.map(escapeRegExp).join("|")})`, "gi");
-  const parts = text.split(pattern);
+  // split: 캡처 그룹 + g 플래그로 매칭 토큰을 결과 배열에 포함시킨다.
+  const splitPattern = new RegExp(`(${tokens.map(escapeRegExp).join("|")})`, "gi");
+  const parts = text.split(splitPattern);
+  // 매칭 판별은 g 플래그 없는 별도 정규식으로. g 플래그를 .test()에 재사용하면
+  // lastIndex 가 누적돼 호출 순서에 따라 하이라이트가 빠지는 stateful 버그가 생긴다.
+  const matchPattern = new RegExp(`^(?:${tokens.map(escapeRegExp).join("|")})$`, "i");
   return parts.map((part, idx) =>
-    pattern.test(part) ? (
+    part && matchPattern.test(part) ? (
       <mark
         key={idx}
         style={{ background: "#fff1b8", color: "inherit", padding: "0 2px", borderRadius: 2 }}

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Badge, Button, Input, Space, Table, Tag, Typography } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -24,6 +25,42 @@ interface MappingTableProps {
 interface Row {
   variable: FormVariable;
   mapping: FormMapping | null;
+}
+
+/**
+ * 값 입력 셀 — 로컬 상태로 타이핑을 흡수하고, 포커스 해제(blur) 또는 Enter 시에만
+ * 부모로 커밋한다. 과거엔 키 입력마다 onChange → PATCH + 전체 새로고침이 발생했다.
+ * 외부에서 값이 갱신되면(재생성 등) prop 변화를 로컬에 동기화한다.
+ */
+function ValueCell({
+  value,
+  placeholder,
+  onCommit,
+}: {
+  value: string;
+  placeholder: string;
+  onCommit: (next: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const commit = () => {
+    if (draft !== value) onCommit(draft);
+  };
+
+  return (
+    <Input
+      size="small"
+      value={draft}
+      placeholder={placeholder}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onPressEnter={commit}
+    />
+  );
 }
 
 function statusBadge(row: Row) {
@@ -89,11 +126,10 @@ export default function MappingTable({
       title: "값",
       dataIndex: ["mapping", "value"],
       render: (_, row) => (
-        <Input
-          size="small"
+        <ValueCell
           value={row.mapping?.value ?? ""}
           placeholder={row.mapping ? "" : "자료에서 미감지 — 직접 입력"}
-          onChange={(e) => onValueChange(row.variable.key, e.target.value)}
+          onCommit={(next) => onValueChange(row.variable.key, next)}
         />
       ),
     },

@@ -1,4 +1,10 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+# JWT 시크릿 최소 길이/금칙값. HS256 서명키가 약하면 토큰 위조가 가능하므로
+# 기동 시점에 차단(B1 fail-fast). 운영 값은 .env(JWT_SECRET)로만 주입한다.
+_WEAK_JWT_SECRETS = {"", "change-me"}
+_MIN_JWT_SECRET_LEN = 16
 
 
 class Settings(BaseSettings):
@@ -237,6 +243,18 @@ class Settings(BaseSettings):
     distribution_customs_llm_max_tokens: int = 4096
 
     model_config = {"env_file": ".env", "extra": "ignore"}
+
+    @model_validator(mode="after")
+    def _validate_secrets(self) -> "Settings":
+        """기동 시 JWT 시크릿이 약하면(빈값/기본값/너무 짧음) 즉시 중단.
+        운영에서 기본 'change-me' 또는 미설정으로 뜨는 것을 막는다(B1)."""
+        secret = (self.jwt_secret or "").strip()
+        if secret in _WEAK_JWT_SECRETS or len(secret) < _MIN_JWT_SECRET_LEN:
+            raise ValueError(
+                "JWT_SECRET가 안전하지 않습니다. .env에 16자 이상의 임의 시크릿을 "
+                "설정하세요(기본값 'change-me'/빈값/16자 미만 금지)."
+            )
+        return self
 
 
 settings = Settings()

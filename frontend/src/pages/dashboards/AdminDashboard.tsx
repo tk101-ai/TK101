@@ -52,8 +52,15 @@ interface ExternalLink {
   color: string;
 }
 
-// 외부 시스템 URL은 nginx 리버스 프록시(/n8n) 경유를 표준으로 한다.
-// 추후 직접 포트(:5678)를 외부에 노출하지 않도록 정합성 유지.
+// 외부 시스템 URL은 환경변수로 주입(하드코딩 IP/포트 제거 — 동적 설계 원칙).
+// Vite 빌드타임 env(VITE_*). 미설정 시 현 운영값을 폴백으로 사용해 동작 보존.
+// 운영 IP/포트 변경 시 .env(VITE_OPENWEBUI_URL / VITE_LANGFUSE_URL)만 수정하면 된다.
+// n8n 은 nginx 리버스 프록시(/n8n) 경유를 표준으로 하여 직접 포트 노출을 피한다.
+const OPENWEBUI_URL =
+  import.meta.env.VITE_OPENWEBUI_URL || "http://43.155.202.112:3000";
+const LANGFUSE_URL =
+  import.meta.env.VITE_LANGFUSE_URL || "http://43.155.202.112:3001";
+
 const EXTERNAL_LINKS: ExternalLink[] = [
   {
     title: "n8n 워크플로",
@@ -64,13 +71,13 @@ const EXTERNAL_LINKS: ExternalLink[] = [
   {
     title: "Open WebUI",
     description: "AI 챗봇 인터페이스",
-    url: "http://43.155.202.112:3000",
+    url: OPENWEBUI_URL,
     color: "#1677ff",
   },
   {
     title: "Langfuse 관측성",
     description: "LLM 호출 트레이싱",
-    url: "http://43.155.202.112:3001",
+    url: LANGFUSE_URL,
     color: "#722ed1",
   },
 ];

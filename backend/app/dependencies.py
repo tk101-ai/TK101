@@ -1,4 +1,6 @@
 import secrets
+import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from jose import JWTError
@@ -40,8 +42,13 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="인증 필요")
     try:
         payload = decode_token(token)
-        user_id = payload.get("sub")
-        if user_id is None:
+        sub = payload.get("sub")
+        if sub is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        # sub는 신뢰 불가 입력 — UUID 파싱 실패 시 DB 조회로 넘기지 않고 401(H1, 500 방지).
+        try:
+            user_id = uuid.UUID(str(sub))
+        except (ValueError, AttributeError, TypeError):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
@@ -53,6 +60,20 @@ async def get_current_user(
     if user.status != UserStatus.ACTIVE.value:
         # 발급된 토큰의 사후 무효화(관리자 거절/정지 즉시 효력).
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="비활성 계정")
+    # 비번 변경/리셋 후 발급 이전 토큰 무효화(J1): updated_at 이후 발급된 토큰만 유효.
+    # 마이그레이션 없이 기존 updated_at(onupdate=now) 컬럼을 재사용한다. 시계 오차/동일
+    # 트랜잭션 타이밍으로 인한 오탐 로그아웃을 막기 위해 작은 grace(60초)를 둔다.
+    iat = payload.get("iat")
+    if iat is not None and user.updated_at is not None:
+        token_iat = datetime.fromtimestamp(int(iat), tz=timezone.utc)
+        updated = user.updated_at
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        if token_iat < updated - timedelta(seconds=60):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="자격 정보가 변경되어 다시 로그인해야 합니다",
+            )
     return user
 
 

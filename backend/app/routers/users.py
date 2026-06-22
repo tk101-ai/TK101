@@ -68,9 +68,18 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
         status=UserStatus.ACTIVE.value,  # 관리자 생성은 즉시 활성
     )
     db.add(user)
-    await db.flush()
-    await set_user_departments(db, user.id, _dept_values(body.department.value, body.departments))
-    await db.commit()
+    try:
+        await db.flush()
+        await set_user_departments(
+            db, user.id, _dept_values(body.department.value, body.departments)
+        )
+        await db.commit()
+    except IntegrityError:
+        # 중복 이메일(unique 위반)을 500/경쟁이 아닌 409로 명확히 응답(F2).
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="이미 가입된 이메일입니다"
+        )
     await db.refresh(user)
     return user
 
@@ -143,12 +152,18 @@ async def update_user(
 
     data = body.model_dump(exclude_unset=True)
     new_departments = data.pop("departments", None)  # 관계 → 스칼라 setattr 제외
+    old_department = user.department  # 주 부서 변경 감지용(F1)
     for field, value in data.items():
         if isinstance(value, Enum):
             value = value.value
         setattr(user, field, value)
+    dept_changed = user.department != old_department
+    # 다중부서 목록을 명시했으면 그대로 동기화. 명시하지 않았더라도 주 부서가 바뀌면
+    # 옛 부서 기반 모듈 권한이 user_departments 에 잔존하므로 재동기화한다(F1).
     if new_departments is not None:
         await set_user_departments(db, user.id, _dept_values(user.department, new_departments))
+    elif dept_changed:
+        await set_user_departments(db, user.id, [user.department])
     await db.commit()
     await db.refresh(user)
     return user
