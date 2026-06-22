@@ -77,6 +77,25 @@ async def get_current_user(
     return user
 
 
+async def get_object_or_404(
+    db: AsyncSession,
+    model,
+    obj_id,
+    *,
+    detail: str | None = None,
+):
+    """``select(model).where(model.id == obj_id)`` 단건 조회 → 없으면 404.
+
+    라우터 곳곳에 흩어진 "조회 후 None 이면 404" 보일러플레이트를 단일화한다.
+    ``detail`` 미지정 시 FastAPI 기본 404 메시지를 쓴다(기존 동작 보존).
+    """
+    result = await db.execute(select(model).where(model.id == obj_id))
+    obj = result.scalar_one_or_none()
+    if obj is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+    return obj
+
+
 async def require_admin(user: User = Depends(get_current_user)) -> User:
     if user.role != UserRole.ADMIN.value:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="관리자 권한이 필요합니다")

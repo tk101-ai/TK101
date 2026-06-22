@@ -9,14 +9,11 @@
 """
 from __future__ import annotations
 
-import hashlib
 import io
 import logging
 import os
 import uuid
 from dataclasses import dataclass, field
-from datetime import date
-from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException
@@ -34,41 +31,13 @@ from app.services.bank_import.adapter import (
     BankAdapter,
     TransactionDraft,
 )
+from app.services.bank_import.hashing import compute_transaction_hash
 from app.services.bank_import.registry import detect_adapter
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# CRITICAL-2 fix: account_id 기반 통일 해시.
-# transactions.py 의 _compute_transaction_hash 와 정확히 동일한 알고리즘.
-# BaseBankAdapter.compute_hash 는 account_number 기반이라 다르므로,
-# DB 적재 직전에 account_id 로 재계산한다.
-# ---------------------------------------------------------------------------
-
-
-def compute_transaction_hash(
-    account_id: uuid.UUID | str,
-    transaction_date: date,
-    amount: Decimal,
-    transaction_type: str,
-    balance: Decimal | None,
-    description: str | None,
-) -> str:
-    """transactions.py 와 동일한 SHA256 해시.
-
-    포맷: "{account_id}|{date_iso}|{amount:.2f}|{type}|{balance:.2f or ""}|{desc}"
-    """
-    parts = [
-        str(account_id),
-        transaction_date.isoformat(),
-        f"{Decimal(amount):.2f}",
-        transaction_type,
-        f"{Decimal(balance):.2f}" if balance is not None else "",
-        (description or "").strip(),
-    ]
-    raw = "|".join(parts).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()
+# CRITICAL-2: 적재 직전 account_id 기반 정규 해시(hashing.compute_transaction_hash)로
+# 재계산한다. 어댑터가 채운 account_number 기반 d.raw_hash 는 사용하지 않는다.
 
 INSERT_CHUNK_SIZE = 200
 

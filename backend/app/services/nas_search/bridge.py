@@ -71,6 +71,31 @@ def build_query_from_variables(
     return " ".join(parts).strip()
 
 
+def _dept_filter(dept_labels: list[str] | None):
+    """부서 라벨 스코핑용 Qdrant 필터(없으면 None)."""
+    if not dept_labels:
+        return None
+    return qm.Filter(
+        must=[qm.FieldCondition(key="dept", match=qm.MatchAny(any=list(dept_labels)))]
+    )
+
+
+def _bucket_top_chunks(records, key_fn, per_file_limit: int) -> list[NasChunkHit]:
+    """scroll 레코드를 key 별 버킷으로 모아 chunk_index 오름차순 상위 N개만 평탄화.
+
+    fetch_chunks_for_files(doc_id 기준)·fetch_chunks_for_paths(path 기준) 공통 로직.
+    """
+    buckets: dict[str, list[NasChunkHit]] = {}
+    for r in records:
+        hit = _hit_from_point(r, score=0.0)
+        buckets.setdefault(key_fn(hit), []).append(hit)
+    flat: list[NasChunkHit] = []
+    for chunks in buckets.values():
+        chunks.sort(key=lambda h: h.chunk_index)
+        flat.extend(chunks[:per_file_limit])
+    return flat
+
+
 def _hit_from_point(point, *, score: float) -> NasChunkHit:
     """Qdrant point(payload 포함) → NasChunkHit. 점수는 호출부가 전달."""
     pl = dict(getattr(point, "payload", None) or {})
@@ -107,11 +132,7 @@ async def search_relevant_chunks(
         logger.exception("쿼리 임베딩 실패")
         raise RuntimeError(f"NAS 검색 쿼리 임베딩 실패: {exc}") from exc
 
-    qfilter = None
-    if dept_labels:
-        qfilter = qm.Filter(
-            must=[qm.FieldCondition(key="dept", match=qm.MatchAny(any=list(dept_labels)))]
-        )
+    qfilter = _dept_filter(dept_labels)
 
     try:
         points = await asyncio.to_thread(
@@ -172,11 +193,7 @@ async def search_per_variable(
         logger.exception("변수별 쿼리 임베딩 실패")
         raise RuntimeError(f"변수별 NAS 검색 임베딩 실패: {exc}") from exc
 
-    qfilter = None
-    if dept_labels:
-        qfilter = qm.Filter(
-            must=[qm.FieldCondition(key="dept", match=qm.MatchAny(any=list(dept_labels)))]
-        )
+    qfilter = _dept_filter(dept_labels)
 
     def _one(vec):
         return (
@@ -261,16 +278,7 @@ async def fetch_chunks_for_files(
         logger.exception("Qdrant 파일 청크 조회 실패")
         raise RuntimeError(f"NAS 파일 청크 조회 실패: {exc}") from exc
 
-    by_file: dict[str, list[NasChunkHit]] = {}
-    for r in records:
-        hit = _hit_from_point(r, score=0.0)
-        bucket = by_file.setdefault(hit.file_id, [])
-        bucket.append(hit)
-    flat: list[NasChunkHit] = []
-    for chunks in by_file.values():
-        chunks.sort(key=lambda h: h.chunk_index)
-        flat.extend(chunks[:per_file_limit])
-    return flat
+    return _bucket_top_chunks(records, lambda h: h.file_id, per_file_limit)
 
 
 async def fetch_chunks_for_paths(
@@ -300,12 +308,4 @@ async def fetch_chunks_for_paths(
         logger.exception("Qdrant 경로 청크 조회 실패")
         raise RuntimeError(f"NAS 경로 청크 조회 실패: {exc}") from exc
 
-    by_path: dict[str, list[NasChunkHit]] = {}
-    for r in records:
-        hit = _hit_from_point(r, score=0.0)
-        by_path.setdefault(hit.file_path, []).append(hit)
-    flat: list[NasChunkHit] = []
-    for chunks in by_path.values():
-        chunks.sort(key=lambda h: h.chunk_index)
-        flat.extend(chunks[:per_file_limit])
-    return flat
+    return _bucket_top_chunks(records, lambda h: h.file_path, per_file_limit)

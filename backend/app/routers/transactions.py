@@ -31,7 +31,6 @@
 """
 from __future__ import annotations
 
-import hashlib
 import io
 import uuid
 from datetime import date, datetime, timezone
@@ -44,7 +43,7 @@ from sqlalchemy import case, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_admin, require_module
+from app.dependencies import get_object_or_404, require_admin, require_module
 from app.models.account import Account
 from app.models.counterpart import Counterpart
 from app.models.transaction import Transaction
@@ -61,6 +60,7 @@ from app.schemas.transaction import (
     TransactionUpdate,
 )
 from app.services import matching as matching_service
+from app.services.bank_import.hashing import compute_transaction_hash
 
 router = APIRouter(
     prefix="/api/transactions",
@@ -74,28 +74,13 @@ router = APIRouter(
 # ---------------------------------------------------------------------------
 
 
-def _compute_transaction_hash(
-    account_id: uuid.UUID | str,
-    transaction_date: date,
-    amount: Decimal,
-    transaction_type: str,
-    balance: Decimal | None,
-    description: str | None,
-) -> str:
-    """거래 중복 차단용 SHA256 hex.
-
-    포맷: "{account_id}|{date_iso}|{amount}|{type}|{balance}|{description}"
-    """
-    parts = [
-        str(account_id),
-        transaction_date.isoformat(),
-        f"{Decimal(amount):.2f}",
-        transaction_type,
-        f"{Decimal(balance):.2f}" if balance is not None else "",
-        (description or "").strip(),
-    ]
-    raw = "|".join(parts).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()
+async def _get_transaction_or_404(
+    db: AsyncSession, transaction_id: str | uuid.UUID
+) -> Transaction:
+    """거래 단건 조회 → 없으면 404("거래를 찾을 수 없습니다"). is_deleted 필터 없음."""
+    return await get_object_or_404(
+        db, Transaction, transaction_id, detail="거래를 찾을 수 없습니다"
+    )
 
 
 def _build_query(
@@ -201,12 +186,7 @@ async def update_memo(
     transaction_id: str, body: MemoUpdate, db: AsyncSession = Depends(get_db)
 ):
     """메모 단독 업데이트 (기존 프론트 호환)."""
-    result = await db.execute(
-        select(Transaction).where(Transaction.id == transaction_id)
-    )
-    txn = result.scalar_one_or_none()
-    if txn is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="거래를 찾을 수 없습니다")
+    txn = await _get_transaction_or_404(db, transaction_id)
     if txn.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_410_GONE, detail="삭제된 거래는 수정할 수 없습니다"
@@ -558,12 +538,7 @@ async def matching_candidates(
     db: AsyncSession = Depends(get_db),
 ):
     """수동 매칭 후보 거래 목록."""
-    result = await db.execute(
-        select(Transaction).where(Transaction.id == transaction_id)
-    )
-    tx = result.scalar_one_or_none()
-    if tx is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="거래를 찾을 수 없습니다")
+    tx = await _get_transaction_or_404(db, transaction_id)
     if tx.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_410_GONE, detail="삭제된 거래는 매칭할 수 없습니다"
@@ -626,7 +601,7 @@ async def create_transaction(
     if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="계좌를 찾을 수 없습니다")
 
-    tx_hash = _compute_transaction_hash(
+    tx_hash = compute_transaction_hash(
         body.account_id,
         body.transaction_date,
         body.amount,
@@ -694,12 +669,7 @@ async def update_transaction(
     허용 필드: category_id, counterpart_id, counterpart_name, memo, tags, description.
     금지: amount, transaction_date, transaction_type (회계 기록 보존).
     """
-    result = await db.execute(
-        select(Transaction).where(Transaction.id == transaction_id)
-    )
-    txn = result.scalar_one_or_none()
-    if txn is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="거래를 찾을 수 없습니다")
+    txn = await _get_transaction_or_404(db, transaction_id)
     if txn.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_410_GONE, detail="삭제된 거래는 수정할 수 없습니다"
@@ -725,12 +695,7 @@ async def soft_delete_transaction(
     db: AsyncSession = Depends(get_db),
 ):
     """Soft delete — is_deleted=True. 실제 row 보존. 관리자 전용."""
-    result = await db.execute(
-        select(Transaction).where(Transaction.id == transaction_id)
-    )
-    txn = result.scalar_one_or_none()
-    if txn is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="거래를 찾을 수 없습니다")
+    txn = await _get_transaction_or_404(db, transaction_id)
     if txn.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="이미 삭제된 거래입니다"
@@ -763,12 +728,7 @@ async def restore_transaction(
     db: AsyncSession = Depends(get_db),
 ):
     """Soft delete 복구. 관리자 전용. 매칭 상태는 복구하지 않음."""
-    result = await db.execute(
-        select(Transaction).where(Transaction.id == transaction_id)
-    )
-    txn = result.scalar_one_or_none()
-    if txn is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="거래를 찾을 수 없습니다")
+    txn = await _get_transaction_or_404(db, transaction_id)
     if not txn.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="이미 활성 상태인 거래입니다"
