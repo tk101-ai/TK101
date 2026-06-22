@@ -107,6 +107,14 @@ class NasSearchRequest(BaseModel):
             "hwp는 HWP5(application/x-hwp)와 HWPX(application/vnd.hancom.hwpx) 둘 다 매칭."
         ),
     )
+    depts: list[str] | None = Field(
+        default=None,
+        description=(
+            "부서 다중 선택(Qdrant dept payload 라벨, 예: 'RND', '마케팅'). "
+            "None/빈 리스트면 전체 부서 검색(권한 스코프 내). 선택 시 그 부서들로 한정하되, "
+            "사용자 권한 스코프 밖 부서는 교집합으로 걸러진다."
+        ),
+    )
     path_prefix: str | None = Field(
         default=None,
         max_length=500,
@@ -126,10 +134,21 @@ class NasSearchResponse(BaseModel):
     results: list[NasSearchHit] = Field(default_factory=list)
 
 
-class NasTopFoldersResponse(BaseModel):
-    """NAS_MOUNT_PATH 직하 1단계 폴더 목록 응답."""
+class NasDeptStat(BaseModel):
+    """검색 코퍼스(Qdrant)의 부서별 청크 수 — 부서 필터 옵션 1건."""
 
-    folders: list[str] = Field(default_factory=list)
+    dept: str
+    count: int
+
+
+class NasDeptsResponse(BaseModel):
+    """검색 부서 필터 옵션 응답.
+
+    구 nas_files 기반 폴더 목록(폐기)이 아니라 실제 검색이 쓰는 Qdrant 코퍼스의
+    dept facet에서 도출한다 → RND 등 실제 검색 가능한 부서가 모두 노출된다.
+    """
+
+    depts: list[NasDeptStat] = Field(default_factory=list)
 
 
 class NasIndexRunResponse(BaseModel):

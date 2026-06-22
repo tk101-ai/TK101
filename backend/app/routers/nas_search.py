@@ -33,12 +33,13 @@ from app.modules.constants import Module
 from app.schemas.nas_file import (
     NasCorpusDeptStat,
     NasCorpusStats,
+    NasDeptStat,
+    NasDeptsResponse,
     NasIndexProgress,
     NasSearchHit,
     NasSearchRequest,
     NasSearchResponse,
     NasStatus,
-    NasTopFoldersResponse,
 )
 from app.services.nas_search import INDEX_PROGRESS, SUMMARY_PROGRESS
 from app.services.nas_search.hybrid import (
@@ -104,6 +105,25 @@ async def get_corpus_stats() -> NasCorpusStats:
         collection=settings.qdrant_collection_text,
         points_count=points,
         by_dept=[NasCorpusDeptStat(dept=d, count=c) for d, c in by_dept],
+    )
+
+
+@router.get("/depts", response_model=NasDeptsResponse)
+async def list_depts() -> NasDeptsResponse:
+    """검색 부서 필터 옵션 — 실제 검색 코퍼스(Qdrant docs_text)의 dept facet.
+
+    구 nas_files 기반 폴더 목록(폐기)을 대체한다. corpus_stats()가 Qdrant dept
+    facet으로 효율적으로 집계한 (dept, count) 리스트를 그대로 노출하므로 RND 등
+    실제 검색 가능한 부서가 빠짐없이 나오고, #recycle 같은 비-부서 노이즈는 없다.
+    동기 Qdrant 클라이언트라 스레드로 오프로드. Qdrant 장애 시 502.
+    """
+    try:
+        _points, by_dept = await asyncio.to_thread(corpus_stats)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Qdrant 부서 facet 조회 실패")
+        raise HTTPException(status_code=502, detail=f"부서 목록 조회 실패: {exc}")
+    return NasDeptsResponse(
+        depts=[NasDeptStat(dept=d, count=c) for d, c in by_dept],
     )
 
 
@@ -255,6 +275,28 @@ def _resolve_dept_scope(user: User) -> list[str] | None:
     return labels or None
 
 
+def _effective_dept_labels(
+    manual: list[str] | None,
+    auto: list[str] | None,
+) -> list[str] | None:
+    """사용자 수동 부서 선택과 권한 자동 스코프를 안전하게 결합.
+
+    - auto: _resolve_dept_scope (None=권한상 제한 없음/전체).
+    - manual: 사용자가 UI에서 고른 부서들(None/빈 리스트=미선택=전체).
+
+    규칙:
+    - 수동 선택이 있으면 권한 스코프와 교집합(권한 밖 부서는 선택해도 무효).
+      교집합이 비면 권한 스코프(auto)로 폴백 — 권한을 벗어나 전체로 풀리지 않게.
+    - 수동 선택이 없으면 auto 그대로(권한 스코프 내 전체).
+    """
+    if manual:
+        if auto is None:
+            return list(manual)
+        allowed = [d for d in manual if d in auto]
+        return allowed or auto
+    return auto
+
+
 @router.post("/search/text", response_model=NasSearchResponse)
 async def search_text(
     body: NasSearchRequest,
@@ -274,7 +316,7 @@ async def search_text(
         logger.exception("쿼리 임베딩 실패")
         raise HTTPException(status_code=500, detail=f"쿼리 임베딩 실패: {exc}")
 
-    dept_labels = _resolve_dept_scope(user)
+    dept_labels = _effective_dept_labels(body.depts, _resolve_dept_scope(user))
     # 필터: file_kinds→source_type, path_prefix(부분일치), dept 스코핑.
     # mtime은 Qdrant payload에 없어 매핑 불가(미결, 아래 후처리에서도 무시).
     qfilter = build_qdrant_filter(
@@ -376,38 +418,6 @@ async def search_text(
     # 리랭커 off/실패 시: 표시 점수(confidence) 내림차순으로 노출.
     cands.sort(key=lambda c: c[0].score, reverse=True)
     return NasSearchResponse(results=[hit for hit, _ in cands[: body.limit]])
-
-
-@router.get("/folders/top", response_model=NasTopFoldersResponse)
-async def list_top_folders(
-    db: AsyncSession = Depends(get_db),
-) -> NasTopFoldersResponse:
-    """NAS_MOUNT_PATH 직하 1단계 폴더만 distinct로 모아 반환.
-
-    nas_files.path는 절대 경로이므로 root prefix를 떼고 첫 세그먼트만 추출한다.
-    파일 12K 정도 규모는 Python set 처리로 충분.
-    """
-    root = os.path.normpath(settings.nas_mount_path)
-    rows = (await db.execute(select(NasFile.path))).scalars().all()
-
-    folders: set[str] = set()
-    for path in rows:
-        if not path:
-            continue
-        normalized = os.path.normpath(path)
-        try:
-            relative = os.path.relpath(normalized, root)
-        except ValueError:
-            # 다른 드라이브 등으로 relpath 계산 불가한 경우 skip.
-            continue
-        if relative.startswith("..") or relative in (".", ""):
-            continue
-        # OS별 separator 차이를 흡수.
-        first_segment = relative.replace("\\", "/").split("/", 1)[0].strip()
-        if first_segment:
-            folders.add(first_segment)
-
-    return NasTopFoldersResponse(folders=sorted(folders))
 
 
 def _is_path_within_root(target: str, root: str) -> bool:
