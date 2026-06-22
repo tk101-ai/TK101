@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, DatePicker, message, Space, Table, Tag } from "antd";
-import { DownloadOutlined } from "@ant-design/icons";
+import { Button, DatePicker, message, Select, Space, Table, Tag } from "antd";
+import { DownloadOutlined, FileExcelOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
 import {
+  exportBrandWorkbook,
   exportContentStatus,
   getContentTypeLabel,
   getLanguageLabel,
   getPlatformLabel,
+  listAccounts,
   listPosts,
   listWeeklyPostCounts,
   type SnsPost,
@@ -44,6 +46,11 @@ export default function SnsContentStatus() {
   const [postsLoading, setPostsLoading] = useState<Record<string, boolean>>({});
   const [exporting, setExporting] = useState(false);
 
+  // 통합 워크북 내보내기 — 브랜드(client) 선택. 옵션은 계정 목록의 distinct client.
+  const [brands, setBrands] = useState<string[]>([]);
+  const [selectedBrand, setSelectedBrand] = useState<string | undefined>(undefined);
+  const [exportingBook, setExportingBook] = useState(false);
+
   const year = period.year();
   const month = period.month() + 1;
 
@@ -57,6 +64,42 @@ export default function SnsContentStatus() {
       setExporting(false);
     }
   }, [year, month]);
+
+  // 브랜드 목록(distinct client) 로드 — 한 번만. 단일 브랜드여도 동작.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await listAccounts();
+        const distinct = Array.from(
+          new Set(
+            res.data
+              .map((a) => a.client)
+              .filter((c): c is string => Boolean(c)),
+          ),
+        ).sort();
+        setBrands(distinct);
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        if (distinct.length > 0) setSelectedBrand((prev) => prev ?? distinct[0]);
+      } catch {
+        // 브랜드 로드 실패는 통합 내보내기만 비활성화 — 페이지 본 기능은 영향 없음.
+      }
+    })();
+  }, []);
+
+  const handleExportWorkbook = useCallback(async () => {
+    if (!selectedBrand) {
+      message.warning("브랜드를 선택하세요");
+      return;
+    }
+    setExportingBook(true);
+    try {
+      await exportBrandWorkbook({ client: selectedBrand, year, month });
+    } catch {
+      message.error("통합 워크북 내보내기 실패");
+    } finally {
+      setExportingBook(false);
+    }
+  }, [selectedBrand, year, month]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -223,6 +266,45 @@ export default function SnsContentStatus() {
             엑셀 내보내기
           </Button>
         </Space>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 20,
+          padding: "10px 14px",
+          background: "#fafafa",
+          border: "1px solid #f0f0f0",
+          borderRadius: 8,
+        }}
+      >
+        <FileExcelOutlined style={{ color: "#52796f" }} />
+        <span style={{ fontWeight: 600, fontSize: 13 }}>통합 워크북 내보내기</span>
+        <Select
+          placeholder="브랜드 선택"
+          value={selectedBrand}
+          onChange={setSelectedBrand}
+          options={brands.map((b) => ({ value: b, label: b }))}
+          style={{ minWidth: 140 }}
+          size="small"
+          disabled={brands.length === 0}
+        />
+        <span style={{ color: "#8c8c8c", fontSize: 12 }}>
+          {period.format("YYYY년 M월")} (월간요약 + 채널별 콘텐츠 + 팔로워)
+        </span>
+        <Button
+          type="primary"
+          ghost
+          size="small"
+          icon={<DownloadOutlined />}
+          loading={exportingBook}
+          disabled={!selectedBrand}
+          onClick={handleExportWorkbook}
+        >
+          다운로드
+        </Button>
       </div>
 
       <Table
