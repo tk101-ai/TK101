@@ -436,7 +436,7 @@ def _is_path_within_root(target: str, root: str) -> bool:
 
 @router.get("/files/{file_id}/download")
 async def download_file(
-    file_id: str,
+    file_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     result = await db.execute(select(NasFile).where(NasFile.id == file_id))

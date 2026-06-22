@@ -1,3 +1,4 @@
+import uuid
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -85,7 +86,7 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{user_id}/approve", response_model=UserRead)
-async def approve_user(user_id: str, body: UserApprove, db: AsyncSession = Depends(get_db)):
+async def approve_user(user_id: uuid.UUID, body: UserApprove, db: AsyncSession = Depends(get_db)):
     """가입 승인 — 부서·역할 확정 후 active 전환."""
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if user is None:
@@ -101,7 +102,7 @@ async def approve_user(user_id: str, body: UserApprove, db: AsyncSession = Depen
 
 
 @router.post("/{user_id}/reject", response_model=UserRead)
-async def reject_user(user_id: str, db: AsyncSession = Depends(get_db)):
+async def reject_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """가입 거절 — rejected + 비활성."""
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if user is None:
@@ -115,7 +116,7 @@ async def reject_user(user_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
 async def reset_user_password(
-    user_id: str,
+    user_id: uuid.UUID,
     body: PasswordResetRequest,
     db: AsyncSession = Depends(get_db),
 ) -> None:
@@ -131,13 +132,13 @@ async def reset_user_password(
 
 @router.patch("/{user_id}", response_model=UserRead)
 async def update_user(
-    user_id: str,
+    user_id: uuid.UUID,
     body: UserUpdate,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     # 자기 자신의 역할/활성/상태 변경 차단(관리자 lockout·권한 사고 방지).
-    if str(current_user.id) == user_id:
+    if current_user.id == user_id:
         if body.role is not None and body.role.value != current_user.role:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="자신의 역할은 변경할 수 없습니다")
         if body.is_active is not None and body.is_active != current_user.is_active:
@@ -171,7 +172,7 @@ async def update_user(
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
-    user_id: str,
+    user_id: uuid.UUID,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> None:
@@ -181,7 +182,7 @@ async def delete_user(
     form_jobs·upload_logs(RESTRICT)가 남아 있으면 삭제가 막히므로, 그 경우
     409 로 '비활성화 권장'을 안내한다(작업 이력 보존).
     """
-    if str(current_user.id) == user_id:
+    if current_user.id == user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="자신의 계정은 삭제할 수 없습니다")
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if user is None:

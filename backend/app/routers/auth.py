@@ -118,7 +118,10 @@ async def login(
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(body.password, user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="이메일 또는 비밀번호가 올바르지 않습니다",
+        )
     if user.status == UserStatus.PENDING.value:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -127,7 +130,7 @@ async def login(
     if user.status == UserStatus.REJECTED.value:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="가입이 거절된 계정입니다")
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="비활성화된 계정입니다")
     token = create_access_token({"sub": str(user.id)})
     # secure=False because the live host is still plain HTTP; flip to True when HTTPS is added.
     response.set_cookie(
