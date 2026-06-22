@@ -12,7 +12,14 @@ from sqlalchemy import Integer, and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import require_admin, require_internal_token, require_module
+from app.dependencies import (
+    get_current_user,
+    require_admin,
+    require_internal_token,
+    require_module,
+)
+from app.models.user import User
+from app.services.translation import RateLimitExceeded, check_rate_limit
 from app.models.sns import (
     SocialAccount,
     SocialPost,
@@ -88,6 +95,30 @@ router = APIRouter(
 )
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# 댓글 분석/번역은 Claude(LLM)를 호출해 비용이 발생한다. 사용자별 슬라이딩 윈도우
+# 레이트리밋으로 폭주를 막는다(translator.check_rate_limit 재사용 — 별도 인프라 불필요).
+# 일반 호출보다 force(재실행, 캐시 무시)는 더 보수적으로 제한한다.
+_LLM_RATE_MAX_CALLS = 20
+_LLM_RATE_FORCE_MAX_CALLS = 5
+_LLM_RATE_WINDOW_SEC = 60
+
+
+def _enforce_llm_rate_limit(user_id: str, *, force: bool) -> None:
+    """댓글 분석/번역 LLM 엔드포인트용 사용자별 레이트리밋.
+
+    force(재실행)는 더 적은 한도를 적용한다. 한도 초과 시 429.
+    """
+    max_calls = _LLM_RATE_FORCE_MAX_CALLS if force else _LLM_RATE_MAX_CALLS
+    try:
+        check_rate_limit(
+            user_id, max_calls=max_calls, window_sec=_LLM_RATE_WINDOW_SEC
+        )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="요청이 너무 잦습니다. 잠시 후 다시 시도하세요.",
+        ) from exc
 
 
 # ---------------- 계정 ----------------
@@ -397,8 +428,11 @@ async def stats_weekly(
     snap_rows = snap_result.all()
 
     # Posts aggregated by (language, platform, year, month, week_of_month).
-    # week_of_month = ((day-1)/7) + 1 to align with snapshot's week_number(1-5).
-    week_of_month = (((func.extract("day", SocialPost.posted_at) - 1) / 7).cast(Integer) + 1).label("week_number")
+    # week_of_month 을 snapshot 의 week_number(1~5)와 정렬.
+    # FLOOR((day-1)/7)+1 — 월중 주차(1~5). cast(Integer)는 반올림하므로 floor를
+    # 명시해야 sns_export._week_of_month 의 Python floor((day-1)//7)+1 과 일치한다
+    # (예: 26일 → SQL 반올림이면 5주차, floor면 4주차 = 올바른 월중 주차).
+    week_of_month = (func.floor((func.extract("day", SocialPost.posted_at) - 1) / 7).cast(Integer) + 1).label("week_number")
     post_year = func.extract("year", SocialPost.posted_at).cast(Integer).label("year")
     post_month = func.extract("month", SocialPost.posted_at).cast(Integer).label("month")
 
@@ -468,10 +502,14 @@ async def stats_weekly_posts(
     """계정(채널)별 주차별 게재건수 + 월 누적.
 
     주어진 (year, month)의 social_posts 를 계정 × 주차로 GROUP BY 한다.
-    주차 = ((day-1)/7)+1 (week_of_month, 1~5) — stats_weekly 와 동일 공식.
+    주차 = FLOOR((day-1)/7)+1 (week_of_month, 1~5) — stats_weekly 및
+    sns_export._week_of_month 와 동일 공식(floor 월중 주차).
     각 계정 행은 week1~week5(주차별 건수) + total(월 합계)을 가진다.
     """
-    week_of_month = (((func.extract("day", SocialPost.posted_at) - 1) / 7).cast(Integer) + 1).label("week_number")
+    # FLOOR((day-1)/7)+1 — 월중 주차(1~5). cast(Integer)는 반올림하므로 floor를
+    # 명시해야 sns_export._week_of_month 의 Python floor((day-1)//7)+1 과 일치한다
+    # (예: 26일 → SQL 반올림이면 5주차, floor면 4주차 = 올바른 월중 주차).
+    week_of_month = (func.floor((func.extract("day", SocialPost.posted_at) - 1) / 7).cast(Integer) + 1).label("week_number")
 
     q = (
         select(
@@ -682,7 +720,10 @@ async def export_workbook(
     account_ids = [a.id for a in accounts]
 
     # 2) 계정별 주차 게재건수 (선택 월). stats_weekly_posts 와 동일 공식.
-    week_of_month = (((func.extract("day", SocialPost.posted_at) - 1) / 7).cast(Integer) + 1).label("week_number")
+    # FLOOR((day-1)/7)+1 — 월중 주차(1~5). cast(Integer)는 반올림하므로 floor를
+    # 명시해야 sns_export._week_of_month 의 Python floor((day-1)//7)+1 과 일치한다
+    # (예: 26일 → SQL 반올림이면 5주차, floor면 4주차 = 올바른 월중 주차).
+    week_of_month = (func.floor((func.extract("day", SocialPost.posted_at) - 1) / 7).cast(Integer) + 1).label("week_number")
     counts_result = await db.execute(
         select(
             SocialPost.account_id.label("account_id"),
@@ -983,7 +1024,10 @@ async def ingest(body: IngestRequest, db: AsyncSession = Depends(get_db)):
         await db.commit()
     except Exception as exc:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"수집 처리 실패: {exc}")
+        logger.exception("SNS ingest 처리 실패")
+        raise HTTPException(
+            status_code=500, detail=f"수집 처리 실패: {type(exc).__name__}"
+        )
 
     return IngestResponse(
         posts_added=posts_added,
@@ -1029,7 +1073,10 @@ async def _build_collector(account: SocialAccount) -> BaseCollector:
 
         return await InstagramCollector.from_account(account)
     except ImportError as exc:
-        raise HTTPException(status_code=500, detail=f"수집기 로딩 실패: {exc}")
+        logger.exception("SNS 수집기 로딩 실패")
+        raise HTTPException(
+            status_code=500, detail=f"수집기 로딩 실패: {type(exc).__name__}"
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except CollectorError as exc:
@@ -1069,7 +1116,10 @@ async def _collect_for_account(
     except CollectorError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"외부 API 호출 실패: {exc}")
+        logger.exception("SNS 외부 API 호출 실패")
+        raise HTTPException(
+            status_code=502, detail=f"외부 API 호출 실패: {type(exc).__name__}"
+        )
 
     posts_added = 0
     posts_updated = 0
@@ -1102,7 +1152,10 @@ async def _collect_for_account(
         await db.commit()
     except Exception as exc:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"수집 데이터 저장 실패: {exc}")
+        logger.exception("SNS 수집 데이터 저장 실패")
+        raise HTTPException(
+            status_code=500, detail=f"수집 데이터 저장 실패: {type(exc).__name__}"
+        )
 
     return IngestResponse(
         posts_added=posts_added,
@@ -1365,7 +1418,10 @@ async def _collect_metrics_for_account(
         await db.commit()
     except Exception as exc:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"메트릭 저장 실패: {exc}")
+        logger.exception("SNS 메트릭 저장 실패")
+        raise HTTPException(
+            status_code=500, detail=f"메트릭 저장 실패: {type(exc).__name__}"
+        )
 
     return CollectMetricsResponse(
         period=period,
@@ -1546,7 +1602,10 @@ async def _collect_comments_for_account(
         await db.commit()
     except Exception as exc:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"댓글 저장 실패: {exc}")
+        logger.exception("SNS 댓글 저장 실패")
+        raise HTTPException(
+            status_code=500, detail=f"댓글 저장 실패: {type(exc).__name__}"
+        )
 
     return CollectCommentsResponse(
         posts_processed=processed,
@@ -1603,11 +1662,13 @@ async def analyze_post_comments(
     post_id: str,
     force: bool = Query(False, description="True면 캐시된 요약이 있어도 다시 분석"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """게시물에 수집된 댓글을 Claude 로 분석/요약 (한국어).
 
     먼저 댓글 수집이 되어 있어야 한다. ANTHROPIC_API_KEY 필요.
     이미 요약이 저장돼 있으면(force=False) LLM 호출 없이 캐시를 반환한다.
+    LLM 비용 폭주 방지를 위해 사용자별 레이트리밋(force는 더 보수적)을 적용한다.
     """
     post = (
         await db.execute(select(SocialPost).where(SocialPost.id == post_id))
@@ -1623,6 +1684,9 @@ async def analyze_post_comments(
             summary=post.comment_summary,
             summary_at=post.comment_summary_at,
         )
+
+    # 여기부터 실제 LLM 호출 — 캐시 미적중일 때만 레이트리밋 소비.
+    _enforce_llm_rate_limit(str(user.id), force=force)
 
     rows = await db.execute(
         select(SocialPostComment.text)
@@ -1677,11 +1741,13 @@ async def translate_post_comments(
     post_id: str,
     force: bool = Query(False, description="True면 이미 번역된 댓글도 다시 번역"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """게시물 댓글을 한국어로 번역(다국어→한국어). 원문은 보존, 번역문만 캐시.
 
     글로벌 채널 특성상 댓글이 외국어로 달리므로 마케팅 담당자가 읽을 수 있게 번역한다.
     이미 번역된 댓글은 건너뛴다(force=True면 재번역). ANTHROPIC_API_KEY 필요.
+    LLM 비용 폭주 방지를 위해 사용자별 레이트리밋(force는 더 보수적)을 적용한다.
     """
     post = (
         await db.execute(select(SocialPost).where(SocialPost.id == post_id))
@@ -1706,6 +1772,8 @@ async def translate_post_comments(
 
     translated_count = 0
     if targets:
+        # 실제 LLM 호출이 있을 때만 레이트리밋 소비.
+        _enforce_llm_rate_limit(str(user.id), force=force)
         if not settings.anthropic_api_key:
             raise HTTPException(
                 status_code=503, detail="ANTHROPIC_API_KEY 미설정 — 댓글 번역 불가."
@@ -1728,7 +1796,10 @@ async def translate_post_comments(
             await db.commit()
         except Exception as exc:
             await db.rollback()
-            raise HTTPException(status_code=500, detail=f"번역 저장 실패: {exc}")
+            logger.exception("SNS 댓글 번역 저장 실패")
+            raise HTTPException(
+                status_code=500, detail=f"번역 저장 실패: {type(exc).__name__}"
+            )
 
     # 번역 반영된 최종 목록 재조회 (commit 후 일관 상태로 반환).
     final = await db.execute(
@@ -2083,7 +2154,10 @@ async def import_marketing1_excel(
     try:
         from app.services.sns_importers.marketing1 import import_to_db, parse_workbook
     except ImportError as exc:
-        raise HTTPException(status_code=500, detail=f"임포터 로딩 실패: {exc}")
+        logger.exception("marketing1 임포터 로딩 실패")
+        raise HTTPException(
+            status_code=500, detail=f"임포터 로딩 실패: {type(exc).__name__}"
+        )
 
     try:
         parsed = parse_workbook(io.BytesIO(contents))
@@ -2094,7 +2168,10 @@ async def import_marketing1_excel(
         raise HTTPException(status_code=422, detail=f"엑셀 파싱 실패: {exc}")
     except Exception as exc:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"임포트 실패: {exc}")
+        logger.exception("marketing1 엑셀 임포트 실패")
+        raise HTTPException(
+            status_code=500, detail=f"임포트 실패: {type(exc).__name__}"
+        )
 
     return ImportResponse(
         accounts_added=result.get("accounts_added", 0),
