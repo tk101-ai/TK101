@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -14,7 +14,12 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { CheckCircleOutlined, DownloadOutlined, FormOutlined } from "@ant-design/icons";
+import {
+  CheckCircleOutlined,
+  DownloadOutlined,
+  FormOutlined,
+  ReloadOutlined,
+} from "@ant-design/icons";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   downloadJobOutput,
@@ -22,6 +27,7 @@ import {
   patchJobMapping,
   regenerateJobMapping,
   renderJobDocx,
+  previewJobDocx,
   type FormJobDetail,
 } from "../../api/forms";
 import MappingTable from "../../components/forms/MappingTable";
@@ -65,6 +71,29 @@ export default function JobMappingPage() {
   const [busy, setBusy] = useState(false);
   const [regenKey, setRegenKey] = useState<string | null>(null);
   const [missingFormOpen, setMissingFormOpen] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<string>("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // 현재 매핑 상태를 서버에서 즉석 렌더 → mammoth 로 HTML 변환해 실제 채워진 양식을
+  // 미리 보여준다. 매핑 수정 후엔 "새로고침"으로 다시 렌더.
+  const loadPreview = useCallback(async () => {
+    setPreviewLoading(true);
+    try {
+      const buf = await previewJobDocx(id);
+      // mammoth 는 무거워(~130kB) 미리보기 사용 시점에만 동적 로드(메인 번들 경량 유지).
+      const mammoth = await import("mammoth");
+      const convert =
+        (mammoth as { convertToHtml?: typeof import("mammoth").convertToHtml })
+          .convertToHtml ??
+        (mammoth as { default?: typeof import("mammoth") }).default?.convertToHtml;
+      const result = await convert!({ arrayBuffer: buf });
+      setPreviewHtml(result.value || "<p style='color:#999'>(내용 없음)</p>");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "미리보기 생성 실패");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [id]);
 
   const refresh = async () => {
     try {
@@ -83,6 +112,12 @@ export default function JobMappingPage() {
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // 잡 상세가 처음 로드되면 미리보기를 1회 자동 생성(이후엔 수동 새로고침).
+  useEffect(() => {
+    if (detail && !previewHtml && !previewLoading) void loadPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail]);
 
   const missingMappings = useMemo(() => {
     if (!detail) return [];
@@ -204,36 +239,44 @@ export default function JobMappingPage() {
 
       <Row gutter={16}>
         <Col span={9}>
-          <Card title="양식 미리보기" size="small" bodyStyle={{ minHeight: 600 }}>
-            <div
-              style={{
-                background: "#fafafa",
-                border: "1px solid #f0f0f0",
-                borderRadius: 4,
-                padding: 12,
-                fontSize: 13,
-                lineHeight: 1.8,
-                color: "#595959",
-                minHeight: 540,
-              }}
-            >
-              {detail.template.variables.map((v) => {
-                const m = detail.mappings.find((mp) => mp.variable_key === v.key);
-                const filled = m?.value && m.value !== "";
-                return (
-                  <div key={v.key} style={{ marginBottom: 8 }}>
-                    <Text strong>{v.label}: </Text>
-                    {filled ? (
-                      <Text>{m!.value}</Text>
-                    ) : (
-                      <Text type="danger" style={{ background: "#fff1f0", padding: "0 4px" }}>
-                        (미채움)
-                      </Text>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+          <Card
+            title="양식 미리보기 (채워진 상태)"
+            size="small"
+            bodyStyle={{ minHeight: 600 }}
+            extra={
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                loading={previewLoading}
+                onClick={loadPreview}
+              >
+                새로고침
+              </Button>
+            }
+          >
+            <Spin spinning={previewLoading}>
+              <div
+                className="docx-preview"
+                style={{
+                  background: "#fff",
+                  border: "1px solid #f0f0f0",
+                  borderRadius: 4,
+                  padding: 16,
+                  minHeight: 540,
+                  maxHeight: 660,
+                  overflow: "auto",
+                  fontSize: 13,
+                  lineHeight: 1.7,
+                }}
+                // mammoth 가 docx 텍스트를 이스케이프해 HTML 을 만든다(텍스트 노드 escape).
+                // 사내 도구 + 자체 렌더 결과라 위험 낮음.
+                dangerouslySetInnerHTML={{
+                  __html:
+                    previewHtml ||
+                    "<p style='color:#999'>미리보기를 불러오는 중...</p>",
+                }}
+              />
+            </Spin>
           </Card>
         </Col>
         <Col span={15}>

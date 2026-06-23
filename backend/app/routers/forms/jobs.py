@@ -544,6 +544,73 @@ async def regenerate_variable(
 # ---------------------------------------------------------------------------
 
 
+def _render_mapping_dict(template, mappings_rows) -> dict[str, str | None]:
+    """매핑 행 → {variable_key: value}. 값이 None 이고 변수에 default 가 있으면 폴백.
+
+    render(확정 후 다운로드)와 preview(즉석 미리보기)가 동일 규칙을 쓰도록 공유.
+    """
+    var_defaults = {
+        v["key"]: v.get("default")
+        for v in (template.variables or [])
+        if v.get("default") not in (None, "")
+    }
+    out: dict[str, str | None] = {}
+    for m in mappings_rows:
+        value = m.value
+        if value is None and m.variable_key in var_defaults:
+            value = str(var_defaults[m.variable_key])
+        out[m.variable_key] = value
+    return out
+
+
+@router.get("/jobs/{job_id}/preview")
+async def preview_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """현재 매핑 상태를 **즉석 렌더**해 .docx bytes 반환.
+
+    render(확정 후 다운로드)와 달리 검수 게이트·NAS 저장·DB 쓰기가 없다. 프론트가
+    이 bytes 를 mammoth 로 HTML 변환해 "채워진 양식"을 다운로드 전에 미리 보여준다.
+    """
+    _ensure_models_ready()
+    job = await _fetch_job_or_404(db, job_id, user)
+    template = await _fetch_template_or_404(db, job.template_id)
+    mappings_rows = await _fetch_job_mappings(db, job.id)
+    mapping_dict = _render_mapping_dict(template, mappings_rows)
+
+    try:
+        with open(template.file_path, "rb") as f:
+            template_bytes = f.read()
+    except OSError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"양식 원본 로드 실패: {exc}",
+        ) from exc
+
+    try:
+        rendered = renderer.render_docx(
+            template_bytes=template_bytes,
+            mappings=mapping_dict,
+            template_name=template.name,
+            user_id=str(user.id),
+            save_to_nas=False,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        ) from exc
+
+    return StreamingResponse(
+        io.BytesIO(rendered.file_bytes),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ),
+        headers={"Content-Disposition": 'inline; filename="preview.docx"'},
+    )
+
+
 @router.post("/jobs/{job_id}/render", response_model=JobDetail)
 async def render_job(
     job_id: uuid.UUID,
@@ -573,19 +640,7 @@ async def render_job(
             ),
         )
 
-    # 값이 None 인 칸도 양식 변수에 default 가 정의돼 있으면 그 기본값으로 채운다
-    # (analyzer 가 잡은 default 가 과거엔 렌더에 반영되지 않아 불필요한 빈칸이 남았음).
-    _var_defaults = {
-        v["key"]: v.get("default")
-        for v in (template.variables or [])
-        if v.get("default") not in (None, "")
-    }
-    mapping_dict: dict[str, str | None] = {}
-    for m in mappings_rows:
-        value = m.value
-        if value is None and m.variable_key in _var_defaults:
-            value = str(_var_defaults[m.variable_key])
-        mapping_dict[m.variable_key] = value
+    mapping_dict = _render_mapping_dict(template, mappings_rows)
 
     try:
         with open(template.file_path, "rb") as f:
