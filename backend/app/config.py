@@ -163,6 +163,13 @@ class Settings(BaseSettings):
     docgen_pptx_template: str | None = None  # .pptx 마스터 템플릿 경로
     docgen_docx_template: str | None = None  # .docx 템플릿 경로
     docgen_logo_path: str | None = None      # 표지/푸터 로고 이미지 경로(png)
+    # 자동 검수→재생성 루프(LLM-as-judge 피드백). 초안 생성 후 review_document 로 평가하고,
+    # grounded=false 거나 issues 가 있는 섹션을 regenerate_section 으로 다시 쓴다.
+    # 기본 OFF — 검수 1회 + 섹션당 재생성 1회씩 추가 LLM 호출이라 비용·지연이 늘어 명시적
+    # opt-in 으로 둔다. env(DOCGEN_AUTO_REVIEW=1) 또는 요청 플래그(auto_review=true)로 켠다.
+    docgen_auto_review: bool = False
+    # 한 번의 자동 루프에서 재생성할 섹션 최대 개수(비용·지연 상한). 점수 낮은 순으로 자른다.
+    docgen_auto_review_max_sections: int = 4
 
     # Langfuse (관측성, NFR-07). 없으면 트레이스만 비활성화하고 기능은 동작.
     langfuse_public_key: str | None = None

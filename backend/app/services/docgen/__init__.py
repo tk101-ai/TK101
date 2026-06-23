@@ -9,6 +9,7 @@
 from app.services.docgen.docx_builder import build_docx
 from app.services.docgen.generator import (
     generate_document,
+    generate_document_reviewed,
     regenerate_section,
     render_markdown,
     review_document,
@@ -17,6 +18,7 @@ from app.services.docgen.pptx_builder import build_pptx
 
 __all__ = [
     "generate_document",
+    "generate_document_reviewed",
     "regenerate_section",
     "review_document",
     "render_markdown",
