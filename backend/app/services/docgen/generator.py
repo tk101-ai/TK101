@@ -23,6 +23,15 @@ DOC_TYPE_GUIDE: dict[str, str] = {
     "일반": "주제에 가장 적합한 논리적 구조의 한국어 비즈니스 문서",
 }
 
+# 문서 종류별 **고정 섹션 스켈레톤**(순서대로). 모델이 매 실행마다 제목/개수를 자유
+# 선택하면 구조가 들쭉날쭉해지므로, 알려진 종류는 아래 소제목을 그 순서/문구 그대로
+# 사용하게 강제한다. "일반"은 의도적으로 비워 모델이 주제에 맞게 자유 구성하게 둔다.
+DOC_TYPE_SKELETON: dict[str, list[str]] = {
+    "제안서": ["회사소개", "제안배경", "세부 제안내용", "기대효과", "일정/견적"],
+    "계획서": ["목표", "추진배경", "세부 추진계획", "일정", "예산", "기대효과"],
+    "보고서": ["개요", "현황", "분석", "시사점", "결론"],
+}
+
 # body 작성 가이드 — 슬라이드(PPT)와 워드 양쪽으로 디자인 렌더되므로, 평문 한 덩어리가
 # 아니라 구조(불릿/표/차트)로 쓰게 유도한다. 렌더러(markdown_blocks)가 이 마크업을 해석한다.
 _BODY_GUIDE = (
@@ -50,7 +59,9 @@ _SYSTEM = (
     "- 반드시 다음 JSON 스키마로만 응답한다(설명/코드펜스 없이 JSON만):\n"
     '{"title": "문서 제목", "sections": [{"heading": "소제목", "body": "구조화 한국어 본문"}], '
     '"used_sources": ["실제 인용한 참고자료의 출처 경로"]}\n'
-    "- 섹션은 4~8개 내외로 문서 종류에 맞게 구성한다.\n\n"
+    "- [필수 섹션 구성]이 주어지면 그 소제목들을 **순서·문구 그대로** sections 의 heading 으로 "
+    "쓰고(추가/삭제/순서변경 금지) 각 본문을 채운다. 주어지지 않으면 4~8개 내외로 문서 "
+    "종류에 맞게 자유 구성한다.\n\n"
     + _BODY_GUIDE
 )
 
@@ -77,9 +88,20 @@ def _build_user_prompt(topic: str, doc_type: str, chunks: list) -> str:
         )
     else:
         ctx = "(검색된 회사 자료 없음 — 일반적 구조로 작성하되 구체 수치는 만들지 말 것)"
+    # 알려진 종류는 고정 스켈레톤 소제목을 그대로 쓰게 강제(구조 일관성↑). "일반"은 자유.
+    skeleton = DOC_TYPE_SKELETON.get(doc_type)
+    skeleton_block = ""
+    if skeleton:
+        headings = "\n".join(f"{i + 1}. {h}" for i, h in enumerate(skeleton))
+        skeleton_block = (
+            "\n[필수 섹션 구성] 아래 소제목을 이 순서·문구 그대로 sections 의 heading 으로 "
+            "사용하고 각 본문을 [참고자료]에 근거해 채운다(소제목 추가/삭제/변경 금지):\n"
+            f"{headings}\n"
+        )
     return (
         f"문서 종류: {doc_type} ({guide})\n"
-        f"작성 요구사항:\n{topic}\n\n"
+        f"작성 요구사항:\n{topic}\n"
+        f"{skeleton_block}\n"
         f"[참고자료]\n{ctx}"
     )
 
@@ -151,8 +173,8 @@ def regenerate_section(
     current_body: str,
     feedback: str,
     chunks: list,
-) -> tuple[dict, float, str]:
-    """문서의 한 섹션만 재생성. (section dict, cost_usd, model) 반환."""
+) -> tuple[dict, float, str, tuple[int, int]]:
+    """문서의 한 섹션만 재생성. (section dict, cost_usd, model, (입력토큰, 출력토큰)) 반환."""
     guide = DOC_TYPE_GUIDE.get(doc_type, DOC_TYPE_GUIDE["일반"])
     if chunks:
         ctx = "\n\n".join(
@@ -188,7 +210,7 @@ def regenerate_section(
         "heading": str(data.get("heading") or heading).strip(),
         "body": str(data.get("body") or "").strip(),
     }
-    return section, resp.cost_usd, resp.model
+    return section, resp.cost_usd, resp.model, (resp.input_tokens, resp.output_tokens)
 
 
 def _chart_to_note(match: re.Match) -> str:
@@ -237,8 +259,8 @@ def review_document(
     title: str,
     sections: list[dict],
     chunks: list,
-) -> tuple[dict, float, str]:
-    """생성 초안을 LLM judge로 평가. (review dict, cost_usd, model) 반환."""
+) -> tuple[dict, float, str, tuple[int, int]]:
+    """생성 초안을 LLM judge로 평가. (review dict, cost_usd, model, (입력토큰, 출력토큰)) 반환."""
     if chunks:
         ctx = "\n\n".join(
             f"[참고자료 {i + 1}] 출처: {c.file_path}\n{(c.content or '')[:1200]}"
@@ -287,4 +309,119 @@ def review_document(
         "section_reviews": reviews,
         "missing": [str(x) for x in (data.get("missing") or []) if x],
     }
-    return review, resp.cost_usd, resp.model
+    return review, resp.cost_usd, resp.model, (resp.input_tokens, resp.output_tokens)
+
+
+def _problem_sections(review: dict, sections: list[dict]) -> list[int]:
+    """검수 결과에서 재생성 대상 섹션 인덱스 목록(점수 낮은 순). grounded=false 또는
+    issues 가 비어있지 않은 섹션만. review 의 heading 으로 sections 인덱스를 매칭한다."""
+    by_heading: dict[str, int] = {}
+    for i, s in enumerate(sections):
+        h = str(s.get("heading") or "").strip()
+        if h and h not in by_heading:
+            by_heading[h] = i
+    targets: list[tuple[int, int]] = []  # (issue 개수, 인덱스) — 문제 많은 순 정렬용
+    for r in review.get("section_reviews") or []:
+        h = str(r.get("heading") or "").strip()
+        idx = by_heading.get(h)
+        if idx is None:
+            continue
+        issues = r.get("issues") or []
+        if (not r.get("grounded", True)) or issues:
+            targets.append((len(issues), idx))
+    # 문제(issue) 많은 섹션 우선, 동률이면 문서 순서. 인덱스 중복 제거.
+    targets.sort(key=lambda t: (-t[0], t[1]))
+    seen: set[int] = set()
+    ordered: list[int] = []
+    for _, idx in targets:
+        if idx not in seen:
+            seen.add(idx)
+            ordered.append(idx)
+    return ordered
+
+
+def generate_document_reviewed(
+    topic: str,
+    doc_type: str,
+    chunks: list,
+    *,
+    max_sections: int | None = None,
+) -> GeneratedDoc:
+    """초안 생성 → LLM judge 검수 → 문제 섹션(근거성 미달/issues)만 재생성하는 오케스트레이터.
+
+    generate_document 의 상위 래퍼. 비용/토큰은 초안+검수+재생성 호출을 모두 가산한다.
+    재생성 섹션 수는 max_sections(기본 settings.docgen_auto_review_max_sections)로 상한.
+    검수/재생성 단계에서 예외가 나도 초안은 살린다(best-effort 품질 향상).
+    """
+    doc = generate_document(topic, doc_type, chunks)
+    cap = max_sections if max_sections is not None else settings.docgen_auto_review_max_sections
+    if cap <= 0 or not doc.sections:
+        return doc
+
+    cost = doc.cost_usd
+    in_tok = doc.input_tokens
+    out_tok = doc.output_tokens
+
+    # 1) 검수(judge). 실패하면 초안 그대로 반환.
+    try:
+        review, r_cost, _model, (r_in, r_out) = review_document(
+            topic, doc_type, doc.title, doc.sections, chunks
+        )
+    except Exception:  # noqa: BLE001 - 검수 실패가 초안 반환을 막아선 안 됨
+        logger.warning("docgen 자동검수 실패 — 초안 그대로 반환", exc_info=True)
+        return doc
+    cost += r_cost
+    in_tok += r_in
+    out_tok += r_out
+
+    # 2) 문제 섹션을 상한 개수만큼 재생성.
+    targets = _problem_sections(review, doc.sections)[:cap]
+    if not targets:
+        logger.info("docgen 자동검수: 재생성 대상 없음(score=%s)", review.get("overall_score"))
+        return doc
+
+    reviews_by_heading = {
+        str(r.get("heading") or "").strip(): r for r in (review.get("section_reviews") or [])
+    }
+    new_sections = list(doc.sections)  # 불변 패턴 — 원본 doc.sections 는 건드리지 않음
+    regenerated: list[str] = []
+    for idx in targets:
+        sec = new_sections[idx]
+        heading = sec.get("heading", "")
+        r = reviews_by_heading.get(heading.strip(), {})
+        # 검수가 짚은 issues + suggestions 를 재생성 피드백으로 전달.
+        feedback_parts = [f"- {x}" for x in (r.get("issues") or [])]
+        feedback_parts += [f"- (개선안) {x}" for x in (r.get("suggestions") or [])]
+        feedback = "검수에서 지적된 문제를 해결해 다시 써줘:\n" + "\n".join(feedback_parts)
+        try:
+            section, s_cost, _m, (s_in, s_out) = regenerate_section(
+                topic, doc_type, heading, sec.get("body", ""), feedback, chunks
+            )
+        except Exception:  # noqa: BLE001 - 한 섹션 재생성 실패가 전체를 막지 않음
+            logger.warning("docgen 자동검수: '%s' 섹션 재생성 실패(원본 유지)", heading, exc_info=True)
+            continue
+        new_sections[idx] = section
+        cost += s_cost
+        in_tok += s_in
+        out_tok += s_out
+        regenerated.append(heading)
+
+    logger.info(
+        "docgen 자동검수 완료: score=%s, 재생성 %d/%d 섹션 %s",
+        review.get("overall_score"),
+        len(regenerated),
+        len(doc.sections),
+        regenerated,
+    )
+
+    # 불변 — 새 GeneratedDoc 로 반환(원본 doc 은 그대로). trace_id 는 초안 것을 유지.
+    return GeneratedDoc(
+        title=doc.title,
+        sections=new_sections,
+        used_sources=doc.used_sources,
+        cost_usd=cost,
+        model=doc.model,
+        input_tokens=in_tok,
+        output_tokens=out_tok,
+        trace_id=doc.trace_id,
+    )

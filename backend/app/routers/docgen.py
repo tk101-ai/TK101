@@ -38,10 +38,12 @@ from app.schemas.docgen import (
     DocType,
     SourceMode,
 )
+from app.config import settings
 from app.services.docgen import (
     build_docx,
     build_pptx,
     generate_document,
+    generate_document_reviewed,
     regenerate_section,
     render_markdown,
     review_document,
@@ -129,6 +131,7 @@ async def generate(
     doc_type: DocType = Form("일반"),
     source_mode: SourceMode = Form("rag"),
     limit: int = Form(8, ge=0, le=20),
+    auto_review: bool | None = Form(None),
     files: list[UploadFile] | None = File(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -136,6 +139,8 @@ async def generate(
     """주제 + 출처(NAS RAG / 사용자 업로드 / 둘다) → 제안서/계획서/보고서 초안.
 
     멀티파트 폼: source_mode 가 uploaded/both 면 files 의 텍스트를 참고자료로 사용.
+    auto_review=true 면 초안 생성 후 LLM judge 검수→문제 섹션 재생성 루프를 돈다(비용↑).
+    미지정(None)이면 settings.docgen_auto_review 기본값을 따른다.
     """
     if len(topic.strip()) < 2:
         raise HTTPException(
@@ -149,10 +154,17 @@ async def generate(
         query=topic, mode=source_mode, uploaded=uploaded, limit=limit
     )
 
+    # 자동 검수→재생성 루프 사용 여부: 요청 플래그 우선, 미지정이면 설정 기본값.
+    use_review = settings.docgen_auto_review if auto_review is None else auto_review
     try:
-        doc = await asyncio.to_thread(
-            generate_document, topic, doc_type, chunks
-        )
+        if use_review:
+            doc = await asyncio.to_thread(
+                generate_document_reviewed, topic, doc_type, chunks
+            )
+        else:
+            doc = await asyncio.to_thread(
+                generate_document, topic, doc_type, chunks
+            )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
@@ -210,7 +222,7 @@ async def regenerate_section_endpoint(
         limit=limit,
     )
     try:
-        section, _cost, model = await asyncio.to_thread(
+        section, _cost, model, _tokens = await asyncio.to_thread(
             regenerate_section,
             topic,
             doc_type,
@@ -268,7 +280,7 @@ async def review(
     )
     sections = [{"heading": s.heading, "body": s.body} for s in parsed_sections]
     try:
-        result, _cost, model = await asyncio.to_thread(
+        result, _cost, model, _tokens = await asyncio.to_thread(
             review_document, topic, doc_type, title, sections, chunks
         )
     except ValueError as exc:
