@@ -4,6 +4,7 @@ import { InboxOutlined } from "@ant-design/icons";
 import type { UploadFile } from "antd/es/upload/interface";
 import { useNavigate } from "react-router-dom";
 import { analyzeFormTemplate } from "../../api/forms";
+import FormWizardSteps from "../../components/forms/FormWizardSteps";
 
 const { Paragraph, Text } = Typography;
 
@@ -47,15 +48,11 @@ export default function FormUploadPage() {
   return (
     <div style={{ maxWidth: 880 }}>
       <div style={{ marginBottom: 24 }}>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
-          문서 자동 작성{" "}
-          <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-            v0.1
-          </Text>
+        <h2 style={{ margin: "0 0 16px", fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
+          양식 채우기
         </h2>
-        <Text type="secondary">
-          1단계 · 양식 업로드 → 2단계 변수 검수 → 3단계 자료 수집 → 4단계 매핑 → 5단계 다운로드
-        </Text>
+        <FormWizardSteps current={0} />
+        <Text type="secondary">양식(.docx)을 올리면 빈 칸을 자동으로 감지합니다.</Text>
       </div>
 
       <Alert
