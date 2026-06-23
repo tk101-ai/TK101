@@ -33,6 +33,7 @@ from app.models.user import User
 from app.schemas.forms import (
     JobCreateRequest,
     JobDetail,
+    JobSummary,
     MappingPatchRequest,
     MappingPayload,
     NasSourceAttachRequest,
@@ -98,6 +99,41 @@ async def create_job(
     await db.commit()
     await db.refresh(job)
     return await _build_job_detail(db, job)
+
+
+# ---------------------------------------------------------------------------
+# 7-0. GET /api/forms/jobs — 내 작성 잡 목록 (작성 중 문서 resume)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/jobs", response_model=list[JobSummary])
+async def list_jobs(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    limit: int = 50,
+) -> list[JobSummary]:
+    """현재 사용자의 작성 잡 목록(최신순). 페이지를 벗어나도 작성 중 문서를 다시
+    찾아 이어가도록 라이브러리에서 노출한다."""
+    _ensure_models_ready()
+    stmt = (
+        select(FormJob, FormTemplate.name)
+        .outerjoin(FormTemplate, FormJob.template_id == FormTemplate.id)
+        .where(FormJob.user_id == user.id)
+        .order_by(FormJob.created_at.desc())
+        .limit(max(1, min(limit, 200)))
+    )
+    rows = (await db.execute(stmt)).all()
+    return [
+        JobSummary(
+            id=job.id,
+            template_id=job.template_id,
+            template_name=tname,
+            status=job.status,
+            created_at=job.created_at,
+            completed_at=job.completed_at,
+        )
+        for job, tname in rows
+    ]
 
 
 # ---------------------------------------------------------------------------

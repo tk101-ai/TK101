@@ -576,6 +576,22 @@ export async function previewJobDocx(jobId: string): Promise<ArrayBuffer> {
   return res.data;
 }
 
+export interface FormJobSummary {
+  id: string;
+  template_id: string | null;
+  template_name: string | null;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
+// 현재 사용자의 작성 잡 목록(최신순) — "작성 중 문서" resume 용.
+export async function listFormJobs(): Promise<FormJobSummary[]> {
+  if (MOCK_ENABLED) return [];
+  const res = await api.get<FormJobSummary[]>(`/api/forms/jobs`);
+  return res.data;
+}
+
 export async function getJobRevisions(jobId: string): Promise<FormRevision[]> {
   if (MOCK_ENABLED) return [];
   const res = await api.get<FormRevision[]>(`/api/forms/jobs/${jobId}/revisions`);

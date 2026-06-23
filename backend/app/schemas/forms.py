@@ -99,6 +99,17 @@ class JobDetail(BaseModel):
     completed_at: datetime | None = None
 
 
+class JobSummary(BaseModel):
+    """작성 잡 목록 1건(가벼운 요약) — '작성 중 문서' resume 목록용."""
+
+    id: uuid.UUID
+    template_id: uuid.UUID | None = None
+    template_name: str | None = None
+    status: str
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
 class NasSourceAttachRequest(BaseModel):
     nas_file_ids: list[uuid.UUID] = Field(default_factory=list)
     nas_paths: list[str] = Field(
