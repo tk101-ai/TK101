@@ -411,7 +411,12 @@ async def search_text(
                 for (hit, _), s in zip(top, scores)
             ]
             rescored.sort(key=lambda h: h.score, reverse=True)
-            return NasSearchResponse(results=rescored[: body.limit])
+            # 최종 관련도 게이트는 raw cosine(사전 floor)이 아니라 **리랭크 점수**로
+            # 건다. 리랭커는 노이즈 ~0.001 / 정답 0.6~0.98로 변별이 커서 raw cosine
+            # 게이트보다 정답 보존+노이즈 제거가 깔끔하다. 전부 미달이면 빈 결과
+            # ("없으면 없다"). 사전 floor(nas_min_relevance)는 풀 선별용으로만 쓴다.
+            gated = [h for h in rescored if h.score >= settings.nas_rerank_min_score]
+            return NasSearchResponse(results=gated[: body.limit])
         except Exception:  # noqa: BLE001
             logger.exception("리랭킹 실패 — 1차 점수순으로 폴백")
 

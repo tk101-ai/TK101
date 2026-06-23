@@ -61,11 +61,14 @@ class Settings(BaseSettings):
         "Instruct: Given a web search query, retrieve relevant passages "
         "that answer the query\nQuery: "
     )
-    # 벡터-only 결과 최소 관련도(raw cosine). 이하면 노이즈로 보고 제외.
-    # 실측(로컬 ST Qwen3, instruct 프리픽스 적용): 관련 매칭 floor ~0.51,
-    # 도메인-무관 노이즈 대부분 ~0.32–0.46. 0.50으로 게이트(튜닝 가능).
-    # 과거 0.65는 prefix 없는 symmetric 임베딩 기준이라 의미검색을 과차단했음.
-    nas_min_relevance: float = 0.50
+    # 벡터-only 후보의 **느슨한 사전 floor**(raw cosine). 진짜 관련도 판정은
+    # 리랭크 후 nas_rerank_min_score 가 한다(아래). 이 값은 리랭크 풀에 들어갈
+    # 후보를 추리는 용도일 뿐이라 낮게 둔다.
+    # 실측(라이브 Qwen3): 정답이 raw cosine 0.55~0.72에 뭉쳐 게이트 0.50과
+    # 마진이 얇았고, 0.45~0.49대 정답이 리랭커(0.001~0.978로 변별)에 닿기도 전에
+    # 잘렸다. → 사전 floor를 0.35로 낮춰 정답을 리랭커까지 통과시키고, 노이즈
+    # 제거는 리랭크 점수 게이트로 넘긴다(이것이 raw cosine보다 변별이 훨씬 큼).
+    nas_min_relevance: float = 0.35
     # 키워드 arm: Qdrant payload `text`에 풀텍스트 인덱스가 없으므로(인덱싱
     # 파이프라인 소관) substring AND-매칭을 위해 후보를 넉넉히 스캔한다.
     # 이 수만큼 scroll 후 토큰 substring으로 필터 → doc_id dedup.
@@ -80,10 +83,21 @@ class Settings(BaseSettings):
     # ⚠️ max_length 256은 품질을 크게 떨어뜨린다 — 규제/제도 문서는 핵심이 청크
     # 뒷부분에 있어 잘리면 관련도를 못 잡는다(실측: 512는 관련문서 0.92로 1위,
     # 256은 그 문서가 탈락+점수 0.46로 폭락). 따라서 **512 유지**하고 지연은
-    # top_n으로만 조절한다. 실측(512): N35=20s / N20=12s / N12=6.6s. 품질 보존
-    # 우선이라 N12(~6.6s 재채점, 총 ~7.5s) 채택. env로 조절 가능.
-    nas_rerank_top_n: int = 12  # 재채점할 상위 후보 수
+    # top_n으로만 조절한다. 실측(라이브, 워밍업 후): ~0.38s/passage →
+    # N12=4.6s / N20=7.6s / N30=12s. 기본 limit=20을 충족하려면 풀이 20은 돼야
+    # 하므로(N12면 20개 요청해도 12개만 반환됨) N20 채택(총 ~8s). env로 조절 가능.
+    nas_rerank_top_n: int = 20  # 재채점할 상위 후보 수(>= 기본 limit)
     nas_rerank_max_length: int = 512  # 청크 토큰 길이(품질상 절단 금지 권장)
+    # 리랭크 **후** 최종 관련도 게이트(cross-encoder sigmoid 점수, 0~1).
+    # 이것이 진짜 "없으면 없다" 컷이다 — raw cosine(노이즈 0.46 vs 정답 0.55로
+    # 마진 얇음)과 달리 리랭커는 노이즈를 ~0.001, 정답을 0.6~0.98로 분리하므로
+    # 이 점수로 게이트하면 정답 보존+노이즈 제거가 깔끔하다.
+    # 실측 튜닝(before/after): 0.05면 본문이 약한(엑셀 숫자행 등 H4 영향) 같은
+    # 시리즈 정답까지 보존(현대면세점 주간보고 10건)하면서, 무관 질의는 여전히
+    # 0건(깊은 노이즈는 rerank ~0.001이라 0.05로도 충분히 컷). 0.10은 H4 영향
+    # 문서를 과차단했다. 파일명 임베딩(H4) 적용 후엔 정답 점수가 올라가므로
+    # 이 게이트를 더 높일 수 있다. env(NAS_RERANK_MIN_SCORE)로 조절 가능.
+    nas_rerank_min_score: float = 0.05
 
     # 부서별 검색 스코핑 (선택 기능) ----------------------------------------------
     # 켜면 일반 사용자는 본인 부서(Qdrant dept)로 한정, 전체검색 허용 역할은 무필터.
