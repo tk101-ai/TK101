@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import settings
+from app.services.form_filler.analyzer import cell_anchor, para_anchor
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +41,16 @@ _EXPLICIT_PATTERNS = [
 # 라벨 + 빈 칸 패턴 (FR-01 #2). "라벨: ___" 또는 "라벨 :   " (공백 5+).
 _LABEL_BLANK_PATTERN = re.compile(r"([가-힣A-Za-z0-9 ]{2,20})\s*:\s*(_{3,}|\s{5,})")
 
+# 임의의 빈칸(밑줄 3+ 또는 공백 5+) — 좌표 앵커 기반 단락 치환에서 사용.
+_ANY_BLANK_PATTERN = re.compile(r"_{3,}|\s{5,}")
+
 # 표 빈 셀 마커 (analyzer.docx_to_markdown 에서 사용한 토큰).
 _TABLE_BLANK_MARKER = "[__________]"
 
 # 체크박스 패턴.
 _CHECKBOX_UNCHECKED = "☐"
 _CHECKBOX_CHECKED = "☑"
+_TRUTHY = {"true", "checked", "y", "yes", "1", "체크", "예", "o"}
 
 
 @dataclass(frozen=True)
@@ -78,8 +83,10 @@ def _resolve_value(key: str, mapping: dict[str, str | None]) -> str | None:
     return str(val)
 
 
-def _replace_in_paragraph(paragraph, mapping: dict[str, str | None]) -> int:
-    """단락 1개 안에서 명시 변수 + 라벨+빈칸 + 체크박스 치환.
+def _replace_in_paragraph(
+    paragraph, mapping: dict[str, str | None], *, para_index: int | None = None
+) -> int:
+    """단락 1개 안에서 명시 변수 + 좌표앵커 + 라벨+빈칸 + 체크박스 치환.
 
     paragraph.runs 의 글꼴/색상을 보존하기 위해 전체 텍스트를 1번에 합치지 않고
     run 별로 patch — but, 변수가 run 경계를 넘는 경우는 첫 run에 합쳐 넣는 패턴 사용.
@@ -102,6 +109,27 @@ def _replace_in_paragraph(paragraph, mapping: dict[str, str | None]) -> int:
                 continue
             new_text = new_text.replace(match.group(0), value, 1)
             replaced += 1
+
+    # 좌표 앵커(p{i}): analyzer 가 이 단락의 빈칸/체크박스에 발행한 앵커 키로 직접
+    # 치환한다. 라벨 텍스트 재매칭(아래)보다 안정적 — key 가 좌표라 양식 라벨/표기와
+    # 무관하게 채워진다. 앵커가 빈칸을 채우면 아래 라벨매칭은 빈칸을 못 찾아 중복 없음.
+    if para_index is not None:
+        aval = _resolve_value(para_anchor(para_index), mapping)
+        if aval is not None:
+            blank_m = _ANY_BLANK_PATTERN.search(new_text)
+            if blank_m:
+                new_text = (
+                    new_text[: blank_m.start()] + aval + new_text[blank_m.end() :]
+                )
+                replaced += 1
+            elif (
+                _CHECKBOX_UNCHECKED in new_text
+                and str(aval).strip().lower() in _TRUTHY
+            ):
+                new_text = new_text.replace(
+                    _CHECKBOX_UNCHECKED, _CHECKBOX_CHECKED, 1
+                )
+                replaced += 1
 
     # 라벨 + 빈 칸 패턴.
     for match in list(_LABEL_BLANK_PATTERN.finditer(new_text)):
@@ -143,6 +171,33 @@ def _replace_in_paragraph(paragraph, mapping: dict[str, str | None]) -> int:
     else:
         paragraph.text = new_text  # type: ignore[attr-defined]
     return replaced
+
+
+def _fill_cell_by_anchor(
+    cell, mapping: dict[str, str | None], table_idx: int, row_idx: int, col_idx: int
+) -> int:
+    """표 빈 셀을 **좌표 앵커**(t{t}r{r}c{c}) 키로 직접 채운다.
+
+    analyzer 가 빈 데이터 셀마다 좌표 앵커를 발행하고 LLM 이 그것을 변수 key 로 쓰므로,
+    헤더 텍스트 재매칭 없이 좌표만으로 값을 넣을 수 있다(과거 표 셀이 거의 안 채워지던
+    문제의 근본 해결). 이미 내용이 있는 셀은 덮어쓰지 않는다(앵커는 빈 셀에만 발행됨).
+    """
+    if (cell.text or "").strip():
+        return 0
+    value = _resolve_value(cell_anchor(table_idx, row_idx, col_idx), mapping)
+    if value is None:
+        return 0
+    paras = cell.paragraphs
+    if not paras:
+        return 0
+    target = paras[0]
+    if target.runs:
+        target.runs[0].text = value
+        for run in target.runs[1:]:
+            run.text = ""
+    else:
+        target.text = value  # type: ignore[attr-defined]
+    return 1
 
 
 def _replace_in_cell(cell, mapping: dict[str, str | None]) -> int:
@@ -190,12 +245,15 @@ def render_docx(
     doc = Document(io.BytesIO(template_bytes))
 
     total_replaced = 0
-    for paragraph in doc.paragraphs:
-        total_replaced += _replace_in_paragraph(paragraph, mappings)
+    for pi, paragraph in enumerate(doc.paragraphs):
+        total_replaced += _replace_in_paragraph(paragraph, mappings, para_index=pi)
 
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
+    # 표: 좌표 앵커로 빈 셀 채움 + 셀 내부 명시변수 치환. 인덱싱은 analyzer.docx_to_markdown
+    # 과 동일(table 1-base, row=list(table.rows) 위치, col=row.cells 위치)이라 좌표 일치.
+    for ti, table in enumerate(doc.tables, start=1):
+        for ri, row in enumerate(table.rows):
+            for ci, cell in enumerate(row.cells):
+                total_replaced += _fill_cell_by_anchor(cell, mappings, ti, ri, ci)
                 total_replaced += _replace_in_cell(cell, mappings)
 
     logger.info("renderer: %d 개 변수 치환 완료", total_replaced)
