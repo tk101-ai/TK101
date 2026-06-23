@@ -93,6 +93,8 @@ export default function SeoulSns() {
   const [dateTo, setDateTo] = useState<string | undefined>();
   // 구분(카테고리) 필터 — undefined면 전체. 클라이언트단 필터(목록을 다시 안 부름).
   const [categoryFilter, setCategoryFilter] = useState<PostCategory | undefined>();
+  // 제작주체(producer) 필터 — undefined면 전체. 카테고리와 동일하게 클라이언트단 적용.
+  const [producerFilter, setProducerFilter] = useState<string | undefined>();
   const [posts, setPosts] = useState<SnsPost[]>([]);
   const [loading, setLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -162,12 +164,24 @@ export default function SeoulSns() {
     void fetchPosts();
   }, [fetchPosts]);
 
-  // 구분 필터를 클라이언트단에서 적용 (여러 계정 병합 목록을 다시 부르지 않음).
+  // 구분·제작주체 필터를 클라이언트단에서 적용 (여러 계정 병합 목록을 다시 부르지 않음).
   const visiblePosts = useMemo(
     () =>
-      categoryFilter ? posts.filter((p) => p.category === categoryFilter) : posts,
-    [posts, categoryFilter],
+      posts.filter(
+        (p) =>
+          (!categoryFilter || p.category === categoryFilter) &&
+          (!producerFilter || p.producer === producerFilter),
+      ),
+    [posts, categoryFilter, producerFilter],
   );
+
+  // 제작주체 필터 옵션 — 현재 로드된 게시물의 distinct producer(자유 입력 텍스트라 동적 생성).
+  const producerFilterOptions = useMemo(() => {
+    const distinct = Array.from(
+      new Set(posts.map((p) => p.producer).filter((v): v is string => Boolean(v))),
+    ).sort();
+    return distinct.map((value) => ({ value, label: value }));
+  }, [posts]);
 
   // 인라인 구분 변경 — 낙관적 갱신 후 PATCH, 실패 시 롤백.
   const handleCategoryChange = useCallback(
@@ -497,6 +511,14 @@ export default function SeoulSns() {
           options={POST_CATEGORY_OPTIONS}
           allowClear
           style={{ minWidth: 140 }}
+        />
+        <Select<string>
+          placeholder="제작주체(전체)"
+          value={producerFilter}
+          onChange={setProducerFilter}
+          options={producerFilterOptions}
+          allowClear
+          style={{ minWidth: 160 }}
         />
         <Button
           icon={<DownloadOutlined />}

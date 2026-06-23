@@ -13,8 +13,10 @@ import {
   getPlatformLabel,
   listAccounts,
   listPosts,
+  listProducerStats,
   listWeeklyPostCounts,
   type PostCategory,
+  type ProducerStat,
   type SnsPost,
   type WeeklyPostCountRow,
 } from "../../api/sns";
@@ -39,6 +41,9 @@ const isTotalRow = (row: DisplayRow): row is TotalsRow =>
 
 const fmt = (n: number): string => n.toLocaleString("ko-KR");
 
+// 제작주체는 자유 입력 텍스트라 값별 고정 색이 없다 → 인덱스로 순환하는 팔레트(동적).
+const PRODUCER_TAG_COLORS = ["geekblue", "cyan", "gold", "purple", "lime", "orange"] as const;
+
 export default function SnsContentStatus() {
   const [period, setPeriod] = useState<Dayjs>(dayjs());
   const [rows, setRows] = useState<WeeklyPostCountRow[]>([]);
@@ -47,6 +52,9 @@ export default function SnsContentStatus() {
   // 구분(카테고리)별 게시물 수 — 선택한 월의 전체 게시물 기준. "미분류" 별도 집계.
   const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({});
   const [uncategorizedCount, setUncategorizedCount] = useState(0);
+
+  // 제작주체(producer)별 게시물 수 — 선택한 월 기준. 서버 GROUP BY 결과(건수 내림차순).
+  const [producerStats, setProducerStats] = useState<ProducerStat[]>([]);
 
   // 드릴다운: 계정별 게시물 목록 캐시.
   const [postsByAccount, setPostsByAccount] = useState<Record<string, SnsPost[]>>({});
@@ -113,10 +121,12 @@ export default function SnsContentStatus() {
     try {
       const dateFrom = period.startOf("month").format("YYYY-MM-DD");
       const dateTo = period.endOf("month").format("YYYY-MM-DD");
-      const [countsRes, postsRes] = await Promise.all([
+      const [countsRes, postsRes, producerRes] = await Promise.all([
         listWeeklyPostCounts({ year, month }),
         // 구분별 집계용 — 해당 월 전체 게시물(계정 무관). limit 상한껏.
         listPosts({ date_from: dateFrom, date_to: dateTo, limit: 1000 }),
+        // 제작주체별 집계 — 서버 GROUP BY(해당 월 전체, 계정 무관).
+        listProducerStats({ date_from: dateFrom, date_to: dateTo }),
       ]);
       setRows(countsRes.data);
       setPostsByAccount({});
@@ -130,6 +140,7 @@ export default function SnsContentStatus() {
       }
       setCategoryCounts(counts);
       setUncategorizedCount(uncategorized);
+      setProducerStats(producerRes.data);
     } catch {
       message.error("콘텐츠 현황 조회 실패");
     } finally {
@@ -363,6 +374,36 @@ export default function SnsContentStatus() {
           </Tag>
         ))}
         <Tag style={{ margin: 0 }}>미분류 {fmt(uncategorizedCount)}</Tag>
+      </div>
+
+      {/* 제작주체(producer)별 게시물 수 — 선택한 월 기준. 서버 GROUP BY(자유 입력 텍스트라 동적). */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 20,
+          padding: "10px 14px",
+          background: "#fafafa",
+          border: "1px solid #f0f0f0",
+          borderRadius: 8,
+        }}
+      >
+        <span style={{ fontWeight: 600, fontSize: 13, marginRight: 4 }}>제작주체별 집계</span>
+        {producerStats.length === 0 ? (
+          <Tag style={{ margin: 0 }}>데이터 없음</Tag>
+        ) : (
+          producerStats.map((s, i) => (
+            <Tag
+              key={s.producer ?? "__none__"}
+              color={s.producer ? PRODUCER_TAG_COLORS[i % PRODUCER_TAG_COLORS.length] : "default"}
+              style={{ margin: 0 }}
+            >
+              {s.producer ?? "미지정"} {fmt(s.count)}
+            </Tag>
+          ))
+        )}
       </div>
 
       <Table
