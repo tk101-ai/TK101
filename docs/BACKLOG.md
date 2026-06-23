@@ -31,7 +31,7 @@
 - [ ] (의도적 보류·선택) **양식 단일컴포넌트 병합** — 페이지 reload 제거. Steps바+서버영속으로 wayfinding/데이터보존은 이미 해결됨 → 순수 미관 개선이고 4페이지 라우팅·상태 전면 리팩토링이라 회귀위험 큼. **권장: 실사용 후 정말 필요하면 별도 진행.**
 - [ ] **포매터/린터 셋업** — prettier(frontend) + ruff/black(backend) 추가. 현재 미설치라 ECC 품질 훅(`stop:format-typecheck` 등) 포매터 절반이 no-op. 깔면 자동포맷·린트 살아남
 - [x] **SNS 수동 분류(`구분`) 입력 필드 — PR#91 배포·검증** — 행사/기획/정책/이벤트/기타. 마이그 035(`social_posts.category`, 적용/롤백/재적용 검증), SeoulSns 인라인 Select+필터, SnsContentStatus 집계. (엑셀 내보내기 컬럼 추가는 후속 — services/sns_export 손대야 함)
-- [~] **제작주체 집계** — `producer`(서울시제공/TK제작/인플루언서) 필드 이미 있음, 대시보드/현황에 집계·표시 *(2026-06-23 진행중, 병렬 에이전트)*
+- [x] **제작주체 집계 — PR#98 배포·검증** — producer 컬럼 기존(마이그 불요). 데이터가 free-text(서울시제공/TK제작/서울시 제공 변형/자체제작/typo/null 2779)라 신규 `GET /api/sns/posts/producer-stats`(GROUP BY 동적)로 집계 — SnsContentStatus 제작주체별 Tag + SeoulSns 필터. 덤: 깨진 `PRODUCER_LABELS`→`PRODUCER_VALUES` 교정.
 - [ ] ⚠️재정의필요 **엑셀 내보내기 (B)** — 항목이 잘못 엮임. "엑셀 내보내기"는 원래 SNS(PR#53/54, 브랜드/플랫폼)인데 거기엔 dept도 NAS폴더도 없음. "부서→NAS폴더명/파이프라인 top_folder"는 NAS 파일 얘긴데 NAS엔 엑셀 export 자체가 없음(검색결과는 화면 JSON만). **실제 니즈 확정 후 진행**: (a)SNS엑셀에 컬럼추가 (b)NAS검색결과에 폴더 표시/내보내기. 조사: 2026-06-23 에이전트.
 - [x] **docwork PR-C — PR#97 배포·검증** — `form_filler/extractor`→`services/documents/extractor` 이전(git rename) + import 2곳 갱신. judge/JSON파서/렌더는 docgen↔form_filler 동작이 실제로 달라 합치지 않음(회귀방지). 96테스트 통과·동작보존.
 - [~] **포매터/린터 셋업**(위 NEXT 32행) *(2026-06-23 — 위 3건 머지 후 단독 진행, 전체포맷 충돌 방지)*
