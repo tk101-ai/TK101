@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Badge, Button, Input, Space, Table, Tag, Typography } from "antd";
+import { Badge, Button, Input, Segmented, Space, Table, Tag, Typography } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type {
@@ -63,6 +63,18 @@ function ValueCell({
   );
 }
 
+/**
+ * "누락·확인 필요" 필터 대상 판정 — 값이 없거나(누락), confidence 가 낮아(확인 필요)
+ * 사용자가 직접 봐야 하는 행만 true. statusBadge 의 빨강/주황 조건과 동일하게 유지.
+ */
+function needsAttention(row: Row): boolean {
+  const m = row.mapping;
+  if (!m || m.value === null || m.value === "") return true;
+  return (
+    m.llm_confidence !== null && m.llm_confidence < 0.8 && m.llm_confidence >= 0.5
+  );
+}
+
 function statusBadge(row: Row) {
   const m = row.mapping;
   if (!m || m.value === null || m.value === "") {
@@ -90,6 +102,8 @@ export default function MappingTable({
   loading,
   regeneratingKey,
 }: MappingTableProps) {
+  const [filter, setFilter] = useState<"all" | "attention">("all");
+
   const sourceById = new Map(sources.map((s) => [s.id, s]));
 
   const rows: Row[] = template.variables.map((v) => {
@@ -100,6 +114,9 @@ export default function MappingTable({
   const missingCount = rows.filter(
     (r) => !r.mapping || r.mapping.value === null || r.mapping.value === "",
   ).length;
+  const attentionCount = rows.filter(needsAttention).length;
+
+  const visibleRows = filter === "attention" ? rows.filter(needsAttention) : rows;
 
   const columns: ColumnsType<Row> = [
     {
@@ -166,7 +183,7 @@ export default function MappingTable({
           disabled={!row.mapping}
           onClick={() => onRegenerate(row.variable.key)}
         >
-          Haiku
+          재생성
         </Button>
       ),
     },
@@ -174,17 +191,26 @@ export default function MappingTable({
 
   return (
     <div>
-      <Space style={{ marginBottom: 8 }}>
+      <Space style={{ marginBottom: 8 }} wrap>
         <Badge
           status={missingCount > 0 ? "error" : "success"}
           text={`전체 ${rows.length}개 · 누락 ${missingCount}개`}
+        />
+        <Segmented
+          size="small"
+          value={filter}
+          onChange={(v) => setFilter(v as "all" | "attention")}
+          options={[
+            { label: "전체 보기", value: "all" },
+            { label: `누락·확인 필요만 (${attentionCount})`, value: "attention" },
+          ]}
         />
       </Space>
       <Table
         size="small"
         loading={loading}
         rowKey={(r) => r.variable.key}
-        dataSource={rows}
+        dataSource={visibleRows}
         columns={columns}
         pagination={false}
         scroll={{ y: 540 }}

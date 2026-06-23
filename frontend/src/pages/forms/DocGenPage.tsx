@@ -9,6 +9,7 @@ import {
   Popconfirm,
   Segmented,
   Space,
+  Spin,
   Tag,
   Typography,
   Upload,
@@ -76,6 +77,11 @@ export default function DocGenPage() {
   // 검수 이슈 기반 자동 보강(원클릭) 진행 상태.
   const [autoFixHeading, setAutoFixHeading] = useState<string | null>(null);
   const [autoFixingAll, setAutoFixingAll] = useState(false);
+  // 순차 보강 진행률(전체 보강 오버레이 tip 표시용).
+  const [autoFixProgress, setAutoFixProgress] = useState<{ done: number; total: number }>({
+    done: 0,
+    total: 0,
+  });
 
   const handleGenerate = async () => {
     const t = topic.trim();
@@ -101,8 +107,8 @@ export default function DocGenPage() {
       setFeedbacks({});
       setReview(null);
       message.success(`초안 생성 완료 (참고 ${res.sources.length}건)`);
-    } catch {
-      message.error("문서 생성 실패");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "문서 생성 실패");
     } finally {
       setBusy(false);
     }
@@ -132,8 +138,8 @@ export default function DocGenPage() {
       updateSection(i, res.section);
       setFeedbacks((prev) => ({ ...prev, [i]: "" }));
       message.success("섹션 재생성 완료");
-    } catch {
-      message.error("섹션 재생성 실패");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "섹션 재생성 실패");
     } finally {
       setRegenIdx(null);
     }
@@ -185,8 +191,8 @@ export default function DocGenPage() {
     try {
       const ok = await regenerateFromReview(r);
       if (ok) message.success(`"${r.heading}" 이슈 반영 재생성 완료`);
-    } catch {
-      message.error("이슈 반영 재생성 실패");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "이슈 반영 재생성 실패");
     } finally {
       setAutoFixHeading(null);
     }
@@ -198,6 +204,7 @@ export default function DocGenPage() {
     const targets = review.section_reviews.filter((r) => !r.grounded || r.issues.length > 0);
     if (targets.length === 0) return;
     setAutoFixingAll(true);
+    setAutoFixProgress({ done: 0, total: targets.length });
     let done = 0;
     let skipped = 0;
     try {
@@ -209,12 +216,16 @@ export default function DocGenPage() {
         } catch {
           skipped += 1;
         }
+        setAutoFixProgress((prev) => ({ ...prev, done: prev.done + 1 }));
       }
       message.success(
         `자동 보강 완료 — ${done}개 재생성${skipped > 0 ? `, ${skipped}개 건너뜀` : ""}`,
       );
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "자동 보강 실패");
     } finally {
       setAutoFixingAll(false);
+      setAutoFixProgress({ done: 0, total: 0 });
     }
   };
 
@@ -223,8 +234,8 @@ export default function DocGenPage() {
     try {
       const fn = kind === "docx" ? downloadGeneratedDocx : downloadGeneratedPptx;
       await fn(title || "문서", sections);
-    } catch {
-      message.error(`${kind} 다운로드 실패`);
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || `${kind} 다운로드 실패`);
     }
   };
 
@@ -242,15 +253,23 @@ export default function DocGenPage() {
       });
       setReview(res);
       message.success(`품질 검증 완료 — 점수 ${res.overall_score}/100`);
-    } catch {
-      message.error("품질 검증 실패");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "품질 검증 실패");
     } finally {
       setReviewing(false);
     }
   };
 
+  // 장시간 LLM 작업용 전체화면 차단 오버레이 tip(작업별 안내).
+  const overlayTip = autoFixingAll
+    ? `${autoFixProgress.done}/${autoFixProgress.total} 섹션 보강 중...`
+    : busy
+      ? "AI가 문서를 작성하고 있습니다 (최대 30초)..."
+      : "AI가 문서를 검증하고 있습니다 (최대 30초)...";
+
   return (
     <div style={{ maxWidth: 1080 }}>
+      <Spin spinning={busy || reviewing || autoFixingAll} fullscreen tip={overlayTip} />
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
           문서 생성{" "}

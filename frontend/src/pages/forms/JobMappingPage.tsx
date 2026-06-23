@@ -25,6 +25,7 @@ import {
   type FormJobDetail,
 } from "../../api/forms";
 import MappingTable from "../../components/forms/MappingTable";
+import { useAuth } from "../../hooks/useAuth";
 
 const { Text } = Typography;
 
@@ -56,6 +57,8 @@ async function confirmMappingsBeforeRender(
 export default function JobMappingPage() {
   const { id = "" } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [detail, setDetail] = useState<FormJobDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -66,8 +69,8 @@ export default function JobMappingPage() {
     try {
       const d = await getFormJob(id);
       setDetail(d);
-    } catch {
-      message.error("매핑 정보를 불러오지 못했습니다");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "매핑 정보를 불러오지 못했습니다");
     } finally {
       setLoading(false);
     }
@@ -92,8 +95,8 @@ export default function JobMappingPage() {
     try {
       await patchJobMapping(id, variableKey, { value, manual_override: true });
       await refresh();
-    } catch {
-      message.error("매핑 수정 실패");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "매핑 수정에 실패했습니다");
     }
   };
 
@@ -101,10 +104,10 @@ export default function JobMappingPage() {
     setRegenKey(variableKey);
     try {
       await regenerateJobMapping(id, variableKey);
-      message.success("Haiku 4.5 재생성 완료");
+      message.success("재생성 완료");
       await refresh();
-    } catch {
-      message.error("재생성 실패");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "재생성에 실패했습니다");
     } finally {
       setRegenKey(null);
     }
@@ -130,11 +133,8 @@ export default function JobMappingPage() {
           detail.template.file_format ?? "docx"
         }`;
       await downloadJobOutput(id, filename);
-    } catch (err) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } }).response?.data?.detail ??
-        "문서 생성 실패";
-      message.error(msg);
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "문서 생성에 실패했습니다");
     } finally {
       setBusy(false);
     }
@@ -156,34 +156,33 @@ export default function JobMappingPage() {
       <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
-            매핑 검수 · 누락 보강{" "}
-            <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-              v0.1 · 4-5단계 / 5
-            </Text>
+            매핑 검수 · 누락 보강
           </h2>
           <Text type="secondary">
             양식 「{detail.template.name}」 · 자료 {detail.sources.length}개 ·{" "}
             매핑 {detail.mappings.length}개
           </Text>
         </div>
-        <Space size="large">
-          <Statistic
-            title="누적 비용 (USD)"
-            value={detail.cost_usd}
-            precision={4}
-            valueStyle={{ fontSize: 14 }}
-          />
-          <Statistic
-            title="토큰 in/out"
-            value={`${detail.total_tokens_in}/${detail.total_tokens_out}`}
-            valueStyle={{ fontSize: 14 }}
-          />
-          {detail.langfuse_trace_id && (
-            <Tag color="purple" style={{ marginTop: 8 }}>
-              Langfuse {detail.langfuse_trace_id.slice(0, 8)}…
-            </Tag>
-          )}
-        </Space>
+        {isAdmin && (
+          <Space size="large">
+            <Statistic
+              title="누적 비용 (USD)"
+              value={detail.cost_usd}
+              precision={4}
+              valueStyle={{ fontSize: 14 }}
+            />
+            <Statistic
+              title="토큰 in/out"
+              value={`${detail.total_tokens_in}/${detail.total_tokens_out}`}
+              valueStyle={{ fontSize: 14 }}
+            />
+            {detail.langfuse_trace_id && (
+              <Tag color="purple" style={{ marginTop: 8 }}>
+                Langfuse {detail.langfuse_trace_id.slice(0, 8)}…
+              </Tag>
+            )}
+          </Space>
+        )}
       </div>
 
       {missingMappings.length > 0 && (
@@ -306,8 +305,8 @@ function MissingFormModal({ open, onClose, detail, onSave }: MissingFormModalPro
       await onSave(values);
       setValues({});
       onClose();
-    } catch {
-      message.error("저장 실패");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "저장에 실패했습니다");
     } finally {
       setSaving(false);
     }
