@@ -567,6 +567,15 @@ export async function downloadJobOutput(jobId: string, filename: string): Promis
   triggerBlobDownload(res.data, filename);
 }
 
+// 현재 매핑 상태를 즉석 렌더한 .docx 를 ArrayBuffer 로 받아온다 (mammoth 미리보기용).
+// 검수 게이트·저장 없이 "채워진 양식"을 다운로드 전에 미리 보여주기 위함.
+export async function previewJobDocx(jobId: string): Promise<ArrayBuffer> {
+  const res = await api.get<ArrayBuffer>(`/api/forms/jobs/${jobId}/preview`, {
+    responseType: "arraybuffer",
+  });
+  return res.data;
+}
+
 export async function getJobRevisions(jobId: string): Promise<FormRevision[]> {
   if (MOCK_ENABLED) return [];
   const res = await api.get<FormRevision[]>(`/api/forms/jobs/${jobId}/revisions`);
