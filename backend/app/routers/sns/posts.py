@@ -30,6 +30,7 @@ async def list_posts(
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
     content_type: str | None = Query(None),
+    category: str | None = Query(None),
     language: str | None = Query(None),
     platform: str | None = Query(None),
     limit: int = Query(100, le=1000),
@@ -45,6 +46,8 @@ async def list_posts(
         query = query.where(SocialPost.posted_at <= date_to)
     if content_type:
         query = query.where(SocialPost.content_type == content_type)
+    if category:
+        query = query.where(SocialPost.category == category)
     if language or platform:
         query = query.join(SocialAccount, SocialAccount.id == SocialPost.account_id)
         if language:
@@ -151,6 +154,7 @@ async def create_manual_content(
         title=body.title,
         content_type=body.content_type,
         producer=body.producer,
+        category=body.category.value if body.category else None,
         url=body.url,
         external_id=body.external_id,
         is_manual=True,

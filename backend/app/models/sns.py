@@ -62,6 +62,8 @@ class SocialPost(UUIDMixin, TimestampMixin, Base):
     external_id = Column(String, nullable=True, index=True)
     # 수동 등록 콘텐츠 여부 (FALLBACK 모드). True면 사용자가 배포일/제목/형태/URL 직접 입력. (마이그레이션 022)
     is_manual = Column(Boolean, default=False, nullable=False)
+    # 구분(카테고리) — SNS API 가 못 긁어오는 수동 태그. 행사/기획/정책/이벤트/기타. (마이그레이션 035)
+    category = Column(String(16), nullable=True)
     extra_metadata = Column(JSONB, nullable=True)
     # 댓글 AI 요약 캐시 (analyze 엔드포인트가 채움 — 재요약 비용 절감). 마이그레이션 034.
     comment_summary = Column(Text, nullable=True)

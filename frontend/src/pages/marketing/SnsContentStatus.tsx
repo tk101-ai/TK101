@@ -4,6 +4,8 @@ import { DownloadOutlined, FileExcelOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
 import {
+  POST_CATEGORIES,
+  POST_CATEGORY_COLORS,
   exportBrandWorkbook,
   exportContentStatus,
   getContentTypeLabel,
@@ -12,6 +14,7 @@ import {
   listAccounts,
   listPosts,
   listWeeklyPostCounts,
+  type PostCategory,
   type SnsPost,
   type WeeklyPostCountRow,
 } from "../../api/sns";
@@ -40,6 +43,10 @@ export default function SnsContentStatus() {
   const [period, setPeriod] = useState<Dayjs>(dayjs());
   const [rows, setRows] = useState<WeeklyPostCountRow[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // 구분(카테고리)별 게시물 수 — 선택한 월의 전체 게시물 기준. "미분류" 별도 집계.
+  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({});
+  const [uncategorizedCount, setUncategorizedCount] = useState(0);
 
   // 드릴다운: 계정별 게시물 목록 캐시.
   const [postsByAccount, setPostsByAccount] = useState<Record<string, SnsPost[]>>({});
@@ -104,16 +111,31 @@ export default function SnsContentStatus() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await listWeeklyPostCounts({ year, month });
-      setRows(res.data);
+      const dateFrom = period.startOf("month").format("YYYY-MM-DD");
+      const dateTo = period.endOf("month").format("YYYY-MM-DD");
+      const [countsRes, postsRes] = await Promise.all([
+        listWeeklyPostCounts({ year, month }),
+        // 구분별 집계용 — 해당 월 전체 게시물(계정 무관). limit 상한껏.
+        listPosts({ date_from: dateFrom, date_to: dateTo, limit: 1000 }),
+      ]);
+      setRows(countsRes.data);
       setPostsByAccount({});
       setPostsLoading({});
+
+      const counts: Record<string, number> = {};
+      let uncategorized = 0;
+      for (const p of postsRes.data) {
+        if (p.category) counts[p.category] = (counts[p.category] ?? 0) + 1;
+        else uncategorized += 1;
+      }
+      setCategoryCounts(counts);
+      setUncategorizedCount(uncategorized);
     } catch {
       message.error("콘텐츠 현황 조회 실패");
     } finally {
       setLoading(false);
     }
-  }, [year, month]);
+  }, [year, month, period]);
 
   useEffect(() => {
     // year/month 변경 시 집계 fetch (의도된 패턴).
@@ -225,6 +247,19 @@ export default function SnsContentStatus() {
         render: (t: string | null) => getContentTypeLabel(t),
       },
       {
+        title: "구분",
+        dataIndex: "category",
+        width: 90,
+        render: (c: PostCategory | null) =>
+          c ? (
+            <Tag color={POST_CATEGORY_COLORS[c]} style={{ margin: 0 }}>
+              {c}
+            </Tag>
+          ) : (
+            "-"
+          ),
+      },
+      {
         title: "조회수",
         dataIndex: "view_count",
         width: 110,
@@ -305,6 +340,29 @@ export default function SnsContentStatus() {
         >
           다운로드
         </Button>
+      </div>
+
+      {/* 구분(카테고리)별 게시물 수 — 선택한 월 기준. SeoulSns 에서 수동 태그한 값을 집계. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 20,
+          padding: "10px 14px",
+          background: "#fafafa",
+          border: "1px solid #f0f0f0",
+          borderRadius: 8,
+        }}
+      >
+        <span style={{ fontWeight: 600, fontSize: 13, marginRight: 4 }}>구분별 집계</span>
+        {(POST_CATEGORIES as readonly PostCategory[]).map((cat) => (
+          <Tag key={cat} color={POST_CATEGORY_COLORS[cat]} style={{ margin: 0 }}>
+            {cat} {fmt(categoryCounts[cat] ?? 0)}
+          </Tag>
+        ))}
+        <Tag style={{ margin: 0 }}>미분류 {fmt(uncategorizedCount)}</Tag>
       </div>
 
       <Table

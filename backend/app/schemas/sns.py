@@ -20,6 +20,16 @@ class Language(str, Enum):
     JA = "ja"
 
 
+class PostCategory(str, Enum):
+    """게시물 구분(카테고리) — 수동 태그. SNS API 로는 못 긁어오는 분류 축. (마이그레이션 035)"""
+
+    EVENT = "행사"
+    PLANNING = "기획"
+    POLICY = "정책"
+    PROMOTION = "이벤트"
+    ETC = "기타"
+
+
 # ---------------- Account ----------------
 
 
@@ -104,6 +114,7 @@ class PostCreate(BaseModel):
     url: str | None = None
     data_recorded_at: date | None = None
     external_id: str | None = None
+    category: PostCategory | None = None
     extra_metadata: dict[str, Any] | None = None
 
 
@@ -123,6 +134,7 @@ class PostUpdate(BaseModel):
     url: str | None = None
     data_recorded_at: date | None = None
     external_id: str | None = None
+    category: PostCategory | None = None
     extra_metadata: dict[str, Any] | None = None
 
 
@@ -145,6 +157,8 @@ class PostRead(BaseModel):
     data_recorded_at: date | None
     external_id: str | None
     is_manual: bool = False
+    # 구분(카테고리) — 수동 태그(행사/기획/정책/이벤트/기타). NULL이면 미분류. (마이그레이션 035)
+    category: str | None = None
     extra_metadata: dict[str, Any] | None
     created_at: datetime
     # 댓글 AI 요약 캐시 (마이그레이션 034) — 프런트가 목록만으로 저장된 요약을 표시.
@@ -298,6 +312,7 @@ class ContentCreate(BaseModel):
     title: str | None = None
     content_type: str | None = None  # 형태: post/reel/image 등
     producer: str | None = None  # 제작주체: 서울제작/TK제작 등
+    category: PostCategory | None = None  # 구분: 행사/기획/정책/이벤트/기타
     url: str | None = None
     external_id: str | None = None
 
