@@ -3,6 +3,8 @@ import { triggerBlobDownload } from "../utils/download";
 
 export type Platform = "facebook" | "instagram" | "twitter" | "youtube" | "weibo";
 export type Language = "en" | "zh" | "ja";
+// 게시물 구분(카테고리) — 수동 태그. SNS API 로는 못 긁어오는 분류 축. (마이그레이션 035)
+export type PostCategory = "행사" | "기획" | "정책" | "이벤트" | "기타";
 
 export interface SnsAccount {
   id: string;
@@ -35,6 +37,8 @@ export interface SnsPost {
   data_recorded_at: string | null;
   external_id: string | null;
   is_manual: boolean;
+  // 구분(카테고리) — 수동 태그(행사/기획/정책/이벤트/기타). null이면 미분류. (마이그레이션 035)
+  category: PostCategory | null;
   created_at: string;
   // 댓글 AI 요약 캐시 (마이그레이션 034) — 저장된 요약을 즉시 표시하는 데 사용.
   comment_summary: string | null;
@@ -60,6 +64,7 @@ export interface CreateContentRequest {
   title?: string | null;
   content_type?: string | null;
   producer?: string | null;
+  category?: PostCategory | null;
   url?: string | null;
   external_id?: string | null;
 }
@@ -152,6 +157,7 @@ export interface PostFilter {
   date_from?: string;
   date_to?: string;
   content_type?: string;
+  category?: PostCategory;
   language?: Language;
   platform?: Platform;
   keyword?: string;
@@ -165,6 +171,7 @@ export interface CreatePostRequest {
   title?: string | null;
   content_type?: string | null;
   producer?: string | null;
+  category?: PostCategory | null;
   view_count?: number | null;
   reach_count?: number | null;
   comment_count?: number | null;
@@ -459,6 +466,29 @@ export const CONTENT_TYPE_LABELS: Record<string, string> = {
   post: "게시물",
   reel: "릴스",
 };
+
+// 구분(카테고리) — 수동 태그. SNS API 로는 못 긁어오는 분류 축. 단일 출처(여기서만 정의).
+export const POST_CATEGORIES: readonly PostCategory[] = [
+  "행사",
+  "기획",
+  "정책",
+  "이벤트",
+  "기타",
+] as const;
+
+// 구분별 태그 색상 (UI 일관성). 미분류(null)는 별도 처리.
+export const POST_CATEGORY_COLORS: Record<PostCategory, string> = {
+  행사: "magenta",
+  기획: "blue",
+  정책: "green",
+  이벤트: "volcano",
+  기타: "default",
+};
+
+export const POST_CATEGORY_OPTIONS = POST_CATEGORIES.map((value) => ({
+  value,
+  label: value,
+}));
 
 // 제작주체 (형태와 별도). 서울시 SNS 시트 기준 값.
 export const PRODUCER_LABELS: Record<string, string> = {

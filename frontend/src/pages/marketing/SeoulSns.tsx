@@ -28,6 +28,8 @@ import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
 import {
   CONTENT_TYPE_OPTIONS,
+  POST_CATEGORY_COLORS,
+  POST_CATEGORY_OPTIONS,
   PRODUCER_OPTIONS,
   collectComments,
   collectMetrics,
@@ -36,7 +38,9 @@ import {
   getContentTypeLabel,
   listAccounts,
   listPosts,
+  updatePost,
   type CreateContentRequest,
+  type PostCategory,
   type SnsAccount,
   type SnsPost,
 } from "../../api/sns";
@@ -64,6 +68,7 @@ interface ContentFormValues {
   title?: string;
   content_type?: string;
   producer?: string;
+  category?: PostCategory;
   url?: string;
 }
 
@@ -86,6 +91,8 @@ export default function SeoulSns() {
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState<string | undefined>();
   const [dateTo, setDateTo] = useState<string | undefined>();
+  // 구분(카테고리) 필터 — undefined면 전체. 클라이언트단 필터(목록을 다시 안 부름).
+  const [categoryFilter, setCategoryFilter] = useState<PostCategory | undefined>();
   const [posts, setPosts] = useState<SnsPost[]>([]);
   const [loading, setLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -155,6 +162,33 @@ export default function SeoulSns() {
     void fetchPosts();
   }, [fetchPosts]);
 
+  // 구분 필터를 클라이언트단에서 적용 (여러 계정 병합 목록을 다시 부르지 않음).
+  const visiblePosts = useMemo(
+    () =>
+      categoryFilter ? posts.filter((p) => p.category === categoryFilter) : posts,
+    [posts, categoryFilter],
+  );
+
+  // 인라인 구분 변경 — 낙관적 갱신 후 PATCH, 실패 시 롤백.
+  const handleCategoryChange = useCallback(
+    async (post: SnsPost, next: PostCategory | null) => {
+      const prev = post.category;
+      if (prev === next) return;
+      setPosts((list) =>
+        list.map((p) => (p.id === post.id ? { ...p, category: next } : p)),
+      );
+      try {
+        await updatePost(post.id, { category: next });
+      } catch (err) {
+        setPosts((list) =>
+          list.map((p) => (p.id === post.id ? { ...p, category: prev } : p)),
+        );
+        message.error(extractErrorDetail(err, "구분 변경 실패"));
+      }
+    },
+    [],
+  );
+
   const handleAdd = async (values: ContentFormValues) => {
     if (!actionAccount) {
       message.warning("콘텐츠를 추가할 계정을 1개 선택하세요");
@@ -165,6 +199,7 @@ export default function SeoulSns() {
       title: values.title ?? null,
       content_type: values.content_type ?? null,
       producer: values.producer ?? null,
+      category: values.category ?? null,
       url: values.url ?? null,
     };
     try {
@@ -319,6 +354,44 @@ export default function SeoulSns() {
       render: (v: string | null) => v || "-",
     },
     {
+      title: "구분",
+      dataIndex: "category",
+      width: 116,
+      render: (value: PostCategory | null, record) => (
+        <Select<PostCategory>
+          value={value ?? undefined}
+          placeholder="미분류"
+          options={POST_CATEGORY_OPTIONS}
+          onChange={(next) => void handleCategoryChange(record, next ?? null)}
+          onClear={() => void handleCategoryChange(record, null)}
+          allowClear
+          size="small"
+          variant="borderless"
+          style={{ width: "100%" }}
+          optionRender={(opt) => (
+            <Tag
+              color={POST_CATEGORY_COLORS[opt.value as PostCategory]}
+              style={{ marginInlineEnd: 0 }}
+            >
+              {opt.label}
+            </Tag>
+          )}
+          labelRender={(props) =>
+            props.value ? (
+              <Tag
+                color={POST_CATEGORY_COLORS[props.value as PostCategory]}
+                style={{ marginInlineEnd: 0 }}
+              >
+                {props.label}
+              </Tag>
+            ) : (
+              <span style={{ color: "#bfbfbf" }}>미분류</span>
+            )
+          }
+        />
+      ),
+    },
+    {
       title: "조회수",
       dataIndex: "view_count",
       width: 96,
@@ -417,6 +490,14 @@ export default function SeoulSns() {
             setDateTo(dates?.[1] || undefined);
           }}
         />
+        <Select<PostCategory>
+          placeholder="구분(전체)"
+          value={categoryFilter}
+          onChange={setCategoryFilter}
+          options={POST_CATEGORY_OPTIONS}
+          allowClear
+          style={{ minWidth: 140 }}
+        />
         <Button
           icon={<DownloadOutlined />}
           loading={exporting}
@@ -493,11 +574,11 @@ export default function SeoulSns() {
         {viewAccountIds.length > 0 ? (
           <Table
             columns={columns}
-            dataSource={posts}
+            dataSource={visiblePosts}
             rowKey="id"
             size="middle"
             pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
-            scroll={{ x: 1280 }}
+            scroll={{ x: 1400 }}
             locale={{ emptyText: <Empty description="콘텐츠가 없습니다" /> }}
           />
         ) : (
@@ -533,6 +614,9 @@ export default function SeoulSns() {
             </Form.Item>
             <Form.Item name="producer" label="제작주체" style={{ minWidth: 200 }}>
               <Select options={PRODUCER_OPTIONS} placeholder="제작주체 선택" allowClear />
+            </Form.Item>
+            <Form.Item name="category" label="구분" style={{ minWidth: 200 }}>
+              <Select options={POST_CATEGORY_OPTIONS} placeholder="구분 선택" allowClear />
             </Form.Item>
           </Space>
           <Form.Item name="url" label="URL 링크">
