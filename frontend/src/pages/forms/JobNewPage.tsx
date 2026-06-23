@@ -28,6 +28,7 @@ import {
 } from "../../api/forms";
 import type { NasSearchHit } from "../../api/nas";
 import SourcePicker from "../../components/forms/SourcePicker";
+import FormWizardSteps from "../../components/forms/FormWizardSteps";
 
 const { Text, Paragraph } = Typography;
 
@@ -168,12 +169,10 @@ export default function JobNewPage() {
   return (
     <div style={{ maxWidth: 1080 }}>
       <div style={{ marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
-          자료 수집{" "}
-          <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-            v0.1 · 3단계 / 5
-          </Text>
+        <h2 style={{ margin: "0 0 16px", fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
+          자료 수집
         </h2>
+        <FormWizardSteps current={2} />
         <Text type="secondary">
           양식 「{detail.template.name}」 · 변수 {detail.template.variables.length}개
         </Text>

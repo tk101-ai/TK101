@@ -25,6 +25,7 @@ import {
   type FormJobDetail,
 } from "../../api/forms";
 import MappingTable from "../../components/forms/MappingTable";
+import FormWizardSteps from "../../components/forms/FormWizardSteps";
 import { useAuth } from "../../hooks/useAuth";
 
 const { Text } = Typography;
@@ -153,6 +154,7 @@ export default function JobMappingPage() {
 
   return (
     <div style={{ maxWidth: 1440 }}>
+      <FormWizardSteps current={3} />
       <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>

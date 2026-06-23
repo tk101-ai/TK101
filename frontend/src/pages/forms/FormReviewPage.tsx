@@ -24,6 +24,7 @@ import {
 import VariableEditor from "../../components/forms/VariableEditor";
 import { DEPARTMENT_OPTIONS } from "../../config/modules";
 import { extractErrorDetail } from "../../utils/errorUtils";
+import FormWizardSteps from "../../components/forms/FormWizardSteps";
 
 const { Text, Paragraph } = Typography;
 
@@ -101,12 +102,10 @@ export default function FormReviewPage() {
   return (
     <div style={{ maxWidth: 1280 }}>
       <div style={{ marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
-          양식 매핑 검수{" "}
-          <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-            2단계 / 5
-          </Text>
+        <h2 style={{ margin: "0 0 16px", fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
+          변수 검수
         </h2>
+        <FormWizardSteps current={1} />
         <Text type="secondary">
           자동 감지된 변수를 1회 확인·수정하고 양식 라이브러리에 저장합니다.
         </Text>
