@@ -103,7 +103,8 @@ def generate_document(topic: str, doc_type: str, chunks: list) -> GeneratedDoc:
         system_prompt=_SYSTEM,
         messages=[{"role": "user", "content": _build_user_prompt(topic, doc_type, chunks)}],
         model=settings.docgen_model,
-        max_tokens=8192,
+        max_tokens=16000,  # 4~8섹션 한국어 문서 — 8192는 자주 잘려 JSON 파싱 실패→502
+        temperature=0.4,   # 일관성↑(과거 기본 1.0이라 실행마다 품질 편차 컸음)
         cache_system=True,
         trace_name="docgen",
         trace_metadata={"doc_type": doc_type},
@@ -173,6 +174,7 @@ def regenerate_section(
         messages=[{"role": "user", "content": user}],
         model=settings.docgen_model,
         max_tokens=4096,
+        temperature=0.4,  # 일관성↑
         cache_system=True,
         trace_name="docgen.regenerate_section",
         trace_metadata={"doc_type": doc_type, "heading": heading},
@@ -255,6 +257,7 @@ def review_document(
         system_prompt=_JUDGE_SYSTEM,
         messages=[{"role": "user", "content": user}],
         max_tokens=4096,
+        temperature=0,  # 평가(judge)는 결정적
         cache_system=True,
         trace_name="docgen.review",
         trace_metadata={"doc_type": doc_type},

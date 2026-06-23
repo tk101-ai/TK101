@@ -179,6 +179,7 @@ def analyze_form(file_bytes: bytes, *, job_metadata: dict | None = None) -> Anal
         messages=messages,
         model=settings.form_filler_sonnet_model,
         max_tokens=8192,  # 한국어 JSON 응답에서 4096은 자주 잘림 (변수 30+개 양식)
+        temperature=0,  # 구조화 추출 — 결정적 출력(값 흔들림·JSON 깨짐 방지)
         cache_system=True,
         cache_user_first=False,  # 양식 본문은 분석 단계에서 1회만 호출 — 캐시 이득 적음.
         trace_name="form_filler.analyze_form",

@@ -254,6 +254,7 @@ def map_sources_to_variables(
         messages=messages,
         model=settings.form_filler_sonnet_model,
         max_tokens=8192,
+        temperature=0,  # 소스→변수 매핑은 결정적 추출 — 값 흔들림 방지
         cache_system=True,
         cache_user_first=False,
         trace_name="form_filler.map_sources",
@@ -315,6 +316,7 @@ def regenerate_one_variable(
         messages=messages,
         model=settings.form_filler_haiku_model,
         max_tokens=2048,
+        temperature=0,  # 단일 변수 재추출도 결정적
         cache_system=True,
         cache_user_first=False,
         trace_name="form_filler.regenerate_one",

@@ -85,6 +85,7 @@ def call_claude(
     messages: list[dict],
     model: str | None = None,
     max_tokens: int = 4096,
+    temperature: float | None = None,
     cache_system: bool = True,
     cache_user_first: bool = False,
     trace_name: str = "form_filler",
@@ -97,6 +98,8 @@ def call_claude(
         messages: [{"role": "user", "content": "..."}] 형식
         model: 모델 ID. None이면 settings.form_filler_sonnet_model.
         max_tokens: 출력 최대 토큰
+        temperature: 샘플링 온도. None이면 SDK 기본(1.0). 구조화 JSON 추출
+            (양식 분석/매핑·judge)은 0으로 고정해 값 흔들림·JSON 깨짐을 줄인다.
         cache_system: system을 cache_control ephemeral로 묶을지 (PRD 6.3)
         cache_user_first: 첫 user 메시지(보통 양식 본문)도 캐시할지
         trace_name: Langfuse 트레이스 이름
@@ -159,13 +162,17 @@ def call_claude(
             trace = None
             generation = None
 
+    create_kwargs: dict[str, Any] = {
+        "model": selected_model,
+        "max_tokens": max_tokens,
+        "system": system_blocks,
+        "messages": api_messages,
+    }
+    if temperature is not None:
+        create_kwargs["temperature"] = temperature
+
     try:
-        response = client.messages.create(
-            model=selected_model,
-            max_tokens=max_tokens,
-            system=system_blocks,
-            messages=api_messages,
-        )
+        response = client.messages.create(**create_kwargs)
     except Exception:
         if generation is not None:
             try:
