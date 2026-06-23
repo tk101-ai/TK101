@@ -29,12 +29,11 @@
 - [x] **문서작업 Phase3b-2 실제 docx 미리보기 — PR#86 배포** — 백엔드 `GET /jobs/{id}/preview`(즉석 렌더, 게이트·저장 없음) + 프론트 mammoth docx→HTML(지연로딩). 가짜 텍스트덤프 → 진짜 채워진 양식. 라우트 라이브 검증(401).
 - [x] **문서작업 Phase3b-3 — PR#88 배포** — 작성중 문서 resume 목록(`GET /jobs` + 라이브러리 "작성 중 문서" 섹션) + "확정 후 다운로드"→"문서 완성·다운로드" 라벨 정리.
 - [ ] (의도적 보류·선택) **양식 단일컴포넌트 병합** — 페이지 reload 제거. Steps바+서버영속으로 wayfinding/데이터보존은 이미 해결됨 → 순수 미관 개선이고 4페이지 라우팅·상태 전면 리팩토링이라 회귀위험 큼. **권장: 실사용 후 정말 필요하면 별도 진행.**
-- [ ] **포매터/린터 셋업** — prettier(frontend) + ruff/black(backend) 추가. 현재 미설치라 ECC 품질 훅(`stop:format-typecheck` 등) 포매터 절반이 no-op. 깔면 자동포맷·린트 살아남
+- [x] **포매터/린터 셋업 — PR#101 배포** — prettier(front, `.prettierrc` 100·double·semi) + black·ruff(back, pyproject dev; black=포매터/ruff=린터 E·F, line100). 전체 재포맷 없이 설정·의존성만(편집 파일별 hook 동작). 런타임 무영향.
 - [x] **SNS 수동 분류(`구분`) 입력 필드 — PR#91 배포·검증** — 행사/기획/정책/이벤트/기타. 마이그 035(`social_posts.category`, 적용/롤백/재적용 검증), SeoulSns 인라인 Select+필터, SnsContentStatus 집계. (엑셀 내보내기 컬럼 추가는 후속 — services/sns_export 손대야 함)
 - [x] **제작주체 집계 — PR#98 배포·검증** — producer 컬럼 기존(마이그 불요). 데이터가 free-text(서울시제공/TK제작/서울시 제공 변형/자체제작/typo/null 2779)라 신규 `GET /api/sns/posts/producer-stats`(GROUP BY 동적)로 집계 — SnsContentStatus 제작주체별 Tag + SeoulSns 필터. 덤: 깨진 `PRODUCER_LABELS`→`PRODUCER_VALUES` 교정.
 - [ ] ⚠️재정의필요 **엑셀 내보내기 (B)** — 항목이 잘못 엮임. "엑셀 내보내기"는 원래 SNS(PR#53/54, 브랜드/플랫폼)인데 거기엔 dept도 NAS폴더도 없음. "부서→NAS폴더명/파이프라인 top_folder"는 NAS 파일 얘긴데 NAS엔 엑셀 export 자체가 없음(검색결과는 화면 JSON만). **실제 니즈 확정 후 진행**: (a)SNS엑셀에 컬럼추가 (b)NAS검색결과에 폴더 표시/내보내기. 조사: 2026-06-23 에이전트.
 - [x] **docwork PR-C — PR#97 배포·검증** — `form_filler/extractor`→`services/documents/extractor` 이전(git rename) + import 2곳 갱신. judge/JSON파서/렌더는 docgen↔form_filler 동작이 실제로 달라 합치지 않음(회귀방지). 96테스트 통과·동작보존.
-- [~] **포매터/린터 셋업**(위 NEXT 32행) *(2026-06-23 — 위 3건 머지 후 단독 진행, 전체포맷 충돌 방지)*
 
 ## 전체 코드리뷰 후속 (2026-06-22, → docs/reviews/CODE_REVIEW_FULL_2026-06-22.md)
 - [x] **그룹1 + D 보완 완료 — PR#59 배포** — 입력검증→422 · path통일 · React버그(대량fetch/regex/디바운스/5주차) · pool_pre_ping · IntegrityError→409 · 토큰무효화 · 매칭 불변식(E1) · 에러메시지 일관 · 하드코딩 + #1~5 + D 레이트리밋(로그인·LLM·생성, 신사업팀 접근 보존). 6에이전트 병렬→통합→검증→배포
