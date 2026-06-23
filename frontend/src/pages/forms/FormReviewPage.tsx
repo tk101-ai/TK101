@@ -23,6 +23,7 @@ import {
 } from "../../api/forms";
 import VariableEditor from "../../components/forms/VariableEditor";
 import { DEPARTMENT_OPTIONS } from "../../config/modules";
+import { extractErrorDetail } from "../../utils/errorUtils";
 
 const { Text, Paragraph } = Typography;
 
@@ -52,8 +53,8 @@ export default function FormReviewPage() {
         setVariables(t.variables);
         setName(t.name);
         setDepartments(t.department_tags ?? []);
-      } catch {
-        message.error("양식 정보를 불러오지 못했습니다");
+      } catch (e) {
+        message.error(extractErrorDetail(e, "양식 정보를 불러오지 못했습니다"));
       } finally {
         if (alive) setLoading(false);
       }
@@ -75,8 +76,8 @@ export default function FormReviewPage() {
       message.success("양식 저장 완료 — 작성 잡 생성으로 이동");
       const job = await createFormJob(template.id);
       navigate(`/forms/jobs/${job.id}/sources`);
-    } catch {
-      message.error("저장 실패");
+    } catch (e) {
+      message.error(extractErrorDetail(e, "저장 실패"));
     } finally {
       setSaving(false);
     }
@@ -103,7 +104,7 @@ export default function FormReviewPage() {
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
           양식 매핑 검수{" "}
           <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-            v0.1 · 2단계 / 5
+            2단계 / 5
           </Text>
         </h2>
         <Text type="secondary">

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  Button,
   Empty,
   Input,
   List,
@@ -53,8 +52,8 @@ export default function SourcePicker({
     try {
       const res = await searchNasText({ query: trimmed, limit: 20 });
       setResults(res.data.results);
-    } catch {
-      message.error("NAS 검색 실패");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "NAS 검색 실패");
     } finally {
       setSearching(false);
     }
@@ -220,18 +219,6 @@ export default function SourcePicker({
           },
         ]}
       />
-      <div style={{ marginTop: 12, fontSize: 11, color: "#bfbfbf" }}>
-        <Button
-          type="link"
-          size="small"
-          onClick={() =>
-            message.info("AI 외부 검색 (웹) 은 Phase 3 예정 — 현재 OFF")
-          }
-          style={{ padding: 0 }}
-        >
-          AI 외부 검색 (Phase 3, OFF)
-        </Button>
-      </div>
     </Modal>
   );
 }

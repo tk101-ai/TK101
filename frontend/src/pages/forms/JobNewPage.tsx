@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -43,13 +43,15 @@ export default function JobNewPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [autoQuery, setAutoQuery] = useState("");
+  // 진입 시 1회만 양식 변수 기반 자동 수집을 발사하기 위한 가드.
+  const autoCollectedRef = useRef(false);
 
   const refresh = async () => {
     try {
       const d = await getFormJob(id);
       setDetail(d);
-    } catch {
-      message.error("작성 잡 정보를 불러오지 못했습니다");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "작성 잡 정보를 불러오지 못했습니다");
     } finally {
       setLoading(false);
     }
@@ -69,8 +71,8 @@ export default function JobNewPage() {
       await addNasSourcesToJob(id, { nasPaths: hits.map((h) => h.path) });
       message.success(`NAS 자료 ${hits.length}개 추가`);
       await refresh();
-    } catch {
-      message.error("NAS 자료 추가 실패");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "NAS 자료 추가 실패");
     } finally {
       setBusy(false);
     }
@@ -95,12 +97,26 @@ export default function JobNewPage() {
         message.success(`NAS 자료 ${res.total}건 자동 수집`);
       }
       await refresh();
-    } catch {
-      message.error("자동 자료 수집 실패");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "자동 자료 수집 실패");
     } finally {
       setBusy(false);
     }
   };
+
+  // 스마트 기본값: 진입 시 수집된 자료가 없으면 양식 변수 기반 자동 수집을 1회 자동 실행.
+  // (이미 자료가 있으면 건너뛴다. 가드 ref 로 중복 실행 방지.)
+  useEffect(() => {
+    if (autoCollectedRef.current) return;
+    if (!detail) return;
+    if (detail.sources.length > 0) {
+      autoCollectedRef.current = true; // 이미 자료 있음 → 자동수집 비활성, 재진입에도 안 돈다.
+      return;
+    }
+    autoCollectedRef.current = true;
+    void handleAutoCollect(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail]);
 
   const handlePickUpload = async (files: File[]) => {
     setBusy(true);
@@ -131,8 +147,8 @@ export default function JobNewPage() {
       await runJobMapping(id);
       message.success("매핑 완료 — 검수 단계로 이동");
       navigate(`/forms/jobs/${id}/review`);
-    } catch {
-      message.error("매핑 실행 실패");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "매핑 실행 실패");
     } finally {
       setBusy(false);
     }
@@ -177,9 +193,19 @@ export default function JobNewPage() {
           회사 NAS 문서(벡터검색)에서 관련 자료를 자동으로 찾아 추가합니다. 주제를 입력하거나,
           이 양식 변수 기반으로 자동 검색하세요.
         </Paragraph>
+        <Button
+          type="primary"
+          icon={<ThunderboltOutlined />}
+          onClick={() => handleAutoCollect(true)}
+          loading={busy}
+          block
+          style={{ marginBottom: 8 }}
+        >
+          양식 변수 기반 자동 검색 (추천)
+        </Button>
         <Space.Compact style={{ width: "100%" }}>
           <Input
-            placeholder="예: 신세계백화점 SNS 운영 보고서"
+            placeholder="직접 검색 (예: 신세계백화점 SNS 운영 보고서)"
             value={autoQuery}
             onChange={(e) => setAutoQuery(e.target.value)}
             onPressEnter={() => handleAutoCollect(false)}
@@ -187,7 +213,6 @@ export default function JobNewPage() {
             allowClear
           />
           <Button
-            type="primary"
             icon={<FileSearchOutlined />}
             onClick={() => handleAutoCollect(false)}
             loading={busy}
@@ -195,16 +220,6 @@ export default function JobNewPage() {
             검색해서 추가
           </Button>
         </Space.Compact>
-        <Button
-          type="link"
-          size="small"
-          icon={<ThunderboltOutlined />}
-          onClick={() => handleAutoCollect(true)}
-          disabled={busy}
-          style={{ paddingLeft: 0, marginTop: 4 }}
-        >
-          양식 변수 기반 자동 검색
-        </Button>
       </Card>
 
       <Card
@@ -291,6 +306,12 @@ export default function JobNewPage() {
         onClose={() => setPickerOpen(false)}
         onPickNas={(hits) => handlePickNas(hits)}
         onPickUpload={(files) => handlePickUpload(files)}
+      />
+
+      <Spin
+        spinning={busy}
+        fullscreen
+        tip="AI가 자료를 변수에 매핑하고 있습니다 (변수 수에 따라 수십 초)..."
       />
     </div>
   );
