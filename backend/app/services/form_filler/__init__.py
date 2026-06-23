@@ -6,7 +6,7 @@ PRD: 업무개선요구사항/PRD/T5_범용문서자동작성기_PRD.md
 - analyzer: .docx 양식 → markdown → Claude Sonnet 4.6 → 변수 JSON (FR-01)
 - mapper: 자료 청크 + 양식 변수 → Claude Sonnet 4.6 → 매핑 JSON (FR-04, NFR-04)
 - renderer: 매핑 + 양식 → python-docx 변수 치환 → .docx (FR-06)
-- extractor: PDF/DOCX/XLSX/CSV 텍스트 추출 (FR-03, T2 재사용)
+- (extractor 는 app.services.documents.extractor 로 이동 — 생성·채우기 공유, PR-C)
 - (nas_bridge 는 app.services.nas_search.bridge 로 이동 — 공유 RAG 브릿지)
 - prompts: Langfuse 프롬프트 + 시스템 프롬프트 (NFR-04 가드레일 포함)
 - guardrails: source_id 검증 + 토큰 정규식 + JSON 스키마 검증 (NFR-04)

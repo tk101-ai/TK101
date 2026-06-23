@@ -41,8 +41,9 @@ from app.schemas.forms import (
     RenderRequest,
     RevisionPayload,
 )
+from app.services.documents import extractor
 from app.services.documents.nas_output import save_to_nas
-from app.services.form_filler import extractor, guardrails, mapper, renderer
+from app.services.form_filler import guardrails, mapper, renderer
 from app.services.form_filler.persistence import (
     enforce_status_transition,
     safe_uuid,
