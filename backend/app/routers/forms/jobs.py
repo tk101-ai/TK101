@@ -573,9 +573,19 @@ async def render_job(
             ),
         )
 
-    mapping_dict: dict[str, str | None] = {
-        m.variable_key: m.value for m in mappings_rows
+    # 값이 None 인 칸도 양식 변수에 default 가 정의돼 있으면 그 기본값으로 채운다
+    # (analyzer 가 잡은 default 가 과거엔 렌더에 반영되지 않아 불필요한 빈칸이 남았음).
+    _var_defaults = {
+        v["key"]: v.get("default")
+        for v in (template.variables or [])
+        if v.get("default") not in (None, "")
     }
+    mapping_dict: dict[str, str | None] = {}
+    for m in mappings_rows:
+        value = m.value
+        if value is None and m.variable_key in _var_defaults:
+            value = str(_var_defaults[m.variable_key])
+        mapping_dict[m.variable_key] = value
 
     try:
         with open(template.file_path, "rb") as f:
