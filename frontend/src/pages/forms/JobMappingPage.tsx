@@ -306,8 +306,9 @@ export default function JobMappingPage() {
             icon={<CheckCircleOutlined />}
             onClick={handleConfirmAll}
             loading={busy}
+            title="검수 확정 → 문서 생성 → .docx 다운로드를 한 번에 수행합니다"
           >
-            확정 후 다운로드
+            문서 완성 · 다운로드
           </Button>
         </Space>
       </div>
