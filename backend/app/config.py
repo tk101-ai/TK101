@@ -69,9 +69,13 @@ class Settings(BaseSettings):
     # 잘렸다. → 사전 floor를 0.35로 낮춰 정답을 리랭커까지 통과시키고, 노이즈
     # 제거는 리랭크 점수 게이트로 넘긴다(이것이 raw cosine보다 변별이 훨씬 큼).
     nas_min_relevance: float = 0.35
-    # 키워드 arm: Qdrant payload `text`에 풀텍스트 인덱스가 없으므로(인덱싱
-    # 파이프라인 소관) substring AND-매칭을 위해 후보를 넉넉히 스캔한다.
-    # 이 수만큼 scroll 후 토큰 substring으로 필터 → doc_id dedup.
+    # 키워드 arm: Qdrant payload `text`/`path`에 풀텍스트 인덱스(MatchText)를 만들면
+    # (2026-06-23, word 토크나이저) 후보를 **토큰 매칭으로 미리 거른 뒤** 스캔한다.
+    # 과거엔 인덱스가 없어 임의 prefix 4000개만 scroll → 코퍼스 0.6%만 봐서 정확
+    # 토큰(품번·고유명사·파일명)을 거의 못 잡았다. 인덱스 후엔 전체 코퍼스에서
+    # 토큰 포함 문서만 추려 scan_limit 안에서 점수화(정확매칭 복원 + 빨라짐).
+    nas_keyword_fulltext: bool = True  # False면 과거 전체 scroll 방식(롤백용)
+    # MatchText로 거른 후보를 이 수만큼 scroll 후 토큰 매칭수로 점수화 → doc_id dedup.
     nas_keyword_scan_limit: int = 4000
 
     # 리랭커(cross-encoder) — 1차 하이브리드 상위 N개를 (쿼리,청크) 직접 채점해

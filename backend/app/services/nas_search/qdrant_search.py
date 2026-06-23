@@ -209,6 +209,30 @@ def _scroll_candidates(
     return out
 
 
+def _fulltext_token_filter(
+    tokens: list[str], qfilter: qm.Filter | None
+) -> qm.Filter | None:
+    """토큰을 `text`/`path` 풀텍스트(MatchText)로 거르는 필터를 만든다.
+
+    토큰 중 **하나라도** text 또는 path 에 매칭되면 후보(should=OR). 기존 qfilter
+    (부서 스코핑 등)가 있으면 AND로 중첩한다. word 토크나이저 min_token_len=2 라
+    1글자 토큰은 인덱스에 없어 필터에 기여하지 못하므로 제외(있어도 무해하나 노이즈).
+    매칭수 기반 랭킹은 아래 파이썬 점수화가 그대로 담당(필터는 후보 추림만).
+    """
+    should: list[Any] = []
+    for t in tokens:
+        if len(t) < 2:
+            continue
+        should.append(qm.FieldCondition(key="text", match=qm.MatchText(text=t)))
+        should.append(qm.FieldCondition(key="path", match=qm.MatchText(text=t)))
+    if not should:
+        return qfilter  # 전부 1글자 → 풀텍스트 필터 불가, 기존 필터만
+    token_filter = qm.Filter(should=should)
+    if qfilter is None:
+        return token_filter
+    return qm.Filter(must=[qfilter, token_filter])
+
+
 def keyword_arm(
     tokens: list[str],
     qfilter: qm.Filter | None,
@@ -216,19 +240,23 @@ def keyword_arm(
     *,
     scan_limit: int | None = None,
 ) -> tuple[list[str], dict[str, dict]]:
-    """정확검색 arm — payload `text`/`path`에 대한 토큰 substring 매칭.
+    """정확검색 arm — payload `text`/`path`에 대한 토큰 매칭.
 
-    text 풀텍스트 인덱스가 없어 scroll 후처리로 처리한다. 각 토큰이 text 또는
-    path(파일명 포함)에 부분일치하면 +1. 매칭 토큰 수가 많을수록 상위(품번·
-    고유명사 등 정확 토큰을 가장 많이 포함한 문서가 위로). doc_id 단위 dedup.
-
-    tokens가 비면 빈 결과(벡터 arm만으로 동작).
+    풀텍스트 인덱스(MatchText)가 있으면 토큰 포함 문서만 **전체 코퍼스에서** 추린 뒤
+    scan_limit 안에서 점수화한다(과거: 임의 prefix 4000 scroll = 코퍼스 0.6%만 봄).
+    각 토큰이 text 또는 path(파일명 포함)에 부분일치하면 +1. 매칭 토큰 수가 많을수록
+    상위. doc_id 단위 dedup. tokens가 비면 빈 결과(벡터 arm만으로 동작).
     """
     if not tokens:
         return [], {}
 
     scan_limit = scan_limit or settings.nas_keyword_scan_limit
-    candidates = _scroll_candidates(qfilter, scan_limit)
+    scroll_filter = (
+        _fulltext_token_filter(tokens, qfilter)
+        if settings.nas_keyword_fulltext
+        else qfilter
+    )
+    candidates = _scroll_candidates(scroll_filter, scan_limit)
     lowered = [t.lower() for t in tokens]
 
     scored: list[tuple[int, list[str], dict, str]] = []
