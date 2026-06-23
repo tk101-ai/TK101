@@ -31,9 +31,10 @@
 - [ ] (의도적 보류·선택) **양식 단일컴포넌트 병합** — 페이지 reload 제거. Steps바+서버영속으로 wayfinding/데이터보존은 이미 해결됨 → 순수 미관 개선이고 4페이지 라우팅·상태 전면 리팩토링이라 회귀위험 큼. **권장: 실사용 후 정말 필요하면 별도 진행.**
 - [ ] **포매터/린터 셋업** — prettier(frontend) + ruff/black(backend) 추가. 현재 미설치라 ECC 품질 훅(`stop:format-typecheck` 등) 포매터 절반이 no-op. 깔면 자동포맷·린트 살아남
 - [x] **SNS 수동 분류(`구분`) 입력 필드 — PR#91 배포·검증** — 행사/기획/정책/이벤트/기타. 마이그 035(`social_posts.category`, 적용/롤백/재적용 검증), SeoulSns 인라인 Select+필터, SnsContentStatus 집계. (엑셀 내보내기 컬럼 추가는 후속 — services/sns_export 손대야 함)
-- [ ] **제작주체 집계** — `producer`(서울시제공/TK제작/인플루언서) 필드 이미 있음, 대시보드/현황에 집계·표시
-- [ ] **엑셀 내보내기 (B)** — 부서(dept) 대신 NAS 폴더명(MARKETING/COMPANY/CLOUD/RND)으로 표기: 파이프라인에 `top_folder` 페이로드 필드 추가 후 폴더 단위 표기
-- [ ] **docwork PR-C** — 검수(LLM-judge)·렌더를 form_filler와 공유화, `form_filler/extractor`를 `services/documents/`로 이전
+- [~] **제작주체 집계** — `producer`(서울시제공/TK제작/인플루언서) 필드 이미 있음, 대시보드/현황에 집계·표시 *(2026-06-23 진행중, 병렬 에이전트)*
+- [~] **엑셀 내보내기 (B)** — 부서(dept) 대신 NAS 폴더명(MARKETING/COMPANY/CLOUD/RND)으로 표기 *(2026-06-23 진행중, 병렬 에이전트 — path에서 top folder 파싱, 재임베딩 불요)*
+- [~] **docwork PR-C** — 검수(LLM-judge)·렌더를 form_filler와 공유화, `form_filler/extractor`를 `services/documents/`로 이전 *(2026-06-23 진행중, 동작보존 리팩토링)*
+- [~] **포매터/린터 셋업**(위 NEXT 32행) *(2026-06-23 — 위 3건 머지 후 단독 진행, 전체포맷 충돌 방지)*
 
 ## 전체 코드리뷰 후속 (2026-06-22, → docs/reviews/CODE_REVIEW_FULL_2026-06-22.md)
 - [x] **그룹1 + D 보완 완료 — PR#59 배포** — 입력검증→422 · path통일 · React버그(대량fetch/regex/디바운스/5주차) · pool_pre_ping · IntegrityError→409 · 토큰무효화 · 매칭 불변식(E1) · 에러메시지 일관 · 하드코딩 + #1~5 + D 레이트리밋(로그인·LLM·생성, 신사업팀 접근 보존). 6에이전트 병렬→통합→검증→배포
