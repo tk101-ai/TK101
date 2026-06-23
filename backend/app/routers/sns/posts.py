@@ -3,7 +3,7 @@
 from datetime import date
 
 from fastapi import Depends, HTTPException, Query, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -14,6 +14,7 @@ from app.schemas.sns import (
     PostCreate,
     PostRead,
     PostUpdate,
+    ProducerStatRow,
     SnapshotCreate,
     SnapshotRead,
 )
@@ -31,6 +32,7 @@ async def list_posts(
     date_to: date | None = Query(None),
     content_type: str | None = Query(None),
     category: str | None = Query(None),
+    producer: str | None = Query(None),
     language: str | None = Query(None),
     platform: str | None = Query(None),
     limit: int = Query(100, le=1000),
@@ -48,6 +50,8 @@ async def list_posts(
         query = query.where(SocialPost.content_type == content_type)
     if category:
         query = query.where(SocialPost.category == category)
+    if producer:
+        query = query.where(SocialPost.producer == producer)
     if language or platform:
         query = query.join(SocialAccount, SocialAccount.id == SocialPost.account_id)
         if language:
@@ -56,6 +60,48 @@ async def list_posts(
             query = query.where(SocialAccount.platform == platform)
     result = await db.execute(query.limit(limit).offset(offset))
     return result.scalars().all()
+
+
+@router.get("/posts/producer-stats", response_model=list[ProducerStatRow])
+async def producer_stats(
+    account_id: str | None = Query(None),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    language: str | None = Query(None),
+    platform: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """제작주체(producer)별 게시물 수 집계 — 콘텐츠 현황/대시보드용.
+
+    `producer` 는 자유 입력 텍스트라 enum 이 아니다. 실제 DB 에 존재하는 distinct 값을
+    GROUP BY 로 집계해 동적으로 반환한다(나중에 새 제작주체가 들어와도 자동 반영).
+    필터(`account_id`/기간/`language`/`platform`)는 `list_posts` 와 동일 의미.
+    건수 내림차순, 미입력(producer=None)은 마지막에 둔다.
+    """
+    query = select(
+        SocialPost.producer.label("producer"),
+        func.count(SocialPost.id).label("count"),
+    )
+    if account_id:
+        query = query.where(SocialPost.account_id == account_id)
+    if date_from:
+        query = query.where(SocialPost.posted_at >= date_from)
+    if date_to:
+        query = query.where(SocialPost.posted_at <= date_to)
+    if language or platform:
+        query = query.join(SocialAccount, SocialAccount.id == SocialPost.account_id)
+        if language:
+            query = query.where(SocialAccount.language == language)
+        if platform:
+            query = query.where(SocialAccount.platform == platform)
+    query = query.group_by(SocialPost.producer).order_by(
+        func.count(SocialPost.id).desc(), SocialPost.producer.asc()
+    )
+    result = await db.execute(query)
+    return [
+        ProducerStatRow(producer=row.producer, count=row.count)
+        for row in result.all()
+    ]
 
 
 @router.post("/posts", response_model=PostRead, status_code=status.HTTP_201_CREATED)

@@ -199,6 +199,18 @@ class WeeklyKpiRow(BaseModel):
     reaction_count: int
 
 
+class ProducerStatRow(BaseModel):
+    """제작주체별 게시물 수 집계 한 행.
+
+    `producer` 는 자유 입력 텍스트(소스 시트의 '제작' 열)라 고정 enum 이 아니다.
+    실제 존재하는 값을 그대로 집계하며, 미입력 행은 `producer=None` 으로 모아 반환한다.
+    건수 내림차순으로 정렬된다.
+    """
+
+    producer: str | None  # None = 미지정(제작주체 미입력)
+    count: int
+
+
 # ---------------- 콘텐츠 현황 (계정별 주간 게재건수) ----------------
 
 

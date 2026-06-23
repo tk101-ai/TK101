@@ -158,6 +158,7 @@ export interface PostFilter {
   date_to?: string;
   content_type?: string;
   category?: PostCategory;
+  producer?: string;
   language?: Language;
   platform?: Platform;
   keyword?: string;
@@ -220,6 +221,24 @@ export const deleteAccount = (id: string, hard = false) =>
 
 export const listPosts = (filter: PostFilter = {}) =>
   api.get<SnsPost[]>("/api/sns/posts", { params: filter });
+
+// 제작주체(producer)별 게시물 수 집계 한 행. producer=null = 미지정.
+export interface ProducerStat {
+  producer: string | null;
+  count: number;
+}
+
+export interface ProducerStatFilter {
+  account_id?: string;
+  date_from?: string;
+  date_to?: string;
+  language?: Language;
+  platform?: Platform;
+}
+
+// 제작주체별 집계 — 서버 GROUP BY. 실제 존재하는 distinct producer 값을 동적 반환.
+export const listProducerStats = (filter: ProducerStatFilter = {}) =>
+  api.get<ProducerStat[]>("/api/sns/posts/producer-stats", { params: filter });
 
 export const createPost = (data: CreatePostRequest) =>
   api.post<SnsPost>("/api/sns/posts", data);
@@ -490,16 +509,14 @@ export const POST_CATEGORY_OPTIONS = POST_CATEGORIES.map((value) => ({
   label: value,
 }));
 
-// 제작주체 (형태와 별도). 서울시 SNS 시트 기준 값.
-export const PRODUCER_LABELS: Record<string, string> = {
-  서울제작: "서울제작",
-  TK제작: "TK제작",
-  플랫폼언서제작: "플랫폼언서제작",
-};
+// 제작주체(producer) — 형태(content_type)와 별도. 서울시 SNS 시트 '제작' 열 기준.
+// producer 는 자유 입력 텍스트라 DB 에는 이 외의 값(예: "자체제작")도 존재할 수 있다.
+// 아래는 수동 등록 폼·필터의 표준 선택지(canonical)일 뿐, 집계는 서버 GROUP BY 로 동적 처리한다.
+export const PRODUCER_VALUES = ["서울시제공", "TK제작", "인플루언서"] as const;
 
-export const PRODUCER_OPTIONS = Object.keys(PRODUCER_LABELS).map((value) => ({
+export const PRODUCER_OPTIONS = PRODUCER_VALUES.map((value) => ({
   value,
-  label: PRODUCER_LABELS[value],
+  label: value,
 }));
 
 export const PLATFORM_OPTIONS = (Object.keys(PLATFORM_LABELS) as Platform[]).map((value) => ({
