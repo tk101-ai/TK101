@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable
 
 from qdrant_client import models as qm
@@ -26,6 +26,7 @@ from qdrant_client import models as qm
 from app.config import settings
 from app.services.nas_search.qdrant_search import get_client
 from app.services.nas_search.query_embedder import embed_queries, embed_query
+from app.services.nas_search.reranker import rerank as _rerank_passages
 
 logger = logging.getLogger(__name__)
 
@@ -111,17 +112,29 @@ def _hit_from_point(point, *, score: float) -> NasChunkHit:
     )
 
 
+# bridge 리랭크 후보 풀 = limit * 배수 (상한). 리랭커는 CPU(~0.38s/passage)라
+# 무한정 키우면 docgen/채팅 지연이 커진다. 상한으로 지연을 묶는다.
+_BRIDGE_RERANK_MULTIPLIER = 3
+_BRIDGE_RERANK_CAP = 30
+
+
 async def search_relevant_chunks(
     db=None,  # noqa: ANN001 (호환 유지용; Qdrant 경로에선 미사용)
     *,
     query: str,
     limit: int = 20,
     dept_labels: list[str] | None = None,
+    rerank: bool = True,
 ) -> list[NasChunkHit]:
-    """쿼리 의미 검색 → 청크 단위 Top-N 결과(Qdrant cosine).
+    """쿼리 의미 검색 → 청크 단위 Top-N 결과(Qdrant cosine + bge 리랭크/게이트).
 
-    nas_search.search_text 와 달리 청크 단위로 반환해 매핑 단계에서 LLM에 직접
-    전달하기 좋은 형태다. dept_labels 를 주면 해당 부서로 스코핑한다.
+    nas_search.search_text 와 달리 청크 단위로 반환해 매핑/문서생성 단계에서 LLM에
+    직접 전달하기 좋은 형태다. dept_labels 를 주면 해당 부서로 스코핑한다.
+
+    검색 라우터와 동일하게, raw cosine 상위만 그대로 주면 0.3~0.5대 노이즈 청크가
+    LLM 근거로 주입되므로(문서 품질 저하), 후보를 넉넉히 가져와 **bge 리랭커**로
+    재채점하고 **nas_rerank_min_score** 게이트로 노이즈를 떨군다. rerank=False 면
+    과거처럼 raw cosine Top-N (지연 민감 경로용).
     """
     if not query.strip():
         return []
@@ -133,6 +146,12 @@ async def search_relevant_chunks(
         raise RuntimeError(f"NAS 검색 쿼리 임베딩 실패: {exc}") from exc
 
     qfilter = _dept_filter(dept_labels)
+    use_rerank = rerank and settings.nas_rerank_enabled
+    fetch_n = (
+        min(limit * _BRIDGE_RERANK_MULTIPLIER, _BRIDGE_RERANK_CAP)
+        if use_rerank
+        else limit
+    )
 
     try:
         points = await asyncio.to_thread(
@@ -141,7 +160,7 @@ async def search_relevant_chunks(
                 collection_name=settings.qdrant_collection_text,
                 query=query_vec,
                 query_filter=qfilter,
-                limit=limit,
+                limit=fetch_n,
                 with_payload=True,
             )
             .points
@@ -150,7 +169,27 @@ async def search_relevant_chunks(
         logger.exception("Qdrant 검색 실패")
         raise RuntimeError(f"NAS 검색 실패: {exc}") from exc
 
-    return [_hit_from_point(p, score=float(getattr(p, "score", 0.0) or 0.0)) for p in points]
+    hits = [
+        _hit_from_point(p, score=float(getattr(p, "score", 0.0) or 0.0)) for p in points
+    ]
+    if not use_rerank or len(hits) <= 1:
+        return hits[:limit]
+
+    # bge 리랭커로 (쿼리,청크) 직접 재채점 → 게이트(노이즈 ~0.001 / 관련 0.6~0.98).
+    try:
+        scores = await asyncio.to_thread(
+            _rerank_passages,
+            query,
+            [(h.content or "")[: settings.nas_rerank_max_length] for h in hits],
+        )
+    except Exception:  # noqa: BLE001 — 리랭크 실패는 검색을 막지 않는다(raw 폴백).
+        logger.exception("bridge 리랭크 실패 — raw cosine 폴백")
+        return hits[:limit]
+
+    rescored = [replace(h, score=float(s)) for h, s in zip(hits, scores)]
+    rescored.sort(key=lambda h: h.score, reverse=True)
+    gated = [h for h in rescored if h.score >= settings.nas_rerank_min_score]
+    return gated[:limit]
 
 
 def _variable_queries(variables, template_name, max_vars):
