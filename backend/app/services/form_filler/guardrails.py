@@ -187,8 +187,7 @@ def verify_token_grounding(value: str | None, source_excerpt: str | None) -> tup
     # 숫자 토큰부터 검사 (변형 위험이 가장 큼).
     number_tokens = [t for t in tokens if _NUMBER_PATTERN.fullmatch(t)]
     for num in number_tokens:
-        normalized = num.replace(",", "").replace(" ", "")
-        if normalized not in excerpt_numeric:
+        if not _number_token_grounded(num, excerpt_numeric):
             return False, f"숫자 토큰 '{num}' 가 source_excerpt에 없음"
 
     # 고유명사/단위 포함 토큰: 50% 일치 미달 시 거부.
@@ -203,6 +202,24 @@ def verify_token_grounding(value: str | None, source_excerpt: str | None) -> tup
         if hit / len(proper_tokens) < 0.5:
             return False, f"고유명사 토큰 일치율 {hit}/{len(proper_tokens)} < 50%"
     return True, f"토큰 grounding OK (검사 {len(tokens)}개)"
+
+
+def _number_token_grounded(token: str, excerpt_numeric: str) -> bool:
+    """숫자 토큰이 자료에 있는지 — 표기차를 흡수해 '맞는데 거부'를 막는다.
+
+    1) 콤마/공백 제거 후 그대로 자료에 있으면 통과(소수점 보존: 1234.5).
+    2) 폴백: 부호/선행 0 차이를 흡수. ISO 날짜 정규화로 '2026-05-06'의 '05'·'06'이
+       원문 '2026년 5월 6일'(=5,6)과 substring 매칭에 실패하던 문제를 해결한다.
+       핵심 숫자를 경계 일치(앞뒤가 숫자 아님)로 확인해 위조 부분문자열은 차단.
+    """
+    normalized = token.replace(",", "").replace(" ", "")
+    if normalized and normalized in excerpt_numeric:
+        return True
+    core = normalized.lstrip("+-")
+    stripped = core.lstrip("0") or ("0" if core else "")
+    if stripped and re.search(rf"(?<!\d){re.escape(stripped)}(?!\d)", excerpt_numeric):
+        return True
+    return False
 
 
 def _proper_token_grounded(token: str, excerpt_lower: str, excerpt_numeric: str) -> bool:
