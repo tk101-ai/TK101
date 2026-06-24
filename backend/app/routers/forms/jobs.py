@@ -20,6 +20,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -827,10 +828,18 @@ async def download_job(
         )
     file_bytes = Path(real_target).read_bytes()
     filename = Path(real_target).name
+    # 한글 파일명 대응 — RFC 5987(filename*=UTF-8'')로 인코딩.
+    # raw 한글을 그대로 헤더에 넣으면 uvicorn 의 latin-1 인코딩에서 500 이 난다.
+    # ASCII fallback(filename=) + UTF-8(filename*) 동시 제공으로 구형 클라이언트도 호환.
+    quoted = quote(filename, safe="")
+    content_disposition = (
+        f"attachment; filename=\"{filename.encode('ascii', 'ignore').decode() or 'document.docx'}\"; "
+        f"filename*=UTF-8''{quoted}"
+    )
     return StreamingResponse(
         io.BytesIO(file_bytes),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition},
     )
 
 

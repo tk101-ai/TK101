@@ -33,6 +33,8 @@ class DocSourceRef(BaseModel):
     source_type: str = "nas"
     # NAS 문서 단위 식별자(doc_id). 업로드 자료는 빈 문자열.
     doc_id: str | None = None
+    # LLM 이 실제 인용했다고 보고한 자료 여부. False 여도 생성 시 컨텍스트로는 주입됨.
+    cited: bool = False
 
 
 class DocGenResponse(BaseModel):

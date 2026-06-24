@@ -697,10 +697,11 @@ export default function DocGenPage() {
                     {items.map((s) => (
                       <Tag
                         key={s.path}
-                        color={color}
-                        title={s.path}
+                        color={s.cited ? color : "default"}
+                        title={`${s.path}${s.cited ? " · 인용됨" : " · 검색됨(미인용)"}`}
                         style={{ marginBottom: 4 }}
                       >
+                        {s.cited ? "✓ " : ""}
                         {s.name || s.path} ({s.score.toFixed(2)})
                       </Tag>
                     ))}
@@ -710,6 +711,9 @@ export default function DocGenPage() {
                 <div style={{ marginBottom: 12 }}>
                   {renderGroup("업로드한 자료", uploaded, "green")}
                   {renderGroup("NAS 참고자료", nas, "blue")}
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    ✓ = 본문에 인용된 자료. 나머지는 참고용으로 검색·주입된 자료.
+                  </Text>
                 </div>
               );
             })()}
