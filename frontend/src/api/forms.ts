@@ -103,6 +103,8 @@ export interface FormDataSource {
   nas_chunk_ids: string[] | null;
   extracted_text: string | null;
   display_name?: string;
+  /** true 면 매핑/채우기 입력에서 제외(목록에는 계속 노출). */
+  is_excluded?: boolean;
   created_at: string;
 }
 
@@ -466,6 +468,28 @@ export async function addNasSourcesToJob(
       auto_query_from_template: opts.autoQueryFromTemplate ?? false,
       limit: opts.limit ?? 20,
     },
+  );
+  return res.data;
+}
+
+// 자료 1건의 매핑 제외/포함 토글. 백엔드는 갱신된 SourceBrief 를 반환한다.
+export async function setJobSourceExcluded(
+  jobId: string,
+  sourceId: string,
+  isExcluded: boolean,
+): Promise<FormDataSource> {
+  if (MOCK_ENABLED) {
+    const arr = mockStore.sources.get(jobId) ?? [];
+    const idx = arr.findIndex((s) => s.id === sourceId);
+    if (idx < 0) throw new Error("source not found (mock)");
+    const next: FormDataSource = { ...arr[idx], is_excluded: isExcluded };
+    arr[idx] = next;
+    mockStore.sources.set(jobId, arr);
+    return next;
+  }
+  const res = await api.patch<FormDataSource>(
+    `/api/forms/jobs/${jobId}/sources/${sourceId}`,
+    { is_excluded: isExcluded },
   );
   return res.data;
 }

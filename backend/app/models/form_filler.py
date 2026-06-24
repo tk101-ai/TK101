@@ -17,6 +17,7 @@ from sqlalchemy import (
     Numeric,
     Text,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, ENUM, JSONB, UUID
@@ -177,6 +178,10 @@ class FormDataSource(Base):
         ARRAY(UUID(as_uuid=True)), nullable=True
     )
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # True면 매핑/채우기 입력에서 제외(사용자가 노이즈 자료를 끄는 용도). 상세 목록에는 계속 노출.
+    is_excluded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

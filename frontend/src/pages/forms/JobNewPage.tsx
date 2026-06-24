@@ -8,7 +8,9 @@ import {
   message,
   Space,
   Spin,
+  Switch,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
 import {
@@ -22,6 +24,7 @@ import {
   addNasSourcesToJob,
   getFormJob,
   runJobMapping,
+  setJobSourceExcluded,
   uploadJobSource,
   type FormDataSource,
   type FormJobDetail,
@@ -76,6 +79,21 @@ export default function JobNewPage() {
       message.error((e as any)?.response?.data?.detail || "NAS 자료 추가 실패");
     } finally {
       setBusy(false);
+    }
+  };
+
+  // 자료 1건의 매핑 제외/포함 토글. 끄면 매핑 입력에서 빠지지만 목록에는 남는다.
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const handleToggleExclude = async (src: FormDataSource, exclude: boolean) => {
+    setTogglingId(src.id);
+    try {
+      await setJobSourceExcluded(id, src.id, exclude);
+      message.success(exclude ? "자료를 제외했습니다" : "자료를 다시 포함했습니다");
+      await refresh();
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "자료 상태 변경 실패");
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -248,40 +266,66 @@ export default function JobNewPage() {
           <List
             size="small"
             dataSource={detail.sources}
-            renderItem={(s: FormDataSource) => (
-              <List.Item>
-                <List.Item.Meta
-                  avatar={
-                    s.kind === "user_upload" ? <CloudUploadOutlined /> : <FileSearchOutlined />
-                  }
-                  title={
-                    <Space>
-                      <span>
-                        {s.display_name ??
-                          s.upload_path ??
-                          s.nas_file_id ??
-                          "(이름 없음)"}
-                      </span>
-                      <Tag color={s.kind === "nas_file" ? "blue" : "green"}>
-                        {s.kind === "nas_file"
-                          ? "NAS"
-                          : s.kind === "user_upload"
-                            ? "업로드"
-                            : s.kind}
-                      </Tag>
-                    </Space>
-                  }
-                  description={
-                    <Paragraph
-                      type="secondary"
-                      style={{ fontSize: 11, margin: 0, wordBreak: "break-all" }}
+            renderItem={(s: FormDataSource) => {
+              const excluded = s.is_excluded === true;
+              return (
+                <List.Item
+                  style={excluded ? { opacity: 0.5 } : undefined}
+                  actions={[
+                    <Tooltip
+                      key="exclude"
+                      title={
+                        excluded
+                          ? "이 자료를 매핑에 다시 포함"
+                          : "이 자료를 매핑에서 제외(목록에는 남음)"
+                      }
                     >
-                      {s.upload_path ?? s.nas_file_id ?? "-"}
-                    </Paragraph>
-                  }
-                />
-              </List.Item>
-            )}
+                      <Switch
+                        size="small"
+                        checkedChildren="포함"
+                        unCheckedChildren="제외됨"
+                        checked={!excluded}
+                        loading={togglingId === s.id}
+                        disabled={busy}
+                        onChange={(checked) => handleToggleExclude(s, !checked)}
+                      />
+                    </Tooltip>,
+                  ]}
+                >
+                  <List.Item.Meta
+                    avatar={
+                      s.kind === "user_upload" ? <CloudUploadOutlined /> : <FileSearchOutlined />
+                    }
+                    title={
+                      <Space>
+                        <span>
+                          {s.display_name ??
+                            s.upload_path ??
+                            s.nas_file_id ??
+                            "(이름 없음)"}
+                        </span>
+                        <Tag color={s.kind === "nas_file" ? "blue" : "green"}>
+                          {s.kind === "nas_file"
+                            ? "NAS"
+                            : s.kind === "user_upload"
+                              ? "업로드"
+                              : s.kind}
+                        </Tag>
+                        {excluded && <Tag color="default">제외됨</Tag>}
+                      </Space>
+                    }
+                    description={
+                      <Paragraph
+                        type="secondary"
+                        style={{ fontSize: 11, margin: 0, wordBreak: "break-all" }}
+                      >
+                        {s.upload_path ?? s.nas_file_id ?? "-"}
+                      </Paragraph>
+                    }
+                  />
+                </List.Item>
+              );
+            }}
           />
         )}
       </Card>

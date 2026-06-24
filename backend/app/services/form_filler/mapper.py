@@ -84,7 +84,21 @@ def _serialize_variables(variables: list[VariablePayload]) -> str:
     )
 
 
+# 자료 신뢰 우선순위(작을수록 먼저) — 업로드/직접입력을 1순위로 노출해
+# LLM 이 충돌 시 이들을 우선하도록 유도(프롬프트 규칙과 짝).
+_SOURCE_KIND_PRIORITY = {
+    "user_upload": 0,
+    "user_input": 1,
+    "nas_file": 2,
+    "web_search": 3,
+}
+
+
 def _serialize_sources(sources: list[SourcePayload]) -> str:
+    # 우선순위로 정렬하되 동순위 내 원래 순서는 유지(stable sort).
+    ordered = sorted(
+        sources, key=lambda s: _SOURCE_KIND_PRIORITY.get(s.kind, 99)
+    )
     return json.dumps(
         [
             {
@@ -93,7 +107,7 @@ def _serialize_sources(sources: list[SourcePayload]) -> str:
                 "excerpt": s.excerpt[:1500],  # 청크당 1500자 컷 (토큰 비용 관리)
                 "file_path": s.file_path,
             }
-            for s in sources
+            for s in ordered
         ],
         ensure_ascii=False,
     )

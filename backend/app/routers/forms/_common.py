@@ -158,6 +158,7 @@ async def _build_job_detail(db: AsyncSession, job: Any) -> JobDetail:
             nas_chunk_ids=list(s.nas_chunk_ids or []),
             extracted_text=s.extracted_text,
             display_name=None,
+            is_excluded=bool(getattr(s, "is_excluded", False)),
             created_at=s.created_at,
         )
         for s in src_rows
