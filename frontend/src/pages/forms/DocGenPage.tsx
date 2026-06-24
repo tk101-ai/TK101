@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Button,
@@ -46,6 +46,11 @@ const SOURCE_OPTIONS: { label: string; value: SourceMode }[] = [
   { label: "업로드 문서", value: "uploaded" },
   { label: "둘 다", value: "both" },
 ];
+// 품질 모드 — 초안(빠름) / 고품질(검수). value 는 highQuality 불리언에 매핑.
+const QUALITY_OPTIONS: { label: string; value: "draft" | "high" }[] = [
+  { label: "초안(빠름)", value: "draft" },
+  { label: "고품질(검수)", value: "high" },
+];
 const UPLOAD_ACCEPT = ".pdf,.docx,.xlsx,.csv,.txt,.pptx";
 const MAX_UPLOAD_FILES = 5;
 
@@ -60,6 +65,10 @@ export default function DocGenPage() {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DocGenResponse | null>(null);
+  // 품질 모드: false=초안(빠름), true=고품질(LLM 검수→재생성 루프). 기본=초안.
+  const [highQuality, setHighQuality] = useState(false);
+  // 장시간 작업 경과 초(setInterval 로 1초마다 증가). 오버레이에 라이브 표시.
+  const [elapsed, setElapsed] = useState(0);
 
   // 업로드된 실제 File 객체들 — 생성·재생성·검수 핸들러가 공유한다(무상태 멀티파트 재전송).
   const files = fileList
@@ -83,6 +92,26 @@ export default function DocGenPage() {
     total: 0,
   });
 
+  // 장시간 LLM 작업 동안 경과 초를 1초마다 증가시킨다(로딩 시작 시 0으로 리셋,
+  // 끝나면 인터벌 정리). busy/reviewing/autoFixingAll 중 하나라도 켜지면 동작.
+  const loading = busy || reviewing || autoFixingAll;
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (loading) {
+      setElapsed(0);
+      const startedAt = Date.now();
+      intervalRef.current = setInterval(() => {
+        setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+      }, 1000);
+    }
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [loading]);
+
   const handleGenerate = async () => {
     const t = topic.trim();
     if (t.length < 2) {
@@ -99,6 +128,7 @@ export default function DocGenPage() {
         topic: t,
         doc_type: docType,
         source_mode: sourceMode,
+        auto_review: highQuality,
         files,
       });
       setResult(res);
@@ -260,16 +290,22 @@ export default function DocGenPage() {
     }
   };
 
-  // 장시간 LLM 작업용 전체화면 차단 오버레이 tip(작업별 안내).
-  const overlayTip = autoFixingAll
-    ? `${autoFixProgress.done}/${autoFixProgress.total} 섹션 보강 중...`
-    : busy
-      ? "AI가 문서를 작성하고 있습니다 (최대 30초)..."
-      : "AI가 문서를 검증하고 있습니다 (최대 30초)...";
+  // 장시간 LLM 작업용 전체화면 차단 오버레이 tip(작업별 안내 + 경과 초 라이브).
+  const elapsedLabel = `${elapsed}초 경과`;
+  let overlayTip: string;
+  if (autoFixingAll) {
+    overlayTip = `${autoFixProgress.done}/${autoFixProgress.total} 섹션 보강 중 · ${elapsedLabel}`;
+  } else if (busy) {
+    overlayTip = highQuality
+      ? `AI가 문서를 작성·검수하고 있습니다 · ${elapsedLabel} (보통 1~2분, 자료가 많으면 더 걸릴 수 있어요)`
+      : `AI가 문서를 작성하고 있습니다 · ${elapsedLabel} (보통 30초 내외, 자료가 많으면 더 걸릴 수 있어요)`;
+  } else {
+    overlayTip = `AI가 문서를 검증하고 있습니다 · ${elapsedLabel} (보통 30초 내외)`;
+  }
 
   return (
     <div style={{ maxWidth: 1080 }}>
-      <Spin spinning={busy || reviewing || autoFixingAll} fullscreen tip={overlayTip} />
+      <Spin spinning={loading} fullscreen tip={overlayTip} />
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
           문서 생성{" "}
@@ -299,7 +335,22 @@ export default function DocGenPage() {
                 onChange={(v) => setSourceMode(v as SourceMode)}
               />
             </Space>
+            <Space size={6}>
+              <Text type="secondary" style={{ fontSize: 12 }}>품질</Text>
+              <Segmented
+                size="small"
+                options={QUALITY_OPTIONS}
+                value={highQuality ? "high" : "draft"}
+                onChange={(v) => setHighQuality(v === "high")}
+                disabled={busy}
+              />
+            </Space>
           </Space>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {highQuality
+              ? "고품질: 초안 작성 후 AI 검수→문제 섹션 재생성까지 돌립니다(보통 1~2분, 더 정확)."
+              : "초안: 빠르게 한 번에 작성합니다(보통 30초 내외)."}
+          </Text>
           {showUpload && (
             <Upload
               multiple
@@ -357,16 +408,38 @@ export default function DocGenPage() {
             </Space>
           }
         >
-          {result.sources.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>참고 자료: </Text>
-              {result.sources.map((s) => (
-                <Tag key={s.path} color="blue" title={s.path} style={{ marginBottom: 4 }}>
-                  …{s.path.slice(-28)} ({s.score.toFixed(2)})
-                </Tag>
-              ))}
-            </div>
-          )}
+          {result.sources.length > 0 &&
+            (() => {
+              // 출처를 업로드/NAS 두 그룹으로 나눠 실제 파일명으로 표시한다.
+              const uploaded = result.sources.filter((s) => s.source_type === "uploaded");
+              const nas = result.sources.filter((s) => s.source_type !== "uploaded");
+              const renderGroup = (
+                label: string,
+                items: typeof result.sources,
+                color: string,
+              ) =>
+                items.length === 0 ? null : (
+                  <div style={{ marginBottom: 6 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>{label}: </Text>
+                    {items.map((s) => (
+                      <Tag
+                        key={s.path}
+                        color={color}
+                        title={s.path}
+                        style={{ marginBottom: 4 }}
+                      >
+                        {s.name || s.path} ({s.score.toFixed(2)})
+                      </Tag>
+                    ))}
+                  </div>
+                );
+              return (
+                <div style={{ marginBottom: 12 }}>
+                  {renderGroup("업로드한 자료", uploaded, "green")}
+                  {renderGroup("NAS 참고자료", nas, "blue")}
+                </div>
+              );
+            })()}
 
           {review && (
             <Alert
