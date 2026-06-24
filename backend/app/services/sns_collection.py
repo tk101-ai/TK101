@@ -37,9 +37,11 @@ logger = logging.getLogger("app.routers.sns")
 # 자동 수집 가능한 플랫폼. Collector 추가 시 여기에 등록.
 SUPPORTED_PLATFORMS = ("youtube", "facebook", "instagram")
 # 메트릭 시계열(collect-metrics)을 지원하는 플랫폼.
-METRICS_PLATFORMS = ("facebook", "instagram")
-# 댓글 본문(collect-comments)을 지원하는 플랫폼 (소유/관리 계정 한정).
-COMMENTS_PLATFORMS = ("facebook", "instagram")
+# youtube: Data API videos.list?part=statistics (views/likes/comments). reach/shares 는 미제공.
+METRICS_PLATFORMS = ("facebook", "instagram", "youtube")
+# 댓글 본문(collect-comments)을 지원하는 플랫폼.
+# fb/ig 는 소유/관리 계정 한정. youtube 는 commentThreads.list 로 공개 영상 댓글 수집(소유 무관).
+COMMENTS_PLATFORMS = ("facebook", "instagram", "youtube")
 VALID_PERIODS = ("daily", "weekly")
 
 # 동기(대화형) 메트릭 수집 1회 처리 게시물 상한 — nginx 60s 타임아웃(504) 회피.
