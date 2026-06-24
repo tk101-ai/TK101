@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  AutoComplete,
   Button,
   DatePicker,
   Empty,
@@ -11,6 +12,7 @@ import {
   Space,
   Spin,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -28,9 +30,10 @@ import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
 import {
   CONTENT_TYPE_OPTIONS,
+  POST_CATEGORIES,
   POST_CATEGORY_COLORS,
   POST_CATEGORY_OPTIONS,
-  PRODUCER_OPTIONS,
+  PRODUCER_VALUES,
   collectComments,
   collectMetrics,
   createManualContent,
@@ -38,6 +41,7 @@ import {
   getContentTypeLabel,
   listAccounts,
   listPosts,
+  listProducerStats,
   updatePost,
   type CreateContentRequest,
   type PostCategory,
@@ -84,6 +88,15 @@ interface ContentFormValues {
  * 무료 수집(게시물·메트릭/댓글)은 마케팅 SNS 권한 전 직원에게 개방된다.
  * 자동 수집은 메타 토큰이 등록된 계정에서만 동작하며, 수동 콘텐츠 등록은 토큰 없이도 동작한다.
  */
+// 카테고리 탭 키 (PostCategory 값과 충돌하지 않는 sentinel).
+const ALL_TAB = "all";
+const UNCATEGORIZED_TAB = "__none__";
+
+// 구분(category) 값 → 한글 라벨. POST_CATEGORY_OPTIONS({value,label})에서 파생.
+const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+  POST_CATEGORY_OPTIONS.map((o) => [o.value, o.label]),
+);
+
 export default function SeoulSns() {
   const [accounts, setAccounts] = useState<SnsAccount[]>([]);
   // 조회(뷰) 필터 — 여러 계정/기간을 동시에 볼 수 있다.
@@ -91,10 +104,14 @@ export default function SeoulSns() {
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState<string | undefined>();
   const [dateTo, setDateTo] = useState<string | undefined>();
-  // 구분(카테고리) 필터 — undefined면 전체. 클라이언트단 필터(목록을 다시 안 부름).
-  const [categoryFilter, setCategoryFilter] = useState<PostCategory | undefined>();
+  // 구분(카테고리) 탭 — "all"=전체, PostCategory=해당 구분, UNCATEGORIZED_TAB=미분류.
+  // 카테고리별로 "한눈에" 보기 위해 탭으로 전환. 클라이언트단 필터(목록을 다시 안 부름).
+  const [categoryTab, setCategoryTab] = useState<string>(ALL_TAB);
   // 제작주체(producer) 필터 — undefined면 전체. 카테고리와 동일하게 클라이언트단 적용.
   const [producerFilter, setProducerFilter] = useState<string | undefined>();
+  // 제작주체 입력/필터 옵션 — 서버 distinct(이미 등록된 값) + seed 추천값의 합집합.
+  // 사용자가 한 번 입력하면 이후 드롭다운에 등장해 재사용된다(자유 입력 텍스트).
+  const [producerOptions, setProducerOptions] = useState<string[]>([]);
   const [posts, setPosts] = useState<SnsPost[]>([]);
   const [loading, setLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -113,9 +130,24 @@ export default function SeoulSns() {
     }
   }, []);
 
+  // 이미 등록된 제작주체 목록(서버 distinct) 로드 → seed 와 합쳐 재사용 옵션 구성.
+  const fetchProducerOptions = useCallback(async () => {
+    try {
+      const res = await listProducerStats();
+      const distinct = res.data
+        .map((s) => s.producer)
+        .filter((v): v is string => Boolean(v));
+      setProducerOptions(Array.from(new Set([...PRODUCER_VALUES, ...distinct])));
+    } catch {
+      // 옵션 조회 실패는 치명적이지 않음 — seed 추천값만으로 폴백.
+      setProducerOptions([...PRODUCER_VALUES]);
+    }
+  }, []);
+
   useEffect(() => {
     void fetchAccounts();
-  }, [fetchAccounts]);
+    void fetchProducerOptions();
+  }, [fetchAccounts, fetchProducerOptions]);
 
   const accountMap = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
@@ -164,24 +196,40 @@ export default function SeoulSns() {
     void fetchPosts();
   }, [fetchPosts]);
 
-  // 구분·제작주체 필터를 클라이언트단에서 적용 (여러 계정 병합 목록을 다시 부르지 않음).
-  const visiblePosts = useMemo(
-    () =>
-      posts.filter(
-        (p) =>
-          (!categoryFilter || p.category === categoryFilter) &&
-          (!producerFilter || p.producer === producerFilter),
-      ),
-    [posts, categoryFilter, producerFilter],
+  // 제작주체 필터만 적용한 목록 — 카테고리 탭 건수 집계의 기준(필터끼리 독립).
+  const producerFilteredPosts = useMemo(
+    () => (producerFilter ? posts.filter((p) => p.producer === producerFilter) : posts),
+    [posts, producerFilter],
   );
 
-  // 제작주체 필터 옵션 — 현재 로드된 게시물의 distinct producer(자유 입력 텍스트라 동적 생성).
+  // 카테고리 탭별 건수 (탭 라벨 옆 배지). 미분류 = category 없음.
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { [ALL_TAB]: producerFilteredPosts.length };
+    let uncategorized = 0;
+    for (const p of producerFilteredPosts) {
+      if (p.category) counts[p.category] = (counts[p.category] ?? 0) + 1;
+      else uncategorized += 1;
+    }
+    counts[UNCATEGORIZED_TAB] = uncategorized;
+    return counts;
+  }, [producerFilteredPosts]);
+
+  // 선택된 카테고리 탭을 적용한 최종 표시 목록.
+  const visiblePosts = useMemo(() => {
+    if (categoryTab === ALL_TAB) return producerFilteredPosts;
+    if (categoryTab === UNCATEGORIZED_TAB)
+      return producerFilteredPosts.filter((p) => !p.category);
+    return producerFilteredPosts.filter((p) => p.category === categoryTab);
+  }, [producerFilteredPosts, categoryTab]);
+
+  // 제작주체 옵션 — 서버 distinct(이미 등록됨) + 현재 로드된 게시물 distinct + seed 합집합.
   const producerFilterOptions = useMemo(() => {
-    const distinct = Array.from(
-      new Set(posts.map((p) => p.producer).filter((v): v is string => Boolean(v))),
-    ).sort();
-    return distinct.map((value) => ({ value, label: value }));
-  }, [posts]);
+    const distinct = new Set<string>(producerOptions);
+    for (const p of posts) if (p.producer) distinct.add(p.producer);
+    return Array.from(distinct)
+      .sort()
+      .map((value) => ({ value, label: value }));
+  }, [posts, producerOptions]);
 
   // 인라인 구분 변경 — 낙관적 갱신 후 PATCH, 실패 시 롤백.
   const handleCategoryChange = useCallback(
@@ -222,6 +270,8 @@ export default function SeoulSns() {
       setAddOpen(false);
       form.resetFields();
       void fetchPosts();
+      // 새로 입력한 제작주체를 옵션에 즉시 반영(재사용 가능하게).
+      void fetchProducerOptions();
     } catch (err) {
       message.error(extractErrorDetail(err, "콘텐츠 등록 실패"));
     }
@@ -504,19 +554,12 @@ export default function SeoulSns() {
             setDateTo(dates?.[1] || undefined);
           }}
         />
-        <Select<PostCategory>
-          placeholder="구분(전체)"
-          value={categoryFilter}
-          onChange={setCategoryFilter}
-          options={POST_CATEGORY_OPTIONS}
-          allowClear
-          style={{ minWidth: 140 }}
-        />
         <Select<string>
           placeholder="제작주체(전체)"
           value={producerFilter}
           onChange={setProducerFilter}
           options={producerFilterOptions}
+          showSearch
           allowClear
           style={{ minWidth: 160 }}
         />
@@ -594,15 +637,38 @@ export default function SeoulSns() {
 
       <Spin spinning={loading}>
         {viewAccountIds.length > 0 ? (
-          <Table
-            columns={columns}
-            dataSource={visiblePosts}
-            rowKey="id"
-            size="middle"
-            pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
-            scroll={{ x: 1400 }}
-            locale={{ emptyText: <Empty description="콘텐츠가 없습니다" /> }}
-          />
+          <>
+            {/* 구분(카테고리)별 탭 — 한눈에 보기. 탭 라벨에 건수 배지. */}
+            <Tabs
+              activeKey={categoryTab}
+              onChange={setCategoryTab}
+              items={[
+                { key: ALL_TAB, label: `전체 (${categoryCounts[ALL_TAB] ?? 0})` },
+                ...POST_CATEGORIES.map((c) => ({
+                  key: c,
+                  label: `${CATEGORY_LABELS[c] ?? c} (${categoryCounts[c] ?? 0})`,
+                })),
+                {
+                  key: UNCATEGORIZED_TAB,
+                  label: `미분류 (${categoryCounts[UNCATEGORIZED_TAB] ?? 0})`,
+                },
+              ]}
+            />
+            <Table
+              columns={columns}
+              dataSource={visiblePosts}
+              rowKey="id"
+              size="middle"
+              pagination={{
+                defaultPageSize: 20,
+                pageSizeOptions: [10, 20, 50, 100],
+                showSizeChanger: true,
+                showTotal: (t) => `총 ${t}건`,
+              }}
+              scroll={{ x: 1400 }}
+              locale={{ emptyText: <Empty description="콘텐츠가 없습니다" /> }}
+            />
+          </>
         ) : (
           <Empty description="표시할 콘텐츠가 없습니다" style={{ padding: "48px 0" }} />
         )}
@@ -635,7 +701,16 @@ export default function SeoulSns() {
               <Select options={CONTENT_TYPE_OPTIONS} placeholder="형태 선택" allowClear />
             </Form.Item>
             <Form.Item name="producer" label="제작주체" style={{ minWidth: 200 }}>
-              <Select options={PRODUCER_OPTIONS} placeholder="제작주체 선택" allowClear />
+              <AutoComplete
+                options={producerFilterOptions}
+                placeholder="제작주체 입력 (예: TK101, 서울시)"
+                allowClear
+                filterOption={(input, option) =>
+                  String(option?.value ?? "")
+                    .toLowerCase()
+                    .includes(input.toLowerCase())
+                }
+              />
             </Form.Item>
             <Form.Item name="category" label="구분" style={{ minWidth: 200 }}>
               <Select options={POST_CATEGORY_OPTIONS} placeholder="구분 선택" allowClear />
