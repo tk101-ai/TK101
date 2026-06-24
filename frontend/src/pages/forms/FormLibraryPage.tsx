@@ -1,7 +1,23 @@
-import { useEffect, useState } from "react";
-import { Button, Card, Empty, Input, message, Select, Space, Table, Tag, Typography } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Button,
+  Empty,
+  Input,
+  message,
+  Popconfirm,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Typography,
+} from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useNavigate } from "react-router-dom";
+import {
+  deleteDocgenDocument,
+  listDocgenDocuments,
+  type DocgenDocumentBrief,
+} from "../../api/docgen";
 import {
   listFormJobs,
   listFormTemplates,
@@ -30,17 +46,52 @@ function jobResumePath(status: string, id: string): string {
   return `/forms/jobs/${id}/review`;
 }
 
+// 양식 잡이 미완료(이어쓰기 대상)인지.
+function isInProgress(status: string): boolean {
+  return status !== "completed" && status !== "failed";
+}
+
+// ── 통합 "내 문서" 항목 공통 형태 ──
+type DocKind = "docgen" | "form";
+
+interface MyDocItem {
+  key: string;
+  kind: DocKind;
+  id: string;
+  title: string;
+  // 상태 라벨/색(docgen 은 항상 완료).
+  statusLabel: string;
+  statusColor: string;
+  // 정렬용 원본 상태 코드(form 잡만 의미 있음).
+  rawStatus: string;
+  createdAt: string;
+}
+
+const KIND_META: Record<DocKind, { label: string; color: string }> = {
+  docgen: { label: "문서생성", color: "purple" },
+  form: { label: "양식", color: "cyan" },
+};
+
 /**
- * 양식 라이브러리 — FR-07.
- * Phase 1 골격: 검색·필터·재사용 진입점만 제공.
+ * 양식 라이브러리(공유) + 내 문서(개인) — FR-07.
+ * - 상단: 내 문서(개인) — docgen 생성 문서 + 양식 작성 잡(전 상태)을 한 표로 통합, 생성일시 정렬.
+ * - 하단: 양식 라이브러리(공유) — 회사 전체 공유 템플릿.
  */
 export default function FormLibraryPage() {
   const navigate = useNavigate();
+
+  // 공유 양식 템플릿(회사 전체).
   const [items, setItems] = useState<FormTemplateListItem[]>([]);
-  const [jobs, setJobs] = useState<FormJobSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [dept, setDept] = useState<string | undefined>();
+
+  // 내 문서(개인) — docgen 문서 + 양식 잡.
+  const [docgenDocs, setDocgenDocs] = useState<DocgenDocumentBrief[]>([]);
+  const [jobs, setJobs] = useState<FormJobSummary[]>([]);
+  const [myDocsLoading, setMyDocsLoading] = useState(true);
+  const [kindFilter, setKindFilter] = useState<DocKind | undefined>();
+  const [statusFilter, setStatusFilter] = useState<string | undefined>();
 
   const fetch = async () => {
     setLoading(true);
@@ -54,26 +105,144 @@ export default function FormLibraryPage() {
     }
   };
 
-  const fetchJobs = async () => {
-    try {
-      setJobs(await listFormJobs());
-    } catch {
-      // 작성 중 문서 목록 실패는 비치명적 — 라이브러리는 정상 표시.
-    }
+  const fetchMyDocs = async () => {
+    setMyDocsLoading(true);
+    // docgen / 양식 잡 각각 독립적으로 실패해도 나머지는 표시.
+    const [docsRes, jobsRes] = await Promise.allSettled([
+      listDocgenDocuments(),
+      listFormJobs(),
+    ]);
+    setDocgenDocs(docsRes.status === "fulfilled" ? docsRes.value : []);
+    setJobs(jobsRes.status === "fulfilled" ? jobsRes.value : []);
+    setMyDocsLoading(false);
   };
 
   useEffect(() => {
-    // 마운트 시 폼 라이브러리 + 작성 중 문서 fetch (의도된 패턴).
+    // 마운트 시 공유 양식 + 내 문서(docgen·양식 잡) fetch (의도된 패턴).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetch();
-    void fetchJobs();
+    void fetchMyDocs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 작성 중(미완료) 문서 — resume 대상. 완료/실패는 제외(필요 시 재진입은 라이브러리 외).
-  const inProgressJobs = jobs.filter(
-    (j) => j.status !== "completed" && j.status !== "failed",
-  );
+  // docgen 문서 + 양식 잡 → 통합 항목(생성일시 내림차순).
+  const myDocs = useMemo<MyDocItem[]>(() => {
+    const fromDocgen: MyDocItem[] = docgenDocs.map((d) => ({
+      key: `docgen:${d.id}`,
+      kind: "docgen",
+      id: d.id,
+      title: d.title || "(제목 없음)",
+      statusLabel: "완료",
+      statusColor: "green",
+      rawStatus: "completed",
+      createdAt: d.created_at,
+    }));
+    const fromJobs: MyDocItem[] = jobs.map((j) => {
+      const meta = JOB_STATUS_META[j.status] ?? { label: j.status, color: "default" };
+      return {
+        key: `form:${j.id}`,
+        kind: "form",
+        id: j.id,
+        title: j.template_name || "양식",
+        statusLabel: meta.label,
+        statusColor: meta.color,
+        rawStatus: j.status,
+        createdAt: j.created_at,
+      };
+    });
+    return [...fromDocgen, ...fromJobs].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }, [docgenDocs, jobs]);
+
+  // 유형/상태 필터 적용.
+  const filteredMyDocs = useMemo(() => {
+    return myDocs.filter((it) => {
+      if (kindFilter && it.kind !== kindFilter) return false;
+      if (statusFilter) {
+        if (statusFilter === "in_progress") return it.kind === "form" && isInProgress(it.rawStatus);
+        if (statusFilter === "completed") return it.rawStatus === "completed";
+        if (statusFilter === "failed") return it.rawStatus === "failed";
+      }
+      return true;
+    });
+  }, [myDocs, kindFilter, statusFilter]);
+
+  const handleOpen = (it: MyDocItem) => {
+    if (it.kind === "docgen") {
+      navigate(`/forms/generate?doc=${encodeURIComponent(it.id)}`);
+    } else {
+      navigate(jobResumePath(it.rawStatus, it.id));
+    }
+  };
+
+  const handleDeleteDocgen = async (id: string) => {
+    try {
+      await deleteDocgenDocument(id);
+      setDocgenDocs((prev) => prev.filter((d) => d.id !== id));
+      message.success("문서를 삭제했습니다");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "문서 삭제 실패");
+    }
+  };
+
+  const myDocsColumns: ColumnsType<MyDocItem> = [
+    {
+      title: "유형",
+      dataIndex: "kind",
+      width: 110,
+      render: (kind: DocKind) => {
+        const m = KIND_META[kind];
+        return <Tag color={m.color}>{m.label}</Tag>;
+      },
+    },
+    {
+      title: "제목",
+      dataIndex: "title",
+      render: (v: string, row) => (
+        <a onClick={() => handleOpen(row)}>{v}</a>
+      ),
+    },
+    {
+      title: "상태",
+      dataIndex: "statusLabel",
+      width: 110,
+      render: (_v, row) => <Tag color={row.statusColor}>{row.statusLabel}</Tag>,
+    },
+    {
+      title: "생성일시",
+      dataIndex: "createdAt",
+      width: 190,
+      defaultSortOrder: "descend",
+      sorter: (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      render: (v: string) => (v ? new Date(v).toLocaleString("ko-KR") : "-"),
+    },
+    {
+      title: "동작",
+      key: "actions",
+      width: 160,
+      render: (_v, row) => (
+        <Space size={4}>
+          <Button size="small" type="link" onClick={() => handleOpen(row)}>
+            {row.kind === "form" && isInProgress(row.rawStatus) ? "이어서 작성 →" : "열기"}
+          </Button>
+          {row.kind === "docgen" && (
+            <Popconfirm
+              title="이 문서를 삭제할까요?"
+              okText="삭제"
+              cancelText="취소"
+              onConfirm={() => handleDeleteDocgen(row.id)}
+            >
+              <Button size="small" type="link" danger>
+                삭제
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
+      ),
+    },
+  ];
 
   const columns: ColumnsType<FormTemplateListItem> = [
     {
@@ -119,56 +288,82 @@ export default function FormLibraryPage() {
       <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
-            양식 라이브러리
+            내 문서 · 양식 라이브러리
           </h2>
-          <Text type="secondary">회사 전체 공유 + 부서 태그</Text>
+          <Text type="secondary">내가 만든 문서(개인)와 회사 공유 양식을 한 곳에서 관리합니다.</Text>
         </div>
         <Button type="primary" onClick={() => navigate("/forms/new")}>
           새 양식 업로드
         </Button>
       </div>
 
-      {inProgressJobs.length > 0 && (
-        <Card
+      {/* ── 내 문서(개인) ── */}
+      <div style={{ marginBottom: 8 }}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+          내 문서(개인){" "}
+          <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+            ({filteredMyDocs.length})
+          </Text>
+        </h3>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          본인이 생성한 문서(문서생성)와 양식 작성 내역(전 상태)입니다. 생성일시 기준 최신순으로 정렬됩니다.
+        </Text>
+      </div>
+
+      <Space style={{ marginBottom: 12 }} wrap>
+        <Select
+          allowClear
+          placeholder="유형 필터"
+          value={kindFilter}
+          onChange={(v) => setKindFilter(v)}
+          style={{ width: 160 }}
+          options={[
+            { label: "문서생성", value: "docgen" },
+            { label: "양식", value: "form" },
+          ]}
+        />
+        <Select
+          allowClear
+          placeholder="상태 필터"
+          value={statusFilter}
+          onChange={(v) => setStatusFilter(v)}
+          style={{ width: 160 }}
+          options={[
+            { label: "작성 중", value: "in_progress" },
+            { label: "완료", value: "completed" },
+            { label: "실패", value: "failed" },
+          ]}
+        />
+        <Button onClick={fetchMyDocs}>새로고침</Button>
+      </Space>
+
+      {filteredMyDocs.length === 0 && !myDocsLoading ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="아직 내 문서가 없습니다 — '새 문서 작성' 또는 '양식 채우기'로 시작하세요"
+          style={{ marginTop: 24, marginBottom: 32 }}
+        />
+      ) : (
+        <Table
+          loading={myDocsLoading}
+          rowKey="key"
+          dataSource={filteredMyDocs}
+          columns={myDocsColumns}
           size="small"
-          title={`작성 중 문서 (${inProgressJobs.length})`}
-          style={{ marginBottom: 16 }}
-          bodyStyle={{ padding: "4px 0" }}
-        >
-          {inProgressJobs.map((j) => {
-            const meta = JOB_STATUS_META[j.status] ?? { label: j.status, color: "default" };
-            return (
-              <div
-                key={j.id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "8px 16px",
-                  borderBottom: "1px solid #f5f5f5",
-                }}
-              >
-                <Space>
-                  <Tag color={meta.color}>{meta.label}</Tag>
-                  <Text>{j.template_name || "(양식 미상)"}</Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {new Date(j.created_at).toLocaleString("ko-KR")}
-                  </Text>
-                </Space>
-                <Button
-                  size="small"
-                  type="link"
-                  onClick={() => navigate(jobResumePath(j.status, j.id))}
-                >
-                  이어서 작성 →
-                </Button>
-              </div>
-            );
-          })}
-        </Card>
+          pagination={{ pageSize: 10 }}
+          style={{ marginBottom: 32 }}
+        />
       )}
 
-      <Space style={{ marginBottom: 12 }}>
+      {/* ── 양식 라이브러리(공유) ── */}
+      <div style={{ marginBottom: 8 }}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>양식 라이브러리(공유)</h3>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          회사 전체가 공유하는 양식 템플릿입니다. 위 '내 문서'(개인 작성 내역)와 달리 부서/전사 공용입니다.
+        </Text>
+      </div>
+
+      <Space style={{ marginBottom: 12 }} wrap>
         <Input.Search
           placeholder="양식명 검색"
           value={q}
@@ -192,7 +387,7 @@ export default function FormLibraryPage() {
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description="등록된 양식이 없습니다 — 우상단 '새 양식 업로드'로 시작하세요"
-          style={{ marginTop: 48 }}
+          style={{ marginTop: 24 }}
         />
       ) : (
         <Table

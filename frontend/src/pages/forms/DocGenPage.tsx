@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -66,6 +67,7 @@ const MAX_UPLOAD_FILES = 5;
  * 주제 → NAS RAG → Claude 초안 → 인라인 편집/섹션 재생성 → docx/PPT 다운로드.
  */
 export default function DocGenPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [topic, setTopic] = useState("");
   const [docType, setDocType] = useState<DocType>("제안서");
   const [sourceMode, setSourceMode] = useState<SourceMode>("rag");
@@ -133,6 +135,53 @@ export default function DocGenPage() {
       cancelled = true;
     };
   }, [docQuery, docsRefreshKey]);
+
+  // 라이브러리 등에서 ?doc=<id> 로 진입하면 해당 저장 문서를 자동으로 불러온다(딥링크 재열람).
+  // 한 번 처리한 뒤에는 URL 에서 doc 파라미터를 제거해 새로고침 시 중복 로드를 막는다.
+  const deepLinkHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    const docId = searchParams.get("doc");
+    if (!docId || deepLinkHandledRef.current === docId) return;
+    deepLinkHandledRef.current = docId;
+    let cancelled = false;
+    const run = async () => {
+      setBusy(true);
+      try {
+        const doc = await getDocgenDocument(docId);
+        if (cancelled) return;
+        setResult({
+          title: doc.title,
+          sections: doc.sections,
+          markdown: "",
+          sources: doc.sources,
+          model: "",
+        });
+        setTitle(doc.title);
+        setSections(doc.sections);
+        setFeedbacks({});
+        setReview(null);
+        setActiveDocId(doc.id);
+        if (doc.topic) setTopic(doc.topic);
+        if (doc.doc_type) setDocType(doc.doc_type);
+        if (doc.source_mode) setSourceMode(doc.source_mode);
+      } catch (e) {
+        if (!cancelled) {
+          message.error((e as any)?.response?.data?.detail || "문서 불러오기 실패");
+        }
+      } finally {
+        if (!cancelled) setBusy(false);
+        // URL 정리(다른 파라미터는 보존).
+        const next = new URLSearchParams(searchParams);
+        next.delete("doc");
+        setSearchParams(next, { replace: true });
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const [feedbacks, setFeedbacks] = useState<Record<number, string>>({});
   const [regenIdx, setRegenIdx] = useState<number | null>(null);
