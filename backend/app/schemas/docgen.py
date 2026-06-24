@@ -1,9 +1,10 @@
 """요구 기반 문서 생성 스키마."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 DocType = Literal["제안서", "계획서", "보고서", "일반"]
 
@@ -41,6 +42,34 @@ class DocGenResponse(BaseModel):
     sources: list[DocSourceRef]
     # cost_usd 는 관리자 전용(GET /api/documents/admin/usage)이라 응답에서 제외.
     model: str
+    # 영속화된 문서 id(재열람 키). 저장 실패 시 None.
+    document_id: str | None = None
+
+
+class DocgenDocumentBrief(BaseModel):
+    """내 문서 목록 항목(가벼운 메타만)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    title: str
+    doc_type: str | None = None
+    created_at: datetime
+
+
+class DocgenDocumentDetail(BaseModel):
+    """재열람용 전체 문서(섹션/출처 포함)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    title: str
+    sections: list[DocSection] = Field(default_factory=list)
+    sources: list[DocSourceRef] = Field(default_factory=list)
+    topic: str | None = None
+    doc_type: str | None = None
+    source_mode: str | None = None
+    created_at: datetime
 
 
 class DocRenderRequest(BaseModel):

@@ -31,6 +31,7 @@ from app.models.playground import (
     PlaygroundMessage,
     PlaygroundSession,
 )
+from app.models.docgen import DocgenDocument
 from app.models.distribution import (
     DistributionBlRecord,
     DistributionCustomsDeclaration,
@@ -71,6 +72,7 @@ __all__ = [
     "PlaygroundMessage",
     "PlaygroundMedia",
     "PlaygroundAttachment",
+    "DocgenDocument",
     "DistributionPersona",
     "DistributionBlRecord",
     "DistributionScenario",

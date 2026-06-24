@@ -21,16 +21,21 @@ import {
   DownloadOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SearchOutlined,
   SyncOutlined,
   ThunderboltOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
 import {
+  deleteDocgenDocument,
   downloadGeneratedDocx,
   downloadGeneratedPptx,
   generateDocument,
+  getDocgenDocument,
+  listDocgenDocuments,
   regenerateSection,
   reviewDocument,
+  type DocgenDocumentBrief,
   type DocGenResponse,
   type DocReviewResponse,
   type DocSection,
@@ -38,6 +43,8 @@ import {
   type DocType,
   type SourceMode,
 } from "../../api/docgen";
+
+const SEARCH_DEBOUNCE_MS = 200;
 
 const { Text } = Typography;
 const DOC_TYPES: DocType[] = ["제안서", "계획서", "보고서", "일반"];
@@ -79,6 +86,54 @@ export default function DocGenPage() {
   // 생성 결과를 편집 가능한 상태로 보관(다운로드·재생성은 이 상태 기준).
   const [title, setTitle] = useState("");
   const [sections, setSections] = useState<DocSection[]>([]);
+
+  // ── 내 문서(저장된 생성 결과) 목록/검색 상태 ──
+  const [docs, setDocs] = useState<DocgenDocumentBrief[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [docSearchInput, setDocSearchInput] = useState("");
+  const [docQuery, setDocQuery] = useState("");
+  // 현재 결과 뷰가 어느 저장 문서에서 왔는지(목록 하이라이트용). 새 생성/없음이면 null.
+  const [activeDocId, setActiveDocId] = useState<string | null>(null);
+  // 생성/삭제 후 목록 재조회 트리거.
+  const [docsRefreshKey, setDocsRefreshKey] = useState(0);
+
+  // 검색어 debounce.
+  const docSearchRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (docSearchRef.current !== null) {
+      window.clearTimeout(docSearchRef.current);
+    }
+    docSearchRef.current = window.setTimeout(() => {
+      setDocQuery(docSearchInput);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      if (docSearchRef.current !== null) {
+        window.clearTimeout(docSearchRef.current);
+      }
+    };
+  }, [docSearchInput]);
+
+  // 내 문서 목록 조회(검색어/새로고침 키 변경 시).
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      setDocsLoading(true);
+      try {
+        const q = docQuery.trim();
+        const data = await listDocgenDocuments(q.length > 0 ? q : undefined);
+        if (!cancelled) setDocs(data);
+      } catch {
+        if (!cancelled) setDocs([]);
+      } finally {
+        if (!cancelled) setDocsLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [docQuery, docsRefreshKey]);
+
   const [feedbacks, setFeedbacks] = useState<Record<number, string>>({});
   const [regenIdx, setRegenIdx] = useState<number | null>(null);
   const [reviewing, setReviewing] = useState(false);
@@ -136,11 +191,55 @@ export default function DocGenPage() {
       setSections(res.sections);
       setFeedbacks({});
       setReview(null);
+      // 방금 저장된 문서 id 로 목록 하이라이트 + 목록 갱신.
+      setActiveDocId(res.document_id ?? null);
+      setDocsRefreshKey((k) => k + 1);
       message.success(`초안 생성 완료 (참고 ${res.sources.length}건)`);
     } catch (e) {
       message.error((e as any)?.response?.data?.detail || "문서 생성 실패");
     } finally {
       setBusy(false);
+    }
+  };
+
+  // 저장된 문서를 현재 결과 뷰로 불러온다(재열람 — 재렌더/다운로드/출처 확인).
+  const handleOpenDoc = async (id: string) => {
+    setBusy(true);
+    try {
+      const doc = await getDocgenDocument(id);
+      // 결과 뷰 복원: result 는 sources 표시에만 쓰이므로 최소 형태로 채운다.
+      setResult({
+        title: doc.title,
+        sections: doc.sections,
+        markdown: "",
+        sources: doc.sources,
+        model: "",
+      });
+      setTitle(doc.title);
+      setSections(doc.sections);
+      setFeedbacks({});
+      setReview(null);
+      setActiveDocId(doc.id);
+      // 저장된 문서의 주제/문서종류/출처모드를 입력 컨트롤에도 복원.
+      if (doc.topic) setTopic(doc.topic);
+      if (doc.doc_type) setDocType(doc.doc_type);
+      if (doc.source_mode) setSourceMode(doc.source_mode);
+      message.success("저장된 문서를 불러왔습니다");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "문서 불러오기 실패");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteDoc = async (id: string) => {
+    try {
+      await deleteDocgenDocument(id);
+      setDocs((prev) => prev.filter((d) => d.id !== id));
+      if (activeDocId === id) setActiveDocId(null);
+      message.success("문서를 삭제했습니다");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "문서 삭제 실패");
     }
   };
 
@@ -304,8 +403,133 @@ export default function DocGenPage() {
   }
 
   return (
-    <div style={{ maxWidth: 1080 }}>
+    <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
       <Spin spinning={loading} fullscreen tip={overlayTip} />
+
+      {/* 좌측: 내 문서(저장된 생성 결과) 목록 */}
+      <div
+        style={{
+          width: 260,
+          flexShrink: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          position: "sticky",
+          top: 0,
+          maxHeight: "calc(100vh - 32px)",
+        }}
+      >
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            letterSpacing: "-0.01em",
+          }}
+        >
+          내 문서{" "}
+          <Text type="secondary" style={{ fontSize: 11, fontWeight: 400 }}>
+            ({docs.length})
+          </Text>
+        </div>
+        <Input
+          size="small"
+          prefix={<SearchOutlined style={{ color: "rgba(0,0,0,0.35)" }} />}
+          placeholder="제목/주제 검색"
+          value={docSearchInput}
+          onChange={(e) => setDocSearchInput(e.target.value)}
+          allowClear
+        />
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+          <List
+            size="small"
+            loading={docsLoading}
+            dataSource={docs}
+            locale={{ emptyText: "저장된 문서가 없습니다" }}
+            renderItem={(d) => {
+              const isActive = d.id === activeDocId;
+              return (
+                <List.Item
+                  style={{
+                    padding: "6px 8px",
+                    borderRadius: 6,
+                    background: isActive
+                      ? "rgba(24,144,255,0.08)"
+                      : "transparent",
+                    cursor: "pointer",
+                    border: isActive
+                      ? "1px solid rgba(24,144,255,0.3)"
+                      : "1px solid transparent",
+                    marginBottom: 4,
+                  }}
+                  onClick={() => void handleOpenDoc(d.id)}
+                  actions={[
+                    <Popconfirm
+                      key="del"
+                      title="이 문서를 삭제할까요?"
+                      okText="삭제"
+                      cancelText="취소"
+                      onConfirm={(e) => {
+                        e?.stopPropagation();
+                        void handleDeleteDoc(d.id);
+                      }}
+                      onCancel={(e) => e?.stopPropagation()}
+                    >
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </Popconfirm>,
+                  ]}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 2,
+                      minWidth: 0,
+                      flex: 1,
+                    }}
+                  >
+                    <Text
+                      style={{ fontSize: 12, fontWeight: 500 }}
+                      ellipsis={{ tooltip: d.title }}
+                    >
+                      {d.title}
+                    </Text>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      {d.doc_type && (
+                        <Tag
+                          style={{
+                            fontSize: 10,
+                            lineHeight: "16px",
+                            padding: "0 4px",
+                          }}
+                        >
+                          {d.doc_type}
+                        </Tag>
+                      )}
+                      <Text type="secondary" style={{ fontSize: 10 }}>
+                        {new Date(d.created_at).toLocaleDateString()}
+                      </Text>
+                    </div>
+                  </div>
+                </List.Item>
+              );
+            }}
+          />
+        </div>
+      </div>
+
+      {/* 우측: 생성 입력 + 결과 */}
+      <div style={{ flex: 1, minWidth: 0, maxWidth: 1080 }}>
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
           문서 생성{" "}
@@ -562,6 +786,7 @@ export default function DocGenPage() {
           </Button>
         </Card>
       )}
+      </div>
     </div>
   );
 }
