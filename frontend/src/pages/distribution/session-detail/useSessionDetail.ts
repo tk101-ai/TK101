@@ -88,6 +88,7 @@ export function useSessionDetail(id: string | undefined) {
   const [addSide, setAddSide] = useState<"sender" | "receiver">("sender");
   const [addContent, setAddContent] = useState<string>("");
   const [addAfterSec, setAddAfterSec] = useState<number>(0);
+  const [addPosition, setAddPosition] = useState<number | null>(null);
   const [adding, setAdding] = useState<boolean>(false);
 
   const handleAddMessage = useCallback(async () => {
@@ -103,17 +104,19 @@ export function useSessionDetail(id: string | undefined) {
         sender: addSide,
         content,
         send_after_sec: addAfterSec,
+        position: addPosition,
       });
       message.success("메시지를 추가했습니다.");
       setAddContent("");
       setAddAfterSec(0);
+      setAddPosition(null);
       await fetchData();
     } catch (err: unknown) {
       message.error(extractErrorDetail(err, "메시지 추가 실패"));
     } finally {
       setAdding(false);
     }
-  }, [id, addContent, addSide, addAfterSec, fetchData]);
+  }, [id, addContent, addSide, addAfterSec, addPosition, fetchData]);
 
   const handleApprove = async (scheduledStart: string | null) => {
     if (!session) return;
@@ -202,6 +205,8 @@ export function useSessionDetail(id: string | undefined) {
     setAddContent,
     addAfterSec,
     setAddAfterSec,
+    addPosition,
+    setAddPosition,
     adding,
     handleAddMessage,
   };

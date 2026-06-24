@@ -1,16 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Card,
-  Col,
-  Empty,
-  Row,
-  Space,
-  Statistic,
-  Table,
-  Tag,
-  Typography,
-  message,
-} from "antd";
+import { Card, Col, Empty, Row, Space, Statistic, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   getCostByDay,
@@ -50,7 +39,10 @@ export function CostTab({ filter }: CostTabProps) {
   }, [filter.from, filter.to]);
 
   useEffect(() => {
-    void fetchAll();
+    const run = async () => {
+      await fetchAll();
+    };
+    void run();
   }, [fetchAll]);
 
   const totals = useMemo(() => {
@@ -72,9 +64,7 @@ export function CostTab({ filter }: CostTabProps) {
       width: 160,
       align: "right",
       render: (v: string) => (
-        <span style={{ fontFamily: "monospace", fontSize: 13 }}>
-          {formatCostUsd(v)}
-        </span>
+        <span style={{ fontFamily: "monospace", fontSize: 13 }}>{formatCostUsd(v)}</span>
       ),
     },
     {
@@ -82,15 +72,13 @@ export function CostTab({ filter }: CostTabProps) {
       dataIndex: "session_count",
       width: 100,
       align: "right",
-      render: (v: number) => (
-        <span style={{ fontVariantNumeric: "tabular-nums" }}>{v}</span>
-      ),
+      render: (v: number) => <span style={{ fontVariantNumeric: "tabular-nums" }}>{v}</span>,
     },
   ];
 
   const personaColumns: ColumnsType<CostByPersonaItem> = [
     {
-      title: "페르소나",
+      title: "계정",
       dataIndex: "account_label",
       width: 160,
       render: (v: string) => <Tag color="geekblue">{v}</Tag>,
@@ -101,9 +89,7 @@ export function CostTab({ filter }: CostTabProps) {
       width: 160,
       align: "right",
       render: (v: string) => (
-        <span style={{ fontFamily: "monospace", fontSize: 13 }}>
-          {formatCostUsd(v)}
-        </span>
+        <span style={{ fontFamily: "monospace", fontSize: 13 }}>{formatCostUsd(v)}</span>
       ),
     },
     {
@@ -111,9 +97,7 @@ export function CostTab({ filter }: CostTabProps) {
       dataIndex: "session_count",
       width: 100,
       align: "right",
-      render: (v: number) => (
-        <span style={{ fontVariantNumeric: "tabular-nums" }}>{v}</span>
-      ),
+      render: (v: number) => <span style={{ fontVariantNumeric: "tabular-nums" }}>{v}</span>,
     },
   ];
 
@@ -140,11 +124,7 @@ export function CostTab({ filter }: CostTabProps) {
           <Card>
             <Statistic
               title="세션당 평균"
-              value={
-                totals.totalSessions > 0
-                  ? totals.totalCost / totals.totalSessions
-                  : 0
-              }
+              value={totals.totalSessions > 0 ? totals.totalCost / totals.totalSessions : 0}
               precision={4}
               prefix="$"
             />
@@ -171,7 +151,7 @@ export function CostTab({ filter }: CostTabProps) {
         />
       </Card>
 
-      <Card title="페르소나(발신자)별 비용" size="small">
+      <Card title="계정별 비용" size="small">
         <Table
           columns={personaColumns}
           dataSource={byPersona}
@@ -183,7 +163,7 @@ export function CostTab({ filter }: CostTabProps) {
             emptyText: (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="해당 기간에 발신 페르소나가 없습니다"
+                description="해당 기간에 발송 계정이 없습니다"
               />
             ),
           }}

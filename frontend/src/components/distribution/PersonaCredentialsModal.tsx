@@ -14,8 +14,8 @@ const { Text } = Typography;
  * 자격증명 입력/갱신 모달 (T9 Phase A 보강).
  *
  * 용도:
- * - 시드된 placeholder 페르소나(+820000000000 등) 에 실 api_id/api_hash 주입
- * - 기존 페르소나의 자격증명 회전 (my.telegram.org 에서 hash 재발급한 경우)
+ * - 시드된 placeholder 계정(+820000000000 등) 에 실 api_id/api_hash 주입
+ * - 기존 계정의 자격증명 회전 (my.telegram.org 에서 hash 재발급한 경우)
  *
  * 동작:
  * - 백엔드가 Fernet 으로 즉시 재암호화 후 DB 갱신
@@ -35,12 +35,7 @@ interface FormValues {
   api_hash: string;
 }
 
-export default function PersonaCredentialsModal({
-  open,
-  persona,
-  onClose,
-  onUpdated,
-}: Props) {
+export default function PersonaCredentialsModal({ open, persona, onClose, onUpdated }: Props) {
   const [form] = Form.useForm<FormValues>();
 
   // 모달이 열릴 때마다 기존 폰번호를 prefill (placeholder 도 그대로 노출).
@@ -78,10 +73,7 @@ export default function PersonaCredentialsModal({
       const status = isAxiosError(err) ? err.response?.status : undefined;
       if (status === 503) {
         message.error(
-          extractErrorDetail(
-            err,
-            "Fernet 키가 서버에 설정되지 않아 암호화할 수 없습니다.",
-          ),
+          extractErrorDetail(err, "Fernet 키가 서버에 설정되지 않아 암호화할 수 없습니다."),
         );
         return;
       }
@@ -108,8 +100,7 @@ export default function PersonaCredentialsModal({
             style={{ marginBottom: 16 }}
             message={
               <span>
-                <Text strong>{persona.account_label}</Text> 의 자격증명을
-                갱신합니다.
+                <Text strong>{persona.account_label}</Text> 의 자격증명을 갱신합니다.
               </span>
             }
             description="기존 Telethon 세션이 있으면 자동 무효화되며 재로그인이 필요합니다."

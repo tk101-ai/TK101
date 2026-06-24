@@ -16,8 +16,7 @@ Phase C 엔드포인트:
 - ``main.py`` 에서 별도 ``include_router`` 호출 필요.
 - 권한 (T9 라우터 가드 정책 통일):
   - 라우터 전체: ``require_module(Module.DISTRIBUTION.value)`` — admin + 신사업팀.
-  - send-now (실 텔레그램 송신): endpoint 별 ``require_admin`` 추가.
-  - 목록/상세/메시지 편집/승인/거부: 신사업팀 검수 가능.
+  - 목록/상세/메시지 편집/승인/거부/send-now: 신사업팀 검수 가능.
 """
 from __future__ import annotations
 
@@ -31,7 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin, require_module
+from app.dependencies import get_current_user, require_module
 from app.models.distribution import (
     DistributionMessage,
     DistributionPersona,
@@ -383,9 +382,8 @@ async def discover_groups(
 async def send_session_now(
     session_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
 ) -> SendNowResult:
-    """승인된 세션을 즉시 동기 송신. **admin only** — 실 텔레그램 송신.
+    """승인된 세션을 즉시 동기 송신. 신사업팀 모듈 권한 사용자 허용.
 
     응답:
     - 200: 전체 성공 또는 부분 성공.
