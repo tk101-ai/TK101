@@ -12,14 +12,12 @@ import {
   Space,
   Spin,
   Table,
-  Tabs,
   Tag,
   Tooltip,
   Typography,
   message,
 } from "antd";
 import {
-  CommentOutlined,
   DownloadOutlined,
   LineChartOutlined,
   LinkOutlined,
@@ -30,9 +28,6 @@ import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
 import {
   CONTENT_TYPE_OPTIONS,
-  POST_CATEGORIES,
-  POST_CATEGORY_COLORS,
-  POST_CATEGORY_OPTIONS,
   PRODUCER_VALUES,
   collectComments,
   collectMetrics,
@@ -44,7 +39,6 @@ import {
   listProducerStats,
   updatePost,
   type CreateContentRequest,
-  type PostCategory,
   type SnsAccount,
   type SnsPost,
 } from "../../api/sns";
@@ -72,7 +66,6 @@ interface ContentFormValues {
   title?: string;
   content_type?: string;
   producer?: string;
-  category?: PostCategory;
   url?: string;
 }
 
@@ -88,15 +81,6 @@ interface ContentFormValues {
  * 무료 수집(게시물·메트릭/댓글)은 마케팅 SNS 권한 전 직원에게 개방된다.
  * 자동 수집은 메타 토큰이 등록된 계정에서만 동작하며, 수동 콘텐츠 등록은 토큰 없이도 동작한다.
  */
-// 카테고리 탭 키 (PostCategory 값과 충돌하지 않는 sentinel).
-const ALL_TAB = "all";
-const UNCATEGORIZED_TAB = "__none__";
-
-// 구분(category) 값 → 한글 라벨. POST_CATEGORY_OPTIONS({value,label})에서 파생.
-const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
-  POST_CATEGORY_OPTIONS.map((o) => [o.value, o.label]),
-);
-
 export default function SeoulSns() {
   const [accounts, setAccounts] = useState<SnsAccount[]>([]);
   // 조회(뷰) 필터 — 여러 계정/기간을 동시에 볼 수 있다.
@@ -104,10 +88,7 @@ export default function SeoulSns() {
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState<string | undefined>();
   const [dateTo, setDateTo] = useState<string | undefined>();
-  // 구분(카테고리) 탭 — "all"=전체, PostCategory=해당 구분, UNCATEGORIZED_TAB=미분류.
-  // 카테고리별로 "한눈에" 보기 위해 탭으로 전환. 클라이언트단 필터(목록을 다시 안 부름).
-  const [categoryTab, setCategoryTab] = useState<string>(ALL_TAB);
-  // 제작주체(producer) 필터 — undefined면 전체. 카테고리와 동일하게 클라이언트단 적용.
+  // 제작주체(producer) 필터 — undefined면 전체. 클라이언트단 적용.
   const [producerFilter, setProducerFilter] = useState<string | undefined>();
   // 제작주체 입력/필터 옵션 — 서버 distinct(이미 등록된 값) + seed 추천값의 합집합.
   // 사용자가 한 번 입력하면 이후 드롭다운에 등장해 재사용된다(자유 입력 텍스트).
@@ -116,8 +97,7 @@ export default function SeoulSns() {
   const [loading, setLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [metricsPost, setMetricsPost] = useState<SnsPost | null>(null);
-  const [collecting, setCollecting] = useState(false);
-  const [collectingComments, setCollectingComments] = useState(false);
+  const [collectingAll, setCollectingAll] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [form] = Form.useForm<ContentFormValues>();
 
@@ -196,31 +176,11 @@ export default function SeoulSns() {
     void fetchPosts();
   }, [fetchPosts]);
 
-  // 제작주체 필터만 적용한 목록 — 카테고리 탭 건수 집계의 기준(필터끼리 독립).
+  // 제작주체 필터만 적용한 목록 — 테이블 표시 대상.
   const producerFilteredPosts = useMemo(
     () => (producerFilter ? posts.filter((p) => p.producer === producerFilter) : posts),
     [posts, producerFilter],
   );
-
-  // 카테고리 탭별 건수 (탭 라벨 옆 배지). 미분류 = category 없음.
-  const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = { [ALL_TAB]: producerFilteredPosts.length };
-    let uncategorized = 0;
-    for (const p of producerFilteredPosts) {
-      if (p.category) counts[p.category] = (counts[p.category] ?? 0) + 1;
-      else uncategorized += 1;
-    }
-    counts[UNCATEGORIZED_TAB] = uncategorized;
-    return counts;
-  }, [producerFilteredPosts]);
-
-  // 선택된 카테고리 탭을 적용한 최종 표시 목록.
-  const visiblePosts = useMemo(() => {
-    if (categoryTab === ALL_TAB) return producerFilteredPosts;
-    if (categoryTab === UNCATEGORIZED_TAB)
-      return producerFilteredPosts.filter((p) => !p.category);
-    return producerFilteredPosts.filter((p) => p.category === categoryTab);
-  }, [producerFilteredPosts, categoryTab]);
 
   // 제작주체 옵션 — 서버 distinct(이미 등록됨) + 현재 로드된 게시물 distinct + seed 합집합.
   const producerFilterOptions = useMemo(() => {
@@ -231,24 +191,27 @@ export default function SeoulSns() {
       .map((value) => ({ value, label: value }));
   }, [posts, producerOptions]);
 
-  // 인라인 구분 변경 — 낙관적 갱신 후 PATCH, 실패 시 롤백.
-  const handleCategoryChange = useCallback(
-    async (post: SnsPost, next: PostCategory | null) => {
-      const prev = post.category;
-      if (prev === next) return;
+  // 인라인 제작주체 변경 — 낙관적 갱신 후 PATCH, 실패 시 롤백.
+  // 성공 시 새로 입력한 값을 옵션에 반영(드롭다운 재사용 가능).
+  const handleProducerChange = useCallback(
+    async (post: SnsPost, next: string) => {
+      const value = next.trim() || null;
+      const prev = post.producer ?? null;
+      if (prev === value) return;
       setPosts((list) =>
-        list.map((p) => (p.id === post.id ? { ...p, category: next } : p)),
+        list.map((p) => (p.id === post.id ? { ...p, producer: value } : p)),
       );
       try {
-        await updatePost(post.id, { category: next });
+        await updatePost(post.id, { producer: value });
+        void fetchProducerOptions();
       } catch (err) {
         setPosts((list) =>
-          list.map((p) => (p.id === post.id ? { ...p, category: prev } : p)),
+          list.map((p) => (p.id === post.id ? { ...p, producer: prev } : p)),
         );
-        message.error(extractErrorDetail(err, "구분 변경 실패"));
+        message.error(extractErrorDetail(err, "제작주체 변경 실패"));
       }
     },
-    [],
+    [fetchProducerOptions],
   );
 
   const handleAdd = async (values: ContentFormValues) => {
@@ -261,7 +224,6 @@ export default function SeoulSns() {
       title: values.title ?? null,
       content_type: values.content_type ?? null,
       producer: values.producer ?? null,
-      category: values.category ?? null,
       url: values.url ?? null,
     };
     try {
@@ -277,65 +239,58 @@ export default function SeoulSns() {
     }
   };
 
-  const handleCollectMetrics = async () => {
+  // 메트릭·댓글 통합 수집 — 동일 계정에 대해 메트릭 수집 후 댓글 수집을 순차 실행.
+  const handleCollectAll = async () => {
     if (!actionAccount) {
       message.warning("수집/추가할 계정을 정확히 1개 선택하세요");
       return;
     }
-    setCollecting(true);
+    setCollectingAll(true);
+    let metricsFailed = false;
+    let commentsFailed = false;
+    let totalFailures = 0;
     try {
-      const res = await collectMetrics(actionAccount.id, "daily");
+      const metricsRes = await collectMetrics(actionAccount.id, "daily");
       const {
         posts_processed,
         snapshots_added,
         snapshots_updated,
         posts_added,
         posts_updated,
-        failures,
-      } = res.data;
+        failures: metricFailures,
+      } = metricsRes.data;
+      totalFailures += metricFailures.length;
       message.success(
-        `수집 완료 — 신규 게시물 ${posts_added} · 게시물 갱신 ${posts_updated} · ` +
+        `메트릭 수집 — 신규 게시물 ${posts_added} · 게시물 갱신 ${posts_updated} · ` +
           `메트릭 처리 ${posts_processed}(신규 ${snapshots_added}/갱신 ${snapshots_updated})`,
       );
-      if (failures.length > 0) {
-        message.warning(`일부 실패 ${failures.length}건 (콘솔/응답 확인)`);
-      }
-      void fetchPosts();
     } catch (err) {
-      message.error(
-        extractErrorDetail(err, "메트릭 수집 실패", {
-          statusMessages: { 501: "이 플랫폼은 메트릭 수집 미지원" },
-        }),
-      );
-    } finally {
-      setCollecting(false);
+      metricsFailed = true;
+      message.error(extractErrorDetail(err, "메트릭 수집 실패"));
     }
-  };
 
-  const handleCollectComments = async () => {
-    if (!actionAccount) {
-      message.warning("수집/추가할 계정을 정확히 1개 선택하세요");
-      return;
-    }
-    setCollectingComments(true);
     try {
-      const res = await collectComments(actionAccount.id);
-      const { posts_processed, comments_added, comments_updated, failures } = res.data;
+      const commentsRes = await collectComments(actionAccount.id);
+      const {
+        posts_processed,
+        comments_added,
+        comments_updated,
+        failures: commentFailures,
+      } = commentsRes.data;
+      totalFailures += commentFailures.length;
       message.success(
-        `댓글 수집 완료 — 게시물 ${posts_processed} · 신규 ${comments_added} · 갱신 ${comments_updated}`,
+        `댓글 수집 — 게시물 ${posts_processed} · 신규 ${comments_added} · 갱신 ${comments_updated}`,
       );
-      if (failures.length > 0) {
-        message.warning(`일부 실패 ${failures.length}건 (콘솔/응답 확인)`);
-      }
     } catch (err) {
-      message.error(
-        extractErrorDetail(err, "댓글 수집 실패", {
-          statusMessages: { 501: "이 플랫폼은 댓글 수집 미지원" },
-        }),
-      );
-    } finally {
-      setCollectingComments(false);
+      commentsFailed = true;
+      message.error(extractErrorDetail(err, "댓글 수집 실패"));
     }
+
+    if (!metricsFailed && !commentsFailed && totalFailures > 0) {
+      message.warning(`일부 실패 ${totalFailures}건 (콘솔/응답 확인)`);
+    }
+    setCollectingAll(false);
+    void fetchPosts();
   };
 
   // 현재 조회(뷰) 필터 그대로 게시물 .xlsx 내보내기.
@@ -414,44 +369,23 @@ export default function SeoulSns() {
     {
       title: "제작주체",
       dataIndex: "producer",
-      width: 110,
-      render: (v: string | null) => v || "-",
-    },
-    {
-      title: "구분",
-      dataIndex: "category",
-      width: 116,
-      render: (value: PostCategory | null, record) => (
-        <Select<PostCategory>
-          value={value ?? undefined}
-          placeholder="미분류"
-          options={POST_CATEGORY_OPTIONS}
-          onChange={(next) => void handleCategoryChange(record, next ?? null)}
-          onClear={() => void handleCategoryChange(record, null)}
+      width: 160,
+      render: (v: string | null, record) => (
+        <AutoComplete
+          defaultValue={v ?? undefined}
+          options={producerFilterOptions}
+          placeholder="제작주체 입력"
+          style={{ width: 160 }}
           allowClear
-          size="small"
-          variant="borderless"
-          style={{ width: "100%" }}
-          optionRender={(opt) => (
-            <Tag
-              color={POST_CATEGORY_COLORS[opt.value as PostCategory]}
-              style={{ marginInlineEnd: 0 }}
-            >
-              {opt.label}
-            </Tag>
-          )}
-          labelRender={(props) =>
-            props.value ? (
-              <Tag
-                color={POST_CATEGORY_COLORS[props.value as PostCategory]}
-                style={{ marginInlineEnd: 0 }}
-              >
-                {props.label}
-              </Tag>
-            ) : (
-              <span style={{ color: "#bfbfbf" }}>미분류</span>
-            )
+          filterOption={(input, option) =>
+            String(option?.value ?? "")
+              .toLowerCase()
+              .includes(input.toLowerCase())
           }
+          onBlur={(e) =>
+            void handleProducerChange(record, (e.target as HTMLInputElement).value ?? "")
+          }
+          onSelect={(next) => void handleProducerChange(record, next)}
         />
       ),
     },
@@ -598,19 +532,11 @@ export default function SeoulSns() {
           <Space size={8}>
             <Button
               icon={<ThunderboltOutlined />}
-              loading={collecting}
+              loading={collectingAll}
               disabled={!actionAccount}
-              onClick={handleCollectMetrics}
+              onClick={handleCollectAll}
             >
-              게시물·메트릭 수집
-            </Button>
-            <Button
-              icon={<CommentOutlined />}
-              loading={collectingComments}
-              disabled={!actionAccount}
-              onClick={handleCollectComments}
-            >
-              댓글 수집 (자동)
+              메트릭·댓글 수집
             </Button>
             <Button
               type="primary"
@@ -637,38 +563,20 @@ export default function SeoulSns() {
 
       <Spin spinning={loading}>
         {viewAccountIds.length > 0 ? (
-          <>
-            {/* 구분(카테고리)별 탭 — 한눈에 보기. 탭 라벨에 건수 배지. */}
-            <Tabs
-              activeKey={categoryTab}
-              onChange={setCategoryTab}
-              items={[
-                { key: ALL_TAB, label: `전체 (${categoryCounts[ALL_TAB] ?? 0})` },
-                ...POST_CATEGORIES.map((c) => ({
-                  key: c,
-                  label: `${CATEGORY_LABELS[c] ?? c} (${categoryCounts[c] ?? 0})`,
-                })),
-                {
-                  key: UNCATEGORIZED_TAB,
-                  label: `미분류 (${categoryCounts[UNCATEGORIZED_TAB] ?? 0})`,
-                },
-              ]}
-            />
-            <Table
-              columns={columns}
-              dataSource={visiblePosts}
-              rowKey="id"
-              size="middle"
-              pagination={{
-                defaultPageSize: 20,
-                pageSizeOptions: [10, 20, 50, 100],
-                showSizeChanger: true,
-                showTotal: (t) => `총 ${t}건`,
-              }}
-              scroll={{ x: 1400 }}
-              locale={{ emptyText: <Empty description="콘텐츠가 없습니다" /> }}
-            />
-          </>
+          <Table
+            columns={columns}
+            dataSource={producerFilteredPosts}
+            rowKey="id"
+            size="middle"
+            pagination={{
+              defaultPageSize: 20,
+              pageSizeOptions: [10, 20, 50, 100],
+              showSizeChanger: true,
+              showTotal: (t) => `총 ${t}건`,
+            }}
+            scroll={{ x: 1400 }}
+            locale={{ emptyText: <Empty description="콘텐츠가 없습니다" /> }}
+          />
         ) : (
           <Empty description="표시할 콘텐츠가 없습니다" style={{ padding: "48px 0" }} />
         )}
@@ -711,9 +619,6 @@ export default function SeoulSns() {
                     .includes(input.toLowerCase())
                 }
               />
-            </Form.Item>
-            <Form.Item name="category" label="구분" style={{ minWidth: 200 }}>
-              <Select options={POST_CATEGORY_OPTIONS} placeholder="구분 선택" allowClear />
             </Form.Item>
           </Space>
           <Form.Item name="url" label="URL 링크">
