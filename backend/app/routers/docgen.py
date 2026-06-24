@@ -245,14 +245,14 @@ async def generate(
             detail=f"문서 생성 실패: {exc}",
         ) from exc
 
-    # 출처는 LLM이 실제 인용한 자료(used_sources)만 노출한다. used_sources 가 비면
-    # (모델 미반환 등) 검색된 전체 청크로 폴백. 인용 안 한 자료를 출처로 표기하던 문제 수정.
+    # 표시 출처 = 실제로 검색·주입된 자료 전부(NAS+업로드). LLM 자기보고(used_sources)는
+    # '인용됨(cited)' 플래그로만 사용한다. 과거엔 used_sources 만 노출해서, NAS 가
+    # 컨텍스트로 들어갔는데도 모델이 인용 보고를 안 하면 업로드만 보이던 문제가 있었음.
     cited = {p for p in doc.used_sources}
-    src_chunks = [c for c in chunks if c.file_path in cited] if cited else chunks
-    # path 중복 제거(파일당 최고 점수 1건). 표시용 메타(name/source_type/doc_id)도 함께 보존.
+    # path 중복 제거(파일당 최고 점수 1건). 표시용 메타(name/source_type/doc_id)도 보존.
     # 업로드 청크는 file_id="" 이므로 source_type 을 "uploaded" 로 구분한다(sources.py 규약).
     by_path: dict[str, DocSourceRef] = {}
-    for c in src_chunks:
+    for c in chunks:
         score = float(c.score)
         src_type = "uploaded" if not (c.file_id or "").strip() else "nas"
         existing = by_path.get(c.file_path)
@@ -263,6 +263,7 @@ async def generate(
                 name=c.file_name or c.file_path,
                 source_type=src_type,
                 doc_id=(c.file_id or None),
+                cited=c.file_path in cited,
             )
 
     # 성공한 생성을 잡으로 영속화(비용/토큰 회계). best-effort — 실패해도 응답은 정상.
@@ -271,7 +272,8 @@ async def generate(
     section_dicts = [
         {"heading": s["heading"], "body": s["body"]} for s in doc.sections
     ]
-    source_refs = list(by_path.values())
+    # 인용된 자료 먼저, 그다음 점수순으로 정렬해 노출.
+    source_refs = sorted(by_path.values(), key=lambda s: (not s.cited, -s.score))
 
     # 생성 문서 자체를 사용자별로 영속화(재열람용). best-effort — 실패해도 응답 정상.
     document_id = await _persist_document(

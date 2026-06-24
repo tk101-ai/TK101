@@ -20,6 +20,8 @@ export interface DocSourceRef {
   source_type: "nas" | "uploaded";
   /** NAS 문서 doc_id(업로드 자료는 빈 문자열/null). */
   doc_id?: string | null;
+  /** LLM 이 실제 인용했다고 보고한 자료 여부. false 여도 생성 컨텍스트엔 주입됨. */
+  cited?: boolean;
 }
 
 export interface DocGenRequest {
