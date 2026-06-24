@@ -18,7 +18,7 @@
 - 자동 배포 조건: `main` 브랜치 push
 - 수동 배포 조건: `workflow_dispatch`
 - E2E workflow: `.github/workflows/e2e.yml`, 현재 수동 실행만 사용
-- backup workflow: `.github/workflows/backup.yml`, 매일 02:00 KST 스케줄 및 수동 실행
+- backup workflow: **제거됨(2026-06-24)** — 현재 자동 DB 백업 없음 (필요 시 신규 구성)
 
 따라서 feature/fix/docs 브랜치에서 로컬 작업하거나 PR용 브랜치를 push하는 것은
 자동 배포를 직접 트리거하지 않는다. 단, `main`에 merge 또는 push되면 self-hosted

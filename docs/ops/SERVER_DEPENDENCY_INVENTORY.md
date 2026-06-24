@@ -30,7 +30,8 @@
 | --- | --- | --- | --- |
 | `.github/workflows/deploy.yml` | `main` push, 수동 실행 | self-hosted runner | `.env` 생성, `docker compose up -d --build --force-recreate --remove-orphans`, Alembic migration |
 | `.github/workflows/e2e.yml` | 수동 실행만 | self-hosted runner | 라이브 `http://43.155.202.112:8080` 대상 Playwright |
-| `.github/workflows/backup.yml` | 매일 02:00 KST, 수동 실행 | self-hosted runner | `/mnt/nas-rw/backup/postgres`에 Postgres dump 저장, 7일 초과분 삭제 |
+
+> ⚠️ `backup.yml`(매일 02:00 KST Postgres 자동 백업)은 2026-06-24 제거됨 — **현재 자동 DB 백업 없음.**
 
 systemd runner:
 
@@ -163,9 +164,6 @@ Docker 사용량 기준:
   - runner checkout에서 `.env` 생성
   - `docker compose up -d --build --force-recreate --remove-orphans`
   - Alembic migration 자동 실행
-- `.github/workflows/backup.yml`
-  - `/mnt/nas-rw/backup/postgres`에 DB backup
-  - 7일 초과 `*.sql.gz` 삭제
 - `scripts/README.md`, `scripts/healthcheck.sh`
   - `/home/ubuntu/actions-runner/_work/TK101/TK101`에서 실행 전제
   - Docker, NAS, API, 로그 확인
@@ -174,7 +172,7 @@ Docker 사용량 기준:
 
 - ubuntu 사용자 crontab: 없음
 - system cron: TK101 전용으로 보이는 항목 없음. 기본 `sysstat`, `logrotate`, `apt`, Tencent agent cron 등 존재
-- GitHub Actions backup workflow: 매일 02:00 KST
+- GitHub Actions backup workflow: **제거됨(2026-06-24)** — 현재 자동 DB 백업 스케줄 없음
 - GitHub Actions runner service: active/running
 
 ## 위험 구역
