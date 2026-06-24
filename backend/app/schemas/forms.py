@@ -143,6 +143,9 @@ class RegenerateRequest(BaseModel):
 
 class RenderRequest(BaseModel):
     save_to_nas: bool = True
+    # True 면 필수 변수 검수 미완료(누락)여도 렌더 진행 — 누락분은 빈칸으로 출력.
+    # 사용자가 프론트 "이대로 다운로드" 모달에서 명시적으로 동의한 경우에만 전달.
+    acknowledge_missing: bool = False
 
 
 class RevisionPayload(BaseModel):

@@ -149,20 +149,18 @@ export default function JobMappingPage() {
     }
   };
 
-  const handleConfirmAll = async () => {
+  // 실제 렌더 + 다운로드 수행. acknowledgeMissing=true 면 누락 변수가 있어도
+  // 백엔드가 빈칸으로 출력하도록 동의 플래그를 전달한다.
+  const runRenderAndDownload = async (acknowledgeMissing: boolean) => {
     if (!detail) return;
-    if (missingMappings.length > 0) {
-      message.warning(`누락 변수 ${missingMappings.length}개를 먼저 입력하세요`);
-      setMissingFormOpen(true);
-      return;
-    }
     setBusy(true);
     try {
       // 검수 강제 (NFR-04 #4): 백엔드 render 는 모든 필수 변수가 confirmed 여야 통과.
       // "확정 후 다운로드" 가 사용자의 명시적 검수 확정 행위이므로, 값이 있는 매핑을
-      // 모두 confirmed 처리한 뒤 render 한다.
+      // 모두 confirmed 처리한 뒤 render 한다. 누락(필수 미검수) 변수는 acknowledge_missing
+      // 플래그로 진행하며, 값이 비어 빈칸으로 출력된다.
       await confirmMappingsBeforeRender(id, detail);
-      await renderJobDocx(id);
+      await renderJobDocx(id, { acknowledge_missing: acknowledgeMissing });
       message.success("문서 생성 완료 — 다운로드를 시작합니다");
       const filename =
         `${detail.template.name ?? "form"}_${new Date().toISOString().slice(0, 10)}.${
@@ -174,6 +172,33 @@ export default function JobMappingPage() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleConfirmAll = async () => {
+    if (!detail) return;
+    if (missingMappings.length > 0) {
+      // 하드 차단 대신 사용자에게 누락 사실을 알리고 동의 시 빈칸으로 다운로드.
+      // 채워 넣고 싶으면 "취소" 후 누락 폼을 사용할 수 있다.
+      Modal.confirm({
+        title: "누락 정보 확인",
+        content: (
+          <div>
+            <p>
+              입력되지 않은 변수 {missingMappings.length}개가 있습니다. 이대로
+              진행하면 해당 항목은 <Text strong>빈칸</Text>으로 출력됩니다.
+            </p>
+            <p style={{ marginBottom: 0, color: "#999" }}>
+              내용을 채워 넣으려면 "취소" 후 누락 정보를 입력하세요.
+            </p>
+          </div>
+        ),
+        okText: "이대로 다운로드",
+        cancelText: "취소",
+        onOk: () => runRenderAndDownload(true),
+      });
+      return;
+    }
+    await runRenderAndDownload(false);
   };
 
   if (loading) {

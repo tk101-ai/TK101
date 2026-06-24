@@ -670,12 +670,21 @@ async def render_job(
     confirmed_keys = {m.variable_key for m in mappings_rows if m.confirmed}
     missing_required = required_keys - confirmed_keys
     if missing_required:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"필수 변수 검수 미완료 — 검수 후 재시도: {sorted(missing_required)}"
-            ),
-        )
+        if body.acknowledge_missing:
+            # 사용자가 "이대로 다운로드"에 동의 — 누락분은 빈칸으로 렌더. 감사용 로깅.
+            logger.info(
+                "forms render 누락 동의 진행 job=%s user=%s missing=%s",
+                job.id,
+                user.id,
+                sorted(missing_required),
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"필수 변수 검수 미완료 — 검수 후 재시도: {sorted(missing_required)}"
+                ),
+            )
 
     mapping_dict = _render_mapping_dict(template, mappings_rows)
 
