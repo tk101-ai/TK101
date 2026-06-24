@@ -16,19 +16,23 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_module
+from app.models.docgen import DocgenDocument
 from app.models.form_filler import FormJob
-from app.modules.constants import Module
+from app.modules.constants import Module, UserRole
 from app.models.user import User
 from pydantic import TypeAdapter, ValidationError
 
 from app.schemas.docgen import (
     DocGenResponse,
+    DocgenDocumentBrief,
+    DocgenDocumentDetail,
     DocRenderRequest,
     DocReviewResponse,
     DocSection,
@@ -125,6 +129,71 @@ async def _persist_generate_job(
             pass
 
 
+async def _persist_document(
+    db: AsyncSession,
+    user: User,
+    *,
+    title: str,
+    topic: str | None,
+    doc_type: str | None,
+    source_mode: SourceMode,
+    sections: list[dict],
+    sources: list[dict],
+    model: str | None,
+) -> str | None:
+    """생성된 문서를 docgen_documents 에 사용자별 영속화(재열람용).
+
+    문서가 본 product 이므로 영속화 실패가 생성 응답을 막아선 안 된다.
+    실패 시 로그만 남기고 None 반환(_persist_generate_job 패턴).
+    반환: 저장된 문서 id(str) 또는 None.
+    """
+    try:
+        doc_id = uuid.uuid4()
+        row = DocgenDocument(
+            id=doc_id,
+            user_id=user.id,
+            department=user.department,
+            title=title[:300] or "(제목 없음)",
+            topic=topic,
+            doc_type=doc_type,
+            source_mode=source_mode,
+            sections=sections,
+            sources=sources,
+            model=model,
+        )
+        db.add(row)
+        await db.commit()
+        # 커밋 후 expire 로 row.id 접근 시 lazy refresh 가 날 수 있어 미리 잡은 값 사용.
+        return str(doc_id)
+    except Exception:  # noqa: BLE001 - 영속화 실패가 생성 응답을 막아선 안 됨
+        logger.exception("docgen 문서 영속화 실패 — 생성 응답은 정상 반환")
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+
+async def _fetch_document_or_404(
+    db: AsyncSession,
+    document_id: uuid.UUID,
+    user: User,
+) -> DocgenDocument:
+    """본인(또는 admin) 문서만 조회. 아니면 404(소유 누설 방지)."""
+    row = (
+        await db.execute(
+            select(DocgenDocument).where(DocgenDocument.id == document_id)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다")
+    is_admin = user.role == UserRole.ADMIN.value
+    if not is_admin and str(row.user_id) != str(user.id):
+        # 소유자 누설 방지 — 403 대신 404.
+        raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다")
+    return row
+
+
 @router.post("/generate", response_model=DocGenResponse)
 async def generate(
     topic: str = Form(..., max_length=4000),
@@ -199,13 +268,32 @@ async def generate(
     # 성공한 생성을 잡으로 영속화(비용/토큰 회계). best-effort — 실패해도 응답은 정상.
     await _persist_generate_job(db, user, source_mode, doc)
 
+    section_dicts = [
+        {"heading": s["heading"], "body": s["body"]} for s in doc.sections
+    ]
+    source_refs = list(by_path.values())
+
+    # 생성 문서 자체를 사용자별로 영속화(재열람용). best-effort — 실패해도 응답 정상.
+    document_id = await _persist_document(
+        db,
+        user,
+        title=doc.title,
+        topic=topic,
+        doc_type=doc_type,
+        source_mode=source_mode,
+        sections=section_dicts,
+        sources=[s.model_dump() for s in source_refs],
+        model=doc.model,
+    )
+
     # cost_usd 는 응답에서 제외(관리자 전용). 비용은 계산·영속화되지만 일반 사용자에 미노출.
     return DocGenResponse(
         title=doc.title,
         sections=[DocSection(heading=s["heading"], body=s["body"]) for s in doc.sections],
         markdown=render_markdown(doc.title, doc.sections),
-        sources=list(by_path.values()),
+        sources=source_refs,
         model=doc.model,
+        document_id=document_id,
     )
 
 
@@ -374,3 +462,71 @@ async def render_pptx(
         media_type=_PPTX_MIME,
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )
+
+
+# ── 내 문서(저장된 생성 결과) ─────────────────────────────────────────────
+
+
+@router.get("/documents", response_model=list[DocgenDocumentBrief])
+async def list_documents(
+    q: str | None = Query(default=None, description="제목/주제 ILIKE 검색"),
+    limit: int = Query(default=50, ge=1, le=200),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[DocgenDocumentBrief]:
+    """본인이 저장한 생성 문서 목록(최신순). q 가 있으면 title/topic ILIKE 매칭."""
+    stmt = select(DocgenDocument).where(DocgenDocument.user_id == user.id)
+    if q and q.strip():
+        pattern = f"%{q.strip()}%"
+        stmt = stmt.where(
+            DocgenDocument.title.ilike(pattern)
+            | DocgenDocument.topic.ilike(pattern)
+        )
+    stmt = stmt.order_by(DocgenDocument.created_at.desc()).limit(limit)
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        DocgenDocumentBrief(
+            id=str(r.id),
+            title=r.title,
+            doc_type=r.doc_type,
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]
+
+
+@router.get("/documents/{document_id}", response_model=DocgenDocumentDetail)
+async def get_document(
+    document_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DocgenDocumentDetail:
+    """저장된 문서 1건 전체(재열람용 — 섹션/출처 포함)."""
+    row = await _fetch_document_or_404(db, document_id, user)
+    sections = [
+        DocSection(heading=s.get("heading", ""), body=s.get("body", ""))
+        for s in (row.sections or [])
+    ]
+    sources = [DocSourceRef(**s) for s in (row.sources or [])]
+    return DocgenDocumentDetail(
+        id=str(row.id),
+        title=row.title,
+        sections=sections,
+        sources=sources,
+        topic=row.topic,
+        doc_type=row.doc_type,
+        source_mode=row.source_mode,
+        created_at=row.created_at,
+    )
+
+
+@router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    document_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """본인 문서 삭제."""
+    row = await _fetch_document_or_404(db, document_id, user)
+    await db.delete(row)
+    await db.commit()

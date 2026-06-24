@@ -41,6 +41,55 @@ export interface DocGenResponse {
   sources: DocSourceRef[];
   // cost_usd 는 관리자 전용 패널로 이전 — 일반 응답에서 제외.
   model: string;
+  /** 영속화된 문서 id(재열람 키). 저장 실패 시 null. */
+  document_id?: string | null;
+}
+
+/** 내 문서 목록 항목(가벼운 메타만). */
+export interface DocgenDocumentBrief {
+  id: string;
+  title: string;
+  doc_type?: string | null;
+  created_at: string;
+}
+
+/** 재열람용 전체 문서(섹션/출처 포함). */
+export interface DocgenDocumentDetail {
+  id: string;
+  title: string;
+  sections: DocSection[];
+  sources: DocSourceRef[];
+  topic?: string | null;
+  doc_type?: DocType | null;
+  source_mode?: SourceMode | null;
+  created_at: string;
+}
+
+/** 본인이 저장한 생성 문서 목록(최신순). q 가 있으면 제목/주제 ILIKE 검색. */
+export async function listDocgenDocuments(
+  q?: string,
+): Promise<DocgenDocumentBrief[]> {
+  const params: Record<string, string> = {};
+  if (q && q.trim()) params.q = q.trim();
+  const res = await api.get<DocgenDocumentBrief[]>("/api/docgen/documents", {
+    params,
+  });
+  return res.data;
+}
+
+/** 저장된 문서 1건 전체(재열람용). */
+export async function getDocgenDocument(
+  id: string,
+): Promise<DocgenDocumentDetail> {
+  const res = await api.get<DocgenDocumentDetail>(
+    `/api/docgen/documents/${id}`,
+  );
+  return res.data;
+}
+
+/** 본인 문서 삭제. */
+export async function deleteDocgenDocument(id: string): Promise<void> {
+  await api.delete(`/api/docgen/documents/${id}`);
 }
 
 export async function generateDocument(req: DocGenRequest): Promise<DocGenResponse> {
