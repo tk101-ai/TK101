@@ -546,13 +546,26 @@ export async function regenerateJobMapping(
 
 // 백엔드 `POST /render` 는 완료된 JobDetail 을 반환한다 (download_url 필드 없음).
 // 다운로드는 별도 `GET /download` 로 수행한다.
-export async function renderJobDocx(jobId: string): Promise<FormJobDetail> {
+export interface RenderJobRequest {
+  save_to_nas?: boolean;
+  // true 면 누락(필수 미검수) 변수가 있어도 빈칸으로 렌더 진행 — 사용자가
+  // "이대로 다운로드"에 명시적으로 동의한 경우에만 전달.
+  acknowledge_missing?: boolean;
+}
+
+export async function renderJobDocx(
+  jobId: string,
+  body?: RenderJobRequest,
+): Promise<FormJobDetail> {
   if (MOCK_ENABLED) {
     await new Promise((r) => setTimeout(r, 500));
     const detail = await getFormJob(jobId);
     return { ...detail, status: "completed", output_path: `/mock/outputs/${jobId}.docx` };
   }
-  const res = await api.post<FormJobDetail>(`/api/forms/jobs/${jobId}/render`);
+  const res = await api.post<FormJobDetail>(
+    `/api/forms/jobs/${jobId}/render`,
+    body ?? {},
+  );
   return res.data;
 }
 

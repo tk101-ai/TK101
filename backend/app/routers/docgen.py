@@ -180,10 +180,21 @@ async def generate(
     # (모델 미반환 등) 검색된 전체 청크로 폴백. 인용 안 한 자료를 출처로 표기하던 문제 수정.
     cited = {p for p in doc.used_sources}
     src_chunks = [c for c in chunks if c.file_path in cited] if cited else chunks
-    # path 중복 제거(파일당 최고 점수 1건).
-    by_path: dict[str, float] = {}
+    # path 중복 제거(파일당 최고 점수 1건). 표시용 메타(name/source_type/doc_id)도 함께 보존.
+    # 업로드 청크는 file_id="" 이므로 source_type 을 "uploaded" 로 구분한다(sources.py 규약).
+    by_path: dict[str, DocSourceRef] = {}
     for c in src_chunks:
-        by_path[c.file_path] = max(by_path.get(c.file_path, 0.0), float(c.score))
+        score = float(c.score)
+        src_type = "uploaded" if not (c.file_id or "").strip() else "nas"
+        existing = by_path.get(c.file_path)
+        if existing is None or score > existing.score:
+            by_path[c.file_path] = DocSourceRef(
+                path=c.file_path,
+                score=round(score, 4),
+                name=c.file_name or c.file_path,
+                source_type=src_type,
+                doc_id=(c.file_id or None),
+            )
 
     # 성공한 생성을 잡으로 영속화(비용/토큰 회계). best-effort — 실패해도 응답은 정상.
     await _persist_generate_job(db, user, source_mode, doc)
@@ -193,7 +204,7 @@ async def generate(
         title=doc.title,
         sections=[DocSection(heading=s["heading"], body=s["body"]) for s in doc.sections],
         markdown=render_markdown(doc.title, doc.sections),
-        sources=[DocSourceRef(path=p, score=round(s, 4)) for p, s in by_path.items()],
+        sources=list(by_path.values()),
         model=doc.model,
     )
 

@@ -26,6 +26,12 @@ class DocSection(BaseModel):
 class DocSourceRef(BaseModel):
     path: str
     score: float
+    # 표시용 파일명(있으면 path 꼬리 대신 노출). NAS=file_name, 업로드=업로드 파일명.
+    name: str | None = None
+    # 출처 구분: "nas"(회사 NAS RAG) / "uploaded"(사용자 업로드).
+    source_type: str = "nas"
+    # NAS 문서 단위 식별자(doc_id). 업로드 자료는 빈 문자열.
+    doc_id: str | None = None
 
 
 class DocGenResponse(BaseModel):

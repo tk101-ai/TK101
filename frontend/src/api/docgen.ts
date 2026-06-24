@@ -14,6 +14,12 @@ export interface DocSection {
 export interface DocSourceRef {
   path: string;
   score: number;
+  /** 표시용 파일명(있으면 path 대신 노출). */
+  name?: string | null;
+  /** 출처 구분: "nas"(회사 NAS RAG) / "uploaded"(사용자 업로드). */
+  source_type: "nas" | "uploaded";
+  /** NAS 문서 doc_id(업로드 자료는 빈 문자열/null). */
+  doc_id?: string | null;
 }
 
 export interface DocGenRequest {
@@ -22,6 +28,8 @@ export interface DocGenRequest {
   /** 출처 모드. 기본 "rag"(NAS만). */
   source_mode?: SourceMode;
   limit?: number;
+  /** 고품질 모드(LLM 검수→재생성 루프). 기본 false(초안, 빠름). */
+  auto_review?: boolean;
   /** source_mode 가 uploaded/both 일 때 참고할 업로드 파일들. */
   files?: File[];
 }
@@ -42,6 +50,10 @@ export async function generateDocument(req: DocGenRequest): Promise<DocGenRespon
   fd.append("doc_type", req.doc_type);
   fd.append("source_mode", req.source_mode ?? "rag");
   fd.append("limit", String(req.limit ?? 8));
+  // 고품질 모드 토글 — 명시한 경우에만 전송(미전송 시 서버 기본값 적용).
+  if (req.auto_review !== undefined) {
+    fd.append("auto_review", String(req.auto_review));
+  }
   (req.files ?? []).forEach((f) => fd.append("files", f));
   const res = await api.post<DocGenResponse>("/api/docgen/generate", fd);
   return res.data;
