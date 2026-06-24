@@ -1,8 +1,7 @@
 import api from "./client";
-import { DEFAULT_DISTRIBUTION_COMPANY } from "./distribution";
 
 /**
- * 신사업유통 — 커스텀 생성 트리거 + 시나리오 조회 API (T9 Phase E-2).
+ * 신사업유통 — 커스텀 대화 생성 + 시나리오 조회 API (T9 Phase E-2).
  *
  * 백엔드:
  * - `app/routers/distribution_generate_v2.py` (POST /generate-custom)
@@ -66,14 +65,14 @@ export async function createUserScenario(
     instruction: payload.instruction,
     sender_role: payload.sender_role ?? "domestic_admin",
     receiver_role: payload.receiver_role ?? "vietnam_admin",
-    language: payload.language ?? "zh",
+    language: payload.language ?? "ko",
     attachment_required: payload.attachment_required ?? false,
   });
   return res.data;
 }
 
 // ---------------------------------------------------------------------------
-// 커스텀 생성 트리거
+// 커스텀 대화 생성
 // ---------------------------------------------------------------------------
 
 export type TimingProfile = "short" | "normal" | "varied";
@@ -81,27 +80,23 @@ export type TimingProfile = "short" | "normal" | "varied";
 export interface GenerateCustomPayload {
   sender_persona_ids: string[];
   scenario_names: string[];
-  period_label?: string | null;
-  company_label?: string;
   /** 메시지 간격 분포 (T9 — 2026-05-26). default 'normal'. */
   timing_profile?: TimingProfile;
   /** 대화 언어 (T9 — 2026-05-27). default 'ko'. */
   language?: DistributionLanguage;
   /** 즉석 지시(저장 안 함) — 있으면 숨김 시나리오 자동 생성 후 사용. */
   ad_hoc_instruction?: string;
-  /** 주차 데이터(weekly_summary) 참고 여부. default true. false 면 미주입. */
-  use_weekly_summary?: boolean;
   /** 그룹 송신 chat id/@username/링크. 설정 시 1:1 대신 그룹(3명 방)에 게시. */
   group_chat_id?: string;
 }
 
-/** 페르소나 계정이 참여 중인 그룹 1건 (그룹 chat_id 선택용). */
+/** 텔레그램 계정이 참여 중인 그룹 1건 (그룹 chat_id 선택용). */
 export interface GroupDialog {
   chat_id: string;
   title: string;
 }
 
-/** 지정 발신 계정이 참여 중인 그룹 목록 조회 (그룹 chat_id 찾기). admin only. */
+/** 지정 계정이 참여 중인 그룹 목록 조회 (그룹 chat_id 찾기). */
 export async function discoverGroups(personaId: string): Promise<GroupDialog[]> {
   const res = await api.get<{ items: GroupDialog[] }>(`${BASE}/groups/discover`, {
     params: { persona_id: personaId },
@@ -113,32 +108,23 @@ export interface GenerateCustomResult {
   sessions_created: string[];
   skipped: string[];
   errors: string[];
-  used_period_label: string | null;
 }
 
 /**
- * 사용자가 명시한 (페르소나 × 시나리오 × 주차) 조합으로 세션 생성.
+ * 사용자가 명시한 (계정 × 시나리오) 조합으로 세션 생성.
  *
- * - 발신 페르소나는 한국 어드민(domestic_admin) 만 허용. 그 외 역할은 백엔드가 errors 에 기록.
- * - 베트남 어드민은 백엔드가 활성 1명 자동 선택.
- * - period_label 미지정 시 최신 주차 weekly_summary 사용.
+ * - 첫 발송 계정은 활성·로그인 완료 계정만 허용. 대화 상대는 백엔드가 자동 선택.
  */
 export async function generateCustom(
   payload: GenerateCustomPayload,
 ): Promise<GenerateCustomResult> {
-  const res = await api.post<GenerateCustomResult>(
-    `${BASE}/generate-custom`,
-    {
-      sender_persona_ids: payload.sender_persona_ids,
-      scenario_names: payload.scenario_names,
-      period_label: payload.period_label ?? null,
-      company_label: payload.company_label ?? DEFAULT_DISTRIBUTION_COMPANY,
-      timing_profile: payload.timing_profile ?? "normal",
-      language: payload.language ?? "ko",
-      ad_hoc_instruction: payload.ad_hoc_instruction ?? null,
-      use_weekly_summary: payload.use_weekly_summary ?? true,
-      group_chat_id: payload.group_chat_id ?? null,
-    },
-  );
+  const res = await api.post<GenerateCustomResult>(`${BASE}/generate-custom`, {
+    sender_persona_ids: payload.sender_persona_ids,
+    scenario_names: payload.scenario_names,
+    timing_profile: payload.timing_profile ?? "normal",
+    language: payload.language ?? "ko",
+    ad_hoc_instruction: payload.ad_hoc_instruction ?? null,
+    group_chat_id: payload.group_chat_id ?? null,
+  });
   return res.data;
 }

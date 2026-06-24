@@ -1,7 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { Button, Empty, Spin, Typography } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
-import { useAuth } from "../../hooks/useAuth";
 import { useSessionDetail } from "./session-detail/useSessionDetail";
 import { SessionHeaderCard } from "./session-detail/SessionHeaderCard";
 import { MessageTimeline } from "./session-detail/MessageTimeline";
@@ -25,11 +24,6 @@ const { Title, Paragraph } = Typography;
  */
 export default function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
-  // 승인/거부는 신사업팀 member 가능(검수), 실 송신(send-now)만 백엔드
-  // require_admin → member 에게는 '지금 송신' 버튼을 숨겨 403 혼란을 막는다.
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
-
   const {
     detail,
     loading,
@@ -54,6 +48,8 @@ export default function SessionDetailPage() {
     setAddContent,
     addAfterSec,
     setAddAfterSec,
+    addPosition,
+    setAddPosition,
     adding,
     handleAddMessage,
   } = useSessionDetail(id);
@@ -85,11 +81,9 @@ export default function SessionDetailPage() {
 
   const status = session.status;
   // 예약/송신중/완료 세션은 편집 불가 (워커가 송신 중이거나 이미 송신됨).
-  const editingDisabled =
-    status === "sent" || status === "sending" || status === "scheduled";
+  const editingDisabled = status === "sent" || status === "sending" || status === "scheduled";
   // 예약 세션 계열에서만 메시지별 워커 송신 상태(send_state)를 노출.
-  const showSendState =
-    status === "scheduled" || status === "sending" || status === "sent";
+  const showSendState = status === "scheduled" || status === "sending" || status === "sent";
 
   return (
     <div style={{ maxWidth: 1080 }}>
@@ -113,7 +107,6 @@ export default function SessionDetailPage() {
       <SessionHeaderCard
         session={session}
         messages={messages}
-        isAdmin={isAdmin}
         sendNowLoading={sendNowLoading}
         onRefresh={() => {
           void fetchData();
@@ -140,12 +133,15 @@ export default function SessionDetailPage() {
         <AddMessageCard
           senderLabel={session.sender_account_label}
           receiverLabel={session.receiver_account_label}
+          messageCount={messages.length}
           addSide={addSide}
           setAddSide={setAddSide}
           addContent={addContent}
           setAddContent={setAddContent}
           addAfterSec={addAfterSec}
           setAddAfterSec={setAddAfterSec}
+          addPosition={addPosition}
+          setAddPosition={setAddPosition}
           adding={adding}
           onAdd={() => {
             void handleAddMessage();

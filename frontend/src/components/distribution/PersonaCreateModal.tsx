@@ -10,7 +10,7 @@ import {
 import { extractErrorDetail } from "../../utils/errorUtils";
 
 /**
- * 신규 텔레그램 페르소나 등록 모달 (T9 Phase A).
+ * 신규 텔레그램 계정 등록 모달 (T9 Phase A).
  *
  * - my.telegram.org 에서 발급받은 api_id/api_hash 가 필수.
  * - daily_msg_limit/warmup_days 는 송신 빈도 제한과 워밍업 기간을 정의.
@@ -35,11 +35,7 @@ interface CreateFormValues {
   warmup_days: number;
 }
 
-export default function PersonaCreateModal({
-  open,
-  onClose,
-  onCreated,
-}: Props) {
+export default function PersonaCreateModal({ open, onClose, onCreated }: Props) {
   const [form] = Form.useForm<CreateFormValues>();
 
   const handleClose = () => {
@@ -60,7 +56,7 @@ export default function PersonaCreateModal({
     };
     try {
       const persona = await createPersona(payload);
-      message.success("페르소나가 등록되었습니다");
+      message.success("텔레그램 계정이 등록되었습니다");
       form.resetFields();
       onCreated(persona);
       onClose();
@@ -68,9 +64,7 @@ export default function PersonaCreateModal({
       // 백엔드가 자주 반환하는 상태코드에 친화 메시지 매핑.
       const status = isAxiosError(err) ? err.response?.status : undefined;
       if (status === 409) {
-        message.error(
-          extractErrorDetail(err, "이미 등록된 라벨입니다. 다른 라벨을 사용하세요."),
-        );
+        message.error(extractErrorDetail(err, "이미 등록된 라벨입니다. 다른 라벨을 사용하세요."));
         return;
       }
       if (status === 503) {
@@ -82,13 +76,13 @@ export default function PersonaCreateModal({
         );
         return;
       }
-      message.error(extractErrorDetail(err, "페르소나 등록에 실패했습니다"));
+      message.error(extractErrorDetail(err, "계정 등록에 실패했습니다"));
     }
   };
 
   return (
     <Modal
-      title="새 페르소나 등록"
+      title="새 텔레그램 계정 등록"
       open={open}
       onCancel={handleClose}
       onOk={() => form.submit()}

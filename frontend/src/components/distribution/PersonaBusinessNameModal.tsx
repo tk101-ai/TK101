@@ -12,7 +12,7 @@ import { extractErrorDetail } from "../../utils/errorUtils";
 const { Text } = Typography;
 
 /**
- * 페르소나 사업자명/표시명 편집 모달 (T9 Phase C 보강).
+ * 텔레그램 계정 표시 정보 편집 모달 (T9 Phase C 보강).
  *
  * - 자격증명·세션은 손대지 않음. `PATCH /api/distribution/personas/{id}` 1회로 갱신.
  * - 두 필드 모두 선택. 빈 문자열은 null 로 정규화하여 백엔드에 전송.
@@ -38,12 +38,7 @@ function toNullable(value: string | undefined): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
-export default function PersonaBusinessNameModal({
-  open,
-  persona,
-  onClose,
-  onUpdated,
-}: Props) {
+export default function PersonaBusinessNameModal({ open, persona, onClose, onUpdated }: Props) {
   const [form] = Form.useForm<FormValues>();
 
   // 모달이 열릴 때마다 현재 값으로 prefill.
@@ -93,18 +88,18 @@ export default function PersonaBusinessNameModal({
 
     try {
       await updatePersona(persona.id, payload);
-      message.success("페르소나 정보를 갱신했습니다.");
+      message.success("계정 표시 정보를 갱신했습니다.");
       form.resetFields();
       onUpdated();
       onClose();
     } catch (err: unknown) {
-      message.error(extractErrorDetail(err, "페르소나 갱신에 실패했습니다"));
+      message.error(extractErrorDetail(err, "계정 표시 정보 갱신에 실패했습니다"));
     }
   };
 
   return (
     <Modal
-      title="라벨 / 사업자명 / 표시명 편집"
+      title="계정 표시 정보 편집"
       open={open}
       onCancel={handleClose}
       onOk={() => form.submit()}
@@ -121,8 +116,7 @@ export default function PersonaBusinessNameModal({
             style={{ marginBottom: 16 }}
             message={
               <span>
-                <Text strong>{persona.account_label}</Text> 의 표시 정보를
-                갱신합니다.
+                <Text strong>{persona.account_label}</Text> 의 표시 정보를 갱신합니다.
               </span>
             }
             description="자격증명·텔레그램 세션에는 영향이 없습니다."
@@ -145,8 +139,8 @@ export default function PersonaBusinessNameModal({
 
             <Form.Item
               name="role"
-              label="역할 (발신/수신 라우팅)"
-              help="국내 어드민 = 한국(발신 후보) · 베트남 어드민 = 베트남(수신 자동선택 대상). 계정을 재배치하면 역할도 맞춰주세요."
+              label="역할 (발송/상대 선택 기준)"
+              help="국내 어드민 = 한국 계정 · 베트남 어드민 = 베트남 계정. 계정을 재배치하면 역할도 맞춰주세요."
             >
               <Select options={PERSONA_ROLE_OPTIONS} />
             </Form.Item>
@@ -163,7 +157,7 @@ export default function PersonaBusinessNameModal({
             <Form.Item
               name="display_name"
               label="표시명"
-              help="페르소나 표시명 (선택, 빈 값이면 변경하지 않음)"
+              help="계정 표시명 (선택, 빈 값이면 변경하지 않음)"
               rules={[{ max: 100, message: "최대 100자까지 입력 가능합니다" }]}
             >
               <Input placeholder="예: 김지원" maxLength={100} />

@@ -576,7 +576,7 @@ export async function createManualSession(
   const res = await api.post<{ id: string }>(`${BASE}/sessions`, {
     sender_persona_id: payload.sender_persona_id,
     receiver_persona_id: payload.receiver_persona_id,
-    language: payload.language ?? "zh",
+    language: payload.language ?? "ko",
     group_chat_id: payload.group_chat_id ?? null,
   });
   return res.data;

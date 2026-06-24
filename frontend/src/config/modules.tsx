@@ -110,7 +110,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "sns-import", path: "/sns/import", label: "엑셀 가져오기", icon: <CloudUploadOutlined />, module: "marketing_sns", category: "marketing_1" },
   { key: "review-translation", path: "/marketing/review-translation", label: "체험단 번역", icon: <TranslationOutlined />, module: "review_translation", category: "marketing_1" },
   { key: "distribution-dashboard", path: "/distribution/dashboard", label: "대시보드", icon: <DashboardOutlined />, module: "distribution", category: "new_business" },
-  { key: "distribution-personas", path: "/distribution/personas", label: "페르소나 관리", icon: <SendOutlined />, module: "distribution", category: "new_business" },
+  { key: "distribution-personas", path: "/distribution/personas", label: "텔레그램 계정", icon: <SendOutlined />, module: "distribution", category: "new_business" },
   { key: "distribution-data-upload", path: "/distribution/data/upload", label: "데이터 업로드", icon: <CloudUploadOutlined />, module: "distribution", category: "new_business" },
   { key: "distribution-data-weekly", path: "/distribution/data/weekly", label: "주차별 종합", icon: <TableOutlined />, module: "distribution", category: "new_business" },
   { key: "distribution-data-products", path: "/distribution/data/products", label: "명품재고대장", icon: <GoldOutlined />, module: "distribution", category: "new_business" },

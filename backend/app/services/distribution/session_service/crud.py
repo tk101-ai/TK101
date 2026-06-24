@@ -283,19 +283,27 @@ async def create_manual_session(
 ) -> UUID:
     """사용자가 직접 작성할 빈 세션 생성 (메시지 0개, status='pending').
 
-    ValueError: 페르소나 미존재 / 발신=수신 동일.
+    ValueError: 계정 미존재 / 발신=수신 동일 / 비활성·미연동 계정.
     """
     if sender_persona_id == receiver_persona_id:
-        raise ValueError("발신/수신 페르소나가 동일할 수 없습니다.")
+        raise ValueError("첫 발송 계정과 대화 상대가 동일할 수 없습니다.")
     res = await db.execute(
-        select(DistributionPersona.id).where(
+        select(DistributionPersona).where(
             DistributionPersona.id.in_([sender_persona_id, receiver_persona_id])
         )
     )
-    found = {row[0] for row in res.all()}
+    accounts = list(res.scalars().all())
+    by_id = {account.id: account for account in accounts}
     for pid in (sender_persona_id, receiver_persona_id):
-        if pid not in found:
-            raise ValueError(f"페르소나 {pid} 가 존재하지 않습니다.")
+        account = by_id.get(pid)
+        if account is None:
+            raise ValueError(f"텔레그램 계정 {pid} 가 존재하지 않습니다.")
+        if not account.active:
+            raise ValueError(f"{account.account_label}: 비활성 계정은 세션에 사용할 수 없습니다.")
+        if not (account.session_path and account.telegram_user_id):
+            raise ValueError(
+                f"{account.account_label}: 텔레그램 로그인이 완료된 계정만 사용할 수 있습니다."
+            )
 
     scenario = await _get_or_create_manual_scenario(db)
     session = DistributionSession(

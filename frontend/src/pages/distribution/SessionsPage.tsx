@@ -1,16 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import {
-  Button,
-  Card,
-  Popconfirm,
-  Radio,
-  Space,
-  Table,
-  Tag,
-  Typography,
-  message,
-} from "antd";
+import { Button, Card, Popconfirm, Radio, Space, Table, Tag, Typography, message } from "antd";
 import {
   DeleteOutlined,
   EditOutlined,
@@ -76,7 +66,7 @@ export default function SessionsPage() {
   const [page, setPage] = useState<number>(1);
   const [total, setTotal] = useState<number>(0);
 
-  // 생성 트리거 모달 — 페르소나/시나리오/주차 선택 후 POST /generate-custom 호출.
+  // 대화 생성 모달 — 계정/시나리오 선택 후 POST /generate-custom 호출.
   const [triggerOpen, setTriggerOpen] = useState<boolean>(false);
   // 수동 세션 만들기 모달 — 빈 세션 생성 후 상세에서 직접 작성.
   const [manualOpen, setManualOpen] = useState<boolean>(false);
@@ -164,9 +154,7 @@ export default function SessionsPage() {
         dataIndex: "status",
         width: 110,
         render: (value: SessionStatus) => (
-          <Tag color={SESSION_STATUS_TAG_COLOR[value]}>
-            {SESSION_STATUS_LABEL[value]}
-          </Tag>
+          <Tag color={SESSION_STATUS_TAG_COLOR[value]}>{SESSION_STATUS_LABEL[value]}</Tag>
         ),
       },
       {
@@ -182,9 +170,7 @@ export default function SessionsPage() {
         title: "생성일",
         dataIndex: "generated_at",
         width: 150,
-        render: (value: string) => (
-          <Text style={{ fontSize: 12 }}>{formatDateTime(value)}</Text>
-        ),
+        render: (value: string) => <Text style={{ fontSize: 12 }}>{formatDateTime(value)}</Text>,
       },
       {
         title: "승인일",
@@ -202,9 +188,7 @@ export default function SessionsPage() {
         width: 110,
         align: "right" as const,
         render: (value: string | null) => (
-          <span style={{ fontVariantNumeric: "tabular-nums" }}>
-            {formatCost(value)}
-          </span>
+          <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatCost(value)}</span>
         ),
       },
       {
@@ -252,8 +236,7 @@ export default function SessionsPage() {
           대화 세션 검수
         </Title>
         <Paragraph type="secondary" style={{ margin: "4px 0 0" }}>
-          생성된 텔레그램 대화 세션을 검수합니다. 메시지 편집 후 승인하면 워커가
-          픽업해 송신합니다.
+          생성된 텔레그램 대화 세션을 검수합니다. 메시지 편집 후 승인하면 워커가 픽업해 송신합니다.
         </Paragraph>
       </div>
 
@@ -280,12 +263,9 @@ export default function SessionsPage() {
               icon={<ThunderboltOutlined />}
               onClick={() => setTriggerOpen(true)}
             >
-              생성 트리거
+              대화 생성
             </Button>
-            <Button
-              icon={<EditOutlined />}
-              onClick={() => setManualOpen(true)}
-            >
+            <Button icon={<EditOutlined />} onClick={() => setManualOpen(true)}>
               수동 세션 만들기
             </Button>
             <Button
@@ -325,13 +305,9 @@ export default function SessionsPage() {
           const skipped = result.skipped.length;
           const errors = result.errors.length;
           if (created > 0) {
-            message.success(
-              `세션 ${created}건 생성됨 (skip ${skipped}, error ${errors})`,
-            );
+            message.success(`세션 ${created}건 생성됨 (skip ${skipped}, error ${errors})`);
           } else {
-            message.warning(
-              `생성된 세션이 없습니다 (skip ${skipped}, error ${errors}).`,
-            );
+            message.warning(`생성된 세션이 없습니다 (skip ${skipped}, error ${errors}).`);
           }
           setPage(1);
           void fetchData();

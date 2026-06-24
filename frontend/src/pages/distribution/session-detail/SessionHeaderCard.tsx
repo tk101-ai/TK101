@@ -23,7 +23,6 @@ type SessionInfo = SessionDetail["session"];
 interface SessionHeaderCardProps {
   session: SessionInfo;
   messages: MessageItem[];
-  isAdmin: boolean;
   sendNowLoading: boolean;
   onRefresh: () => void;
   onApproveOpen: () => void;
@@ -34,7 +33,6 @@ interface SessionHeaderCardProps {
 export function SessionHeaderCard({
   session,
   messages,
-  isAdmin,
   sendNowLoading,
   onRefresh,
   onApproveOpen,
@@ -50,9 +48,7 @@ export function SessionHeaderCard({
       title={
         <Space>
           <Text strong>{session.scenario_name}</Text>
-          <Tag color={SESSION_STATUS_TAG_COLOR[status]}>
-            {SESSION_STATUS_LABEL[status]}
-          </Tag>
+          <Tag color={SESSION_STATUS_TAG_COLOR[status]}>{SESSION_STATUS_LABEL[status]}</Tag>
         </Space>
       }
       extra={
@@ -67,48 +63,30 @@ export function SessionHeaderCard({
           </Button>
           {status === "pending" && (
             <>
-              <Button
-                type="primary"
-                icon={<CheckOutlined />}
-                onClick={onApproveOpen}
-              >
+              <Button type="primary" icon={<CheckOutlined />} onClick={onApproveOpen}>
                 승인
               </Button>
-              <Button
-                danger
-                icon={<CloseOutlined />}
-                onClick={onRejectOpen}
-              >
+              <Button danger icon={<CloseOutlined />} onClick={onRejectOpen}>
                 거부
               </Button>
             </>
           )}
           {status === "approved" && (
             <>
-              {isAdmin && (
-                <Popconfirm
-                  title="지금 바로 송신할까요?"
-                  description="송신 결과가 즉시 반영됩니다."
-                  okText="송신"
-                  cancelText="취소"
-                  onConfirm={() => {
-                    onSendNow();
-                  }}
-                >
-                  <Button
-                    type="primary"
-                    icon={<SendOutlined />}
-                    loading={sendNowLoading}
-                  >
-                    지금 송신
-                  </Button>
-                </Popconfirm>
-              )}
-              <Button
-                danger
-                icon={<StopOutlined />}
-                onClick={onRejectOpen}
+              <Popconfirm
+                title="지금 바로 송신할까요?"
+                description="송신 결과가 즉시 반영됩니다."
+                okText="송신"
+                cancelText="취소"
+                onConfirm={() => {
+                  onSendNow();
+                }}
               >
+                <Button type="primary" icon={<SendOutlined />} loading={sendNowLoading}>
+                  지금 송신
+                </Button>
+              </Popconfirm>
+              <Button danger icon={<StopOutlined />} onClick={onRejectOpen}>
                 거부로 변경
               </Button>
             </>
@@ -117,39 +95,21 @@ export function SessionHeaderCard({
       }
     >
       <Descriptions size="small" column={2} bordered>
-        <Descriptions.Item label="발신">
-          {session.sender_account_label}
-        </Descriptions.Item>
-        <Descriptions.Item label="수신">
-          {session.receiver_account_label}
-        </Descriptions.Item>
+        <Descriptions.Item label="발신">{session.sender_account_label}</Descriptions.Item>
+        <Descriptions.Item label="수신">{session.receiver_account_label}</Descriptions.Item>
         <Descriptions.Item label="대화 언어">
-          <Tag
-            color={
-              DISTRIBUTION_LANGUAGE_TAG_COLOR[session.language] ?? "default"
-            }
-          >
+          <Tag color={DISTRIBUTION_LANGUAGE_TAG_COLOR[session.language] ?? "default"}>
             {DISTRIBUTION_LANGUAGE_LABEL[session.language] ?? session.language}
           </Tag>
         </Descriptions.Item>
-        <Descriptions.Item label="메시지 수">
-          {session.message_count}
-        </Descriptions.Item>
-        <Descriptions.Item label="비용 (USD)">
-          {formatCost(session.llm_cost_usd)}
-        </Descriptions.Item>
-        <Descriptions.Item label="생성일">
-          {formatDateTime(session.generated_at)}
-        </Descriptions.Item>
-        <Descriptions.Item label="승인일">
-          {formatDateTime(session.approved_at)}
-        </Descriptions.Item>
+        <Descriptions.Item label="메시지 수">{session.message_count}</Descriptions.Item>
+        <Descriptions.Item label="비용 (USD)">{formatCost(session.llm_cost_usd)}</Descriptions.Item>
+        <Descriptions.Item label="생성일">{formatDateTime(session.generated_at)}</Descriptions.Item>
+        <Descriptions.Item label="승인일">{formatDateTime(session.approved_at)}</Descriptions.Item>
         <Descriptions.Item label="예약 송신">
           {formatDateTime(session.scheduled_start)}
         </Descriptions.Item>
-        <Descriptions.Item label="완료일">
-          {formatDateTime(session.completed_at)}
-        </Descriptions.Item>
+        <Descriptions.Item label="완료일">{formatDateTime(session.completed_at)}</Descriptions.Item>
       </Descriptions>
 
       {session.scenario_attachment_required && (
@@ -160,9 +120,7 @@ export function SessionHeaderCard({
           message="이 시나리오는 파일 첨부가 권장됩니다 (예: VIP 프로모션 — 엑셀)"
           description={(() => {
             const total = messages.length;
-            const withAttachment = messages.filter(
-              (m) => m.attachment_url != null,
-            ).length;
+            const withAttachment = messages.filter((m) => m.attachment_url != null).length;
             if (total === 0) return "메시지가 없습니다.";
             if (withAttachment === 0) {
               return `숫자·상세 정보는 엑셀로만 전달하는 것이 시나리오 취지입니다. 현재 첨부된 메시지가 없습니다 (${total}건 중 0건). 송신 전 1건 이상에 엑셀 파일을 첨부하세요.`;
@@ -190,12 +148,7 @@ export function SessionHeaderCard({
         />
       )}
       {status === "rejected" && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginTop: 16 }}
-          message="거부된 세션입니다."
-        />
+        <Alert type="info" showIcon style={{ marginTop: 16 }} message="거부된 세션입니다." />
       )}
       {status === "scheduled" && (
         <Alert
