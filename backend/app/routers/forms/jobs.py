@@ -40,6 +40,8 @@ from app.schemas.forms import (
     RegenerateRequest,
     RenderRequest,
     RevisionPayload,
+    SourceBrief,
+    SourceExcludeRequest,
 )
 from app.services.documents import extractor
 from app.services.documents.nas_output import save_to_nas
@@ -304,6 +306,57 @@ async def attach_nas_sources(
 
 
 # ---------------------------------------------------------------------------
+# 9-1. PATCH /api/forms/jobs/{id}/sources/{source_id} — 자료 제외/포함 토글
+# ---------------------------------------------------------------------------
+
+
+@router.patch(
+    "/jobs/{job_id}/sources/{source_id}",
+    response_model=SourceBrief,
+)
+async def patch_source_exclude(
+    job_id: uuid.UUID,
+    source_id: uuid.UUID,
+    body: SourceExcludeRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SourceBrief:
+    """자료 1건의 매핑 제외 여부를 토글한다.
+
+    제외된 자료는 run_mapping/regenerate 의 LLM 입력에서 빠지지만, 잡 상세 목록에는
+    계속 노출되어 사용자가 다시 포함시킬 수 있다(노이즈 자료 끄기 용도)."""
+    _ensure_models_ready()
+    job = await _fetch_job_or_404(db, job_id, user)
+
+    stmt = select(FormDataSource).where(
+        and_(FormDataSource.id == source_id, FormDataSource.job_id == job.id)
+    )
+    result = await db.execute(stmt)
+    source = result.scalar_one_or_none()
+    if source is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="자료를 찾을 수 없습니다(잡에 속하지 않음)",
+        )
+
+    source.is_excluded = bool(body.is_excluded)
+    await db.commit()
+    await db.refresh(source)
+    return SourceBrief(
+        id=source.id,
+        job_id=source.job_id,
+        kind=source.kind,
+        nas_file_id=source.nas_file_id,
+        upload_path=source.upload_path,
+        nas_chunk_ids=list(source.nas_chunk_ids or []),
+        extracted_text=source.extracted_text,
+        display_name=None,
+        is_excluded=bool(source.is_excluded),
+        created_at=source.created_at,
+    )
+
+
+# ---------------------------------------------------------------------------
 # 10. POST /api/forms/jobs/{id}/run_mapping — 매핑 실행 (FR-04)
 # ---------------------------------------------------------------------------
 
@@ -322,11 +375,18 @@ async def run_mapping(
     job.status = "mapping"
     await db.commit()
 
-    sources_rows = await _fetch_job_sources(db, job.id)
-    if not sources_rows:
+    all_rows = await _fetch_job_sources(db, job.id)
+    if not all_rows:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="자료가 1건도 없어 매핑 불가능 — 자료 업로드 또는 NAS 검색 후 재시도",
+        )
+    # 제외 표시된 자료는 매핑 입력에서 뺀다(상세 목록에는 계속 노출됨).
+    sources_rows = [r for r in all_rows if not getattr(r, "is_excluded", False)]
+    if not sources_rows:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="모든 자료가 제외되어 매핑 불가능 — 자료를 1건 이상 포함하세요",
         )
 
     variables = [
@@ -491,7 +551,11 @@ async def regenerate_variable(
             detail=f"변수 키 '{body.variable_key}' 를 양식에서 찾을 수 없음",
         )
 
-    sources_rows = await _fetch_job_sources(db, job.id)
+    sources_rows = [
+        row
+        for row in await _fetch_job_sources(db, job.id)
+        if not getattr(row, "is_excluded", False)
+    ]
     sources_payload = [
         mapper.SourcePayload(
             source_id=str(row.id),

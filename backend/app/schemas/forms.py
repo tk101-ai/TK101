@@ -78,6 +78,7 @@ class SourceBrief(BaseModel):
     nas_chunk_ids: list[uuid.UUID] = Field(default_factory=list)
     extracted_text: str | None = None
     display_name: str | None = None
+    is_excluded: bool = False
     created_at: datetime
 
 
@@ -160,3 +161,9 @@ class RevisionPayload(BaseModel):
 
 class JobStatusUpdate(BaseModel):
     status: str
+
+
+class SourceExcludeRequest(BaseModel):
+    """자료 1건의 매핑 제외 여부 토글 요청."""
+
+    is_excluded: bool
