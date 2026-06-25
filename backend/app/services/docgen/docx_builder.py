@@ -211,6 +211,66 @@ def _add_chart_fallback(doc, theme: Theme, data: dict) -> None:
     _add_styled_table(doc, theme, rows)
 
 
+def _add_bullet(doc, text: str, level: int = 0) -> None:
+    """레벨별 불릿 스타일 적용(없으면 • 평문 폴백)."""
+    style = _BULLET_STYLES[min(level, len(_BULLET_STYLES) - 1)]
+    try:
+        doc.add_paragraph(text, style=style)
+    except KeyError:
+        doc.add_paragraph(f"• {text}")
+
+
+def _add_layout_fallback(doc, theme: Theme, data: dict) -> None:
+    """레이아웃 블록 → docx 평문 폴백(데이터 유실 방지).
+
+    docx 는 KPI 카드·타임라인 같은 시각 레이아웃을 그대로 못 그리므로, 같은 정보를
+    소제목/표/불릿으로 평탄화해 내용은 보존한다(.pptx 가 시각 디자인 담당).
+    """
+    from docx.shared import Pt, RGBColor
+
+    kind = str(data.get("layout") or "")
+    title = data.get("title") or ""
+    if title:
+        p = doc.add_paragraph()
+        run = p.add_run(title)
+        run.font.bold = True
+        run.font.size = Pt(12)
+        run.font.color.rgb = RGBColor(*theme.primary)
+
+    if kind == "kpi":
+        rows = [["지표", "값", "비고"]]
+        for it in data.get("items") or []:
+            rows.append([it.get("label", ""), it.get("value", ""), it.get("caption", "")])
+        _add_styled_table(doc, theme, rows)
+    elif kind == "compare":
+        for col in data.get("columns") or []:
+            heading = col.get("heading", "")
+            if heading:
+                hp = doc.add_paragraph()
+                hp.add_run(heading).font.bold = True
+            for pt in col.get("points") or []:
+                _add_bullet(doc, pt, level=1)
+    elif kind == "timeline":
+        for m in data.get("milestones") or []:
+            label = m.get("label") or ""
+            head = f"[{label}] {m.get('title', '')}".strip()
+            _add_bullet(doc, head)
+            if m.get("detail"):
+                _add_bullet(doc, m["detail"], level=1)
+    elif kind == "steps":
+        for idx, st in enumerate(data.get("steps") or [], 1):
+            _add_bullet(doc, f"{idx}. {st.get('title', '')}")
+            if st.get("detail"):
+                _add_bullet(doc, st["detail"], level=1)
+    elif kind == "quote":
+        p = doc.add_paragraph()
+        run = p.add_run(f"“{data.get('text', '')}”")
+        run.font.italic = True
+        run.font.size = Pt(13)
+        if data.get("attribution"):
+            doc.add_paragraph(f"— {data['attribution']}")
+
+
 def _render_section_body(doc, theme: Theme, blocks: list[Block]) -> None:
     for b in blocks:
         if b.kind == "paragraph":
@@ -220,15 +280,13 @@ def _render_section_body(doc, theme: Theme, blocks: list[Block]) -> None:
         elif b.kind == "bullets":
             for level, text in b.items:
                 if text.strip():
-                    style = _BULLET_STYLES[min(level, len(_BULLET_STYLES) - 1)]
-                    try:
-                        doc.add_paragraph(text.strip(), style=style)
-                    except KeyError:
-                        doc.add_paragraph(f"• {text.strip()}")
+                    _add_bullet(doc, text.strip(), level)
         elif b.kind == "table":
             _add_styled_table(doc, theme, b.rows)
         elif b.kind == "chart":
             _add_chart_fallback(doc, theme, b.data)
+        elif b.kind == "layout":
+            _add_layout_fallback(doc, theme, b.data)
 
 
 def build_docx(title: str, sections: list[dict]) -> bytes:
