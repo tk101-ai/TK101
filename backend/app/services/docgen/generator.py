@@ -47,7 +47,28 @@ _BODY_GUIDE = (
     '"series":[{"name":"매출","values":[10,14,12]}]}\n'
     "  ```\n"
     "  type 은 column/bar/line/pie 중 하나. 지어낸 수치로 차트를 만들지 말 것.\n"
-    "- 굵게(**...**)로 핵심어를 강조해도 된다."
+    "- 굵게(**...**)로 핵심어를 강조해도 된다.\n"
+    "\n[고품질 슬라이드 레이아웃 — 내용에 맞으면 적극 활용]\n"
+    "단순 불릿보다 내용 성격에 맞는 레이아웃 블록을 쓰면 슬라이드가 훨씬 완성도 높게 "
+    "디자인된다. 아래에 맞는 내용이면 ```layout``` 펜스로 넣는다(한 섹션에 0~2개, "
+    "남용 금지 — 일반 설명·서술은 불릿/문단 그대로 둔다):\n"
+    "- 핵심 수치·지표 2~4개 → kpi 카드:\n"
+    "  ```layout\n"
+    '  {"layout":"kpi","title":"핵심 지표","items":[{"value":"+42%","label":"매출 성장",'
+    '"caption":"전년比"}]}\n'
+    "  ```\n"
+    "- 기존vs제안·옵션 등 2~3개 대조 → compare:\n"
+    '  {"layout":"compare","title":"비교","columns":[{"heading":"기존","points":["항목1",'
+    '"항목2"]},{"heading":"제안","points":["항목1","항목2"]}]}\n'
+    "- 일정·로드맵·단계별 시점(2~5개) → timeline:\n"
+    '  {"layout":"timeline","title":"로드맵","milestones":[{"label":"1단계","title":"착수",'
+    '"detail":"세부"}]}\n'
+    "- 절차·방법론 순서(2~6단계) → steps:\n"
+    '  {"layout":"steps","title":"추진 절차","steps":[{"title":"현황 분석","detail":"세부"}]}\n'
+    "- 핵심 메시지 한 줄 강조 → quote:\n"
+    '  {"layout":"quote","text":"핵심 한 줄 메시지","attribution":"출처(선택)"}\n'
+    "규칙: 각 레이아웃은 유효한 JSON 한 덩어리로 독립된 ```layout``` 펜스에 넣는다. "
+    "kpi 수치도 참고자료 근거 없으면 지어내지 말 것(차트와 동일)."
 )
 
 _SYSTEM = (
@@ -224,14 +245,55 @@ def _chart_to_note(match: re.Match) -> str:
 
 
 _CHART_FENCE = re.compile(r"```chart\s*(\{.*?\})\s*```", re.DOTALL)
+_LAYOUT_FENCE = re.compile(r"```layout\s*(\{.*?\})\s*```", re.DOTALL)
+
+
+def _layout_to_note(match: re.Match) -> str:
+    """레이아웃 펜스 → 미리보기용 읽기 좋은 마크다운(날 JSON 노출 방지, 내용 보존).
+
+    .pptx 는 디자인 슬라이드로 렌더하지만, 미리보기에서는 같은 정보를 평이한 목록으로
+    보여줘 사용자가 내용을 확인/편집할 수 있게 한다.
+    """
+    try:
+        d = json.loads(match.group(1))
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        return "> 🧩 레이아웃 블록"
+    kind = str(d.get("layout") or "")
+    title = str(d.get("title") or "").strip()
+    lines: list[str] = []
+    if title:
+        lines.append(f"**{title}**")
+    if kind == "kpi":
+        for it in d.get("items") or []:
+            cap = f" ({it.get('caption')})" if it.get("caption") else ""
+            lines.append(f"- {it.get('label', '')}: **{it.get('value', '')}**{cap}")
+    elif kind == "compare":
+        for col in d.get("columns") or []:
+            lines.append(f"- **{col.get('heading', '')}**")
+            lines += [f"  - {p}" for p in (col.get("points") or [])]
+    elif kind == "timeline":
+        for m in d.get("milestones") or []:
+            label = f"[{m.get('label')}] " if m.get("label") else ""
+            detail = f" — {m.get('detail')}" if m.get("detail") else ""
+            lines.append(f"- {label}{m.get('title', '')}{detail}")
+    elif kind == "steps":
+        for i, st in enumerate(d.get("steps") or [], 1):
+            detail = f" — {st.get('detail')}" if st.get("detail") else ""
+            lines.append(f"{i}. {st.get('title', '')}{detail}")
+    elif kind == "quote":
+        lines.append(f"> {d.get('text', '')}")
+        if d.get("attribution"):
+            lines.append(f"> — {d['attribution']}")
+    return "\n".join(lines) if lines else "> 🧩 레이아웃 블록"
 
 
 def render_markdown(title: str, sections: list[dict]) -> str:
-    """미리보기용 마크다운. 차트 펜스는 친화적 표기로 치환."""
+    """미리보기용 마크다운. 차트·레이아웃 펜스는 읽기 좋은 표기로 치환."""
     parts = [f"# {title}", ""]
     for s in sections:
         parts.append(f"## {s.get('heading', '')}")
         body = _CHART_FENCE.sub(_chart_to_note, s.get("body", ""))
+        body = _LAYOUT_FENCE.sub(_layout_to_note, body)
         parts.append(body)
         parts.append("")
     return "\n".join(parts).strip()
@@ -245,6 +307,9 @@ _JUDGE_SYSTEM = (
     "참고자료에 없는데 단정한 수치/실적은 환각으로 보고 grounded=false + issues에 명시.\n"
     "2) 요구 충족·누락: 작성 요구사항 대비 빠진 항목.\n"
     "3) 구조·완성도: 논리 흐름, 빈약/중복 섹션.\n"
+    "※ 본문의 ```chart```/```layout``` 블록은 의도된 디자인 요소다(차트·KPI/비교/타임라인 "
+    "등으로 렌더된다). JSON 문법 자체를 문제삼지 말고 내용으로 평가한다. 단 kpi/chart 의 "
+    "수치에도 근거성 규칙을 동일하게 적용한다.\n"
     "반드시 다음 JSON으로만 응답(코드펜스 없이):\n"
     '{"overall_score": 0~100 정수, "summary": "총평 2~4문장", '
     '"section_reviews": [{"heading": "섹션제목", "grounded": true/false, '
