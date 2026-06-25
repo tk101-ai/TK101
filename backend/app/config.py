@@ -174,6 +174,11 @@ class Settings(BaseSettings):
     docgen_auto_review: bool = False
     # 한 번의 자동 루프에서 재생성할 섹션 최대 개수(비용·지연 상한). 점수 낮은 순으로 자른다.
     docgen_auto_review_max_sections: int = 4
+    # NAS 검색 쿼리 정제 — 자유지시문(topic)에서 핵심 검색어만 추출해 의미검색 품질↑.
+    #   "…자료 찾아서 보고서 써줘" 같은 지시·형식 토큰이 임베딩을 흐리는 문제를 막는다.
+    #   저비용 Haiku 1회(temperature=0). 끄면 원본 지시문을 그대로 검색에 쓴다(과거 동작).
+    docgen_query_refine_enabled: bool = True
+    docgen_query_refine_model: str | None = None  # None이면 form_filler_haiku_model.
 
     # Langfuse (관측성, NFR-07). 없으면 트레이스만 비활성화하고 기능은 동작.
     langfuse_public_key: str | None = None
