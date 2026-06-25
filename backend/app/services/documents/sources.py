@@ -9,11 +9,13 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from app.schemas.docgen import SourceMode
 from app.services.documents.extractor import extract_and_chunk, is_supported
 from app.services.nas_search.bridge import NasChunkHit, search_relevant_chunks
+from app.services.nas_search.query_refiner import refine_search_query
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,10 @@ async def collect_sources(
     chunks: list[NasChunkHit] = []
     if mode in ("rag", "both") and limit > 0:
         try:
-            chunks += await search_relevant_chunks(query=query, limit=limit)
+            # 자유지시문에서 핵심 검색어만 뽑아 의미검색 품질을 높인다(실패 시 원본).
+            # call_claude 는 블로킹 HTTP라 to_thread 로 감싼다.
+            search_query = await asyncio.to_thread(refine_search_query, query)
+            chunks += await search_relevant_chunks(query=search_query, limit=limit)
         except RuntimeError as exc:
             logger.warning("RAG 검색 실패 — 자료 없이 진행: %s", exc)
     if mode in ("uploaded", "both"):
