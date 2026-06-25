@@ -38,6 +38,32 @@ def _mix(color: tuple[int, int, int], white_ratio: float) -> tuple[int, int, int
     )
 
 
+def _shade(color: tuple[int, int, int], black_ratio: float) -> tuple[int, int, int]:
+    """color 를 검정과 섞어 더 짙은 톤 생성(표지 레이어 깊이용). black_ratio 0~1."""
+    r, g, b = color
+    k = max(0.0, min(1.0, black_ratio))
+    return (round(r * (1 - k)), round(g * (1 - k)), round(b * (1 - k)))
+
+
+def _series_palette(
+    primary: tuple[int, int, int], accent: tuple[int, int, int]
+) -> tuple[tuple[int, int, int], ...]:
+    """브랜드 색에서 파생한 차트 시리즈 팔레트(최대 6색).
+
+    Office 기본 차트색(빨강·주황 등 브랜드와 무관) 대신, accent/primary 와 그
+    명/암 변주로 한 덱 안에서 톤이 일관된 데이터 시각화를 만든다. 시리즈가 6개를
+    넘으면 순환한다(렌더러에서 mod).
+    """
+    return (
+        accent,
+        primary,
+        _mix(accent, 0.42),
+        _shade(primary, 0.28),
+        _mix(primary, 0.5),
+        _shade(accent, 0.32),
+    )
+
+
 @dataclass(frozen=True)
 class Theme:
     """문서 디자인 토큰. RGB는 (r, g, b) 튜플."""
@@ -49,6 +75,11 @@ class Theme:
     light_bg: tuple[int, int, int]       # 옅은 배경(목차 카드 등)
     table_stripe: tuple[int, int, int]   # 표 짝수행 음영
     white: tuple[int, int, int]
+    primary_deep: tuple[int, int, int]   # 표지 레이어 깊이(짙은 primary)
+    accent_soft: tuple[int, int, int]    # 강조 칩/로젠지 옅은 채움
+    surface: tuple[int, int, int]        # 카드·구분 슬라이드 중성 배경(거의 흰색)
+    hairline: tuple[int, int, int]       # 옅은 구분선
+    series_palette: tuple[tuple[int, int, int], ...]  # 차트 시리즈 색(브랜드 파생)
     heading_font: str
     body_font: str
     footer_text: str
@@ -85,6 +116,11 @@ def get_theme() -> Theme:
         light_bg=_mix(primary, 0.93),
         table_stripe=_mix(accent, 0.90),
         white=(0xFF, 0xFF, 0xFF),
+        primary_deep=_shade(primary, 0.32),
+        accent_soft=_mix(accent, 0.84),
+        surface=_mix(primary, 0.965),
+        hairline=_mix(text, 0.82),
+        series_palette=_series_palette(primary, accent),
         heading_font=_HEADING_FONT,
         body_font=_BODY_FONT,
         footer_text=settings.docgen_footer_text or "",
