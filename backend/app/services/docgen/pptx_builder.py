@@ -22,6 +22,19 @@ import logging
 from datetime import date
 
 from app.services.docgen.markdown_blocks import Block, parse_blocks
+from app.services.docgen.pptx_layouts import render_layout_slide
+from app.services.docgen.pptx_primitives import (
+    _MARGIN_IN,
+    _add_caption,
+    _add_footer,
+    _add_rect,
+    _add_text,
+    _add_title_bar,
+    _blank_layout,
+    _kicker_text,
+    _rgb,
+    _slide_dims,
+)
 from app.services.docgen.theme import Theme, get_theme
 
 logger = logging.getLogger(__name__)
@@ -32,122 +45,10 @@ _MAX_TEXT_LINES = 9
 _MAX_TABLE_ROWS = 12
 # 레벨별 불릿 글리프(level 0 은 색 사각형, 이하 대시/점).
 _BULLET_GLYPHS = ("■", "–", "·", "·", "·")
-# 좌우 여백(인치). 모든 슬라이드 공통 그리드.
-_MARGIN_IN = 0.7
 # 섹션이 2개 이상이면 섹션 구분 슬라이드를 넣어 덱에 리듬을 준다.
 _SECTION_DIVIDERS = True
 # 그리드라인 없는 깔끔한 표 스타일(Office "No Style, No Grid").
 _TABLE_STYLE_NO_GRID = "{2D5ABB26-0587-4C30-8999-92F81FD0307C}"
-
-
-def _rgb(color: tuple[int, int, int]):
-    from pptx.dml.color import RGBColor
-
-    return RGBColor(*color)
-
-
-def _blank_layout(prs):
-    """플레이스홀더가 가장 적은(빈) 레이아웃 — 기본/커스텀 템플릿 모두 안전."""
-    best, best_count = None, 999
-    for lay in prs.slide_layouts:
-        count = len(lay.placeholders)
-        if count < best_count:
-            best, best_count = lay, count
-    return best or prs.slide_layouts[0]
-
-
-def _add_rect(slide, x, y, w, h, color, line_color=None):
-    from pptx.enum.shapes import MSO_SHAPE
-
-    shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, h)
-    shape.fill.solid()
-    shape.fill.fore_color.rgb = _rgb(color)
-    if line_color is None:
-        shape.line.fill.background()
-    else:
-        shape.line.color.rgb = _rgb(line_color)
-    shape.shadow.inherit = False
-    return shape
-
-
-def _add_text(slide, x, y, w, h, text, *, size, color, font, bold=False,
-              align=None, anchor=None, spacing=None, wrap=True):
-    from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
-    from pptx.util import Pt
-
-    box = slide.shapes.add_textbox(x, y, w, h)
-    tf = box.text_frame
-    tf.word_wrap = wrap
-    if anchor is not None:
-        tf.vertical_anchor = {"top": MSO_ANCHOR.TOP, "middle": MSO_ANCHOR.MIDDLE,
-                              "bottom": MSO_ANCHOR.BOTTOM}[anchor]
-    p = tf.paragraphs[0]
-    if align is not None:
-        p.alignment = {"left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER,
-                       "right": PP_ALIGN.RIGHT}[align]
-    if spacing is not None:
-        p.line_spacing = spacing
-    run = p.add_run()
-    run.text = text
-    run.font.size = Pt(size)
-    run.font.bold = bold
-    run.font.name = font
-    run.font.color.rgb = _rgb(color)
-    return box
-
-
-def _kicker_text(label: str) -> str:
-    """짧은 키커 라벨을 대문자+자간 느낌(글자 사이 공백)으로 변환해 에디토리얼 톤."""
-    s = (label or "").strip().upper()
-    # ASCII 약어만 자간을 벌린다(한글은 그대로 — 자모 분리 방지).
-    if s and all(ord(c) < 128 for c in s):
-        return " ".join(s)
-    return s
-
-
-def _slide_dims(prs):
-    return prs.slide_width, prs.slide_height
-
-
-# --- 슬라이드 구성요소 ------------------------------------------------------
-
-
-def _add_footer(slide, prs, theme: Theme, page_no: int) -> None:
-    from pptx.util import Inches, Pt
-
-    sw, sh = _slide_dims(prs)
-    m = Inches(_MARGIN_IN)
-    # 옅은 구분선(헤어라인).
-    _add_rect(slide, m, sh - Inches(0.62), sw - Inches(_MARGIN_IN * 2), Pt(0.75),
-              theme.hairline)
-    if theme.footer_text:
-        _add_text(slide, m, sh - Inches(0.6), Inches(6), Inches(0.35),
-                  theme.footer_text, size=9, color=theme.muted, font=theme.body_font,
-                  align="left", anchor="middle")
-    _add_text(slide, sw - Inches(1.6), sh - Inches(0.6), Inches(1.0), Inches(0.35),
-              str(page_no), size=10, color=theme.accent, font=theme.heading_font,
-              bold=True, align="right", anchor="middle")
-
-
-def _add_title_bar(slide, prs, theme: Theme, heading: str, *, kicker: str = "",
-                   continued: bool = False) -> None:
-    """본문 슬라이드 상단: 섹션 키커 + 제목 + 액센트 밑줄."""
-    from pptx.util import Inches, Pt
-
-    sw, _ = _slide_dims(prs)
-    m = Inches(_MARGIN_IN)
-    width = sw - Inches(_MARGIN_IN * 2)
-    if kicker:
-        _add_text(slide, m + Inches(0.02), Inches(0.42), width, Inches(0.3),
-                  _kicker_text(kicker), size=11, color=theme.accent,
-                  font=theme.heading_font, bold=True, align="left", anchor="middle")
-    text = heading or " "
-    if continued:
-        text += "  (계속)"
-    top = Inches(0.72) if kicker else Inches(0.5)
-    _add_text(slide, m, top, width, Inches(0.7), text, size=25, color=theme.primary,
-              font=theme.heading_font, bold=True, align="left", anchor="middle")
-    _add_rect(slide, m + Inches(0.02), Inches(1.42), Inches(1.7), Pt(3.5), theme.accent)
 
 
 def _cover_slide(prs, theme: Theme, title: str, subtitle: str, kicker: str) -> None:
@@ -310,16 +211,6 @@ def _style_table_no_grid(table) -> None:
         style_el.text = _TABLE_STYLE_NO_GRID
     except Exception:  # noqa: BLE001 - 스타일 XML 실패가 표를 막아선 안 됨
         logger.debug("표 그리드 제거 실패 — 기본 스타일 유지", exc_info=True)
-
-
-def _add_caption(slide, prs, theme: Theme, text: str):
-    """제목바 아래 짧은 리드 문장(표/차트 위 캡션)."""
-    from pptx.util import Inches
-
-    sw, _ = _slide_dims(prs)
-    _add_text(slide, Inches(_MARGIN_IN), Inches(1.52), sw - Inches(_MARGIN_IN * 2),
-              Inches(0.4), text, size=14, color=theme.muted, font=theme.body_font,
-              align="left", anchor="middle")
 
 
 def _add_table_slide(prs, theme: Theme, heading: str, rows: list[list[str]], *,
@@ -536,9 +427,14 @@ def _render_section(prs, theme: Theme, heading: str, blocks: list[Block],
             counter[0] += 1
             _add_chart_slide(prs, theme, heading, b.data, kicker=kicker,
                              page_no=counter[0], intro=intro)
+        elif b.kind == "layout":
+            intro = take_intro()
+            counter[0] += 1
+            render_layout_slide(prs, theme, heading, b.data, kicker=kicker,
+                                page_no=counter[0], intro=intro)
     flush_text(False)
     # 본문이 완전히 비었던 섹션도 제목 슬라이드 한 장 남긴다.
-    if first_text and not any(b.kind in ("table", "chart") for b in blocks):
+    if first_text and not any(b.kind in ("table", "chart", "layout") for b in blocks):
         counter[0] += 1
         _add_text_slide(prs, theme, heading, [], kicker=kicker, continued=False,
                         page_no=counter[0])
