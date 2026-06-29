@@ -292,9 +292,12 @@ export default function FormLibraryPage() {
           </h2>
           <Text type="secondary">내가 만든 문서(개인)와 회사 공유 양식을 한 곳에서 관리합니다.</Text>
         </div>
-        <Button type="primary" onClick={() => navigate("/forms/new")}>
-          새 양식 업로드
-        </Button>
+        <Space>
+          <Button type="primary" onClick={() => navigate("/forms/generate?wizard=1")}>
+            문서 만들기
+          </Button>
+          <Button onClick={() => navigate("/forms/new")}>새 양식 업로드</Button>
+        </Space>
       </div>
 
       {/* ── 내 문서(개인) ── */}
