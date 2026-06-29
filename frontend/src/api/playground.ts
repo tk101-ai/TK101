@@ -1,4 +1,5 @@
 import api from "./client";
+import { triggerBlobDownload } from "../utils/download";
 
 /**
  * AI Playground API 클라이언트 (T8 Phase 1 — admin 전용).
@@ -494,6 +495,8 @@ export interface PlaygroundMediaItem {
   height: number | null;
   cost_usd: number | null;
   expires_at: string | null;
+  is_shared: boolean;
+  shared_at: string | null;
   created_at: string;
 }
 
@@ -510,6 +513,56 @@ export async function getMyMedia(
 /** 본인 미디어 파일을 서빙하는 안정 URL (텐센트 임시 URL 만료 후에도 동작). */
 export function mediaFileUrl(mediaId: string): string {
   return `${BASE}/media/${encodeURIComponent(mediaId)}/file`;
+}
+
+/** 공유 갤러리 1행 — 내 미디어 항목 + 소유자 표기. */
+export interface SharedMediaItem extends PlaygroundMediaItem {
+  owner_name: string | null;
+  owner_department: string | null;
+  is_mine: boolean;
+}
+
+/** 콘텐츠 라이브러리 — 미디어 삭제 (DB row + 디스크 파일). 본인 것만. */
+export async function deleteMedia(mediaId: string): Promise<void> {
+  await api.delete(`${BASE}/media/${encodeURIComponent(mediaId)}`);
+}
+
+/** 공유 on/off 토글 — 본인 것만. 완료된 미디어만 공유 가능. */
+export async function setMediaShared(
+  mediaId: string,
+  isShared: boolean,
+): Promise<PlaygroundMediaItem> {
+  const res = await api.patch<PlaygroundMediaItem>(
+    `${BASE}/media/${encodeURIComponent(mediaId)}/share`,
+    { is_shared: isShared },
+  );
+  return res.data;
+}
+
+/** 미디어 파일을 인증 blob 으로 받아 다운로드 (소유자 또는 공유분). */
+export async function downloadMedia(
+  item: Pick<PlaygroundMediaItem, "id" | "media_type">,
+): Promise<void> {
+  const res = await api.get<Blob>(mediaFileUrl(item.id), {
+    responseType: "blob",
+  });
+  const ext = item.media_type === "video" ? "mp4" : "png";
+  triggerBlobDownload(res.data, `playground-${item.id}.${ext}`);
+}
+
+/** 공유 갤러리 — 사용자 전체가 공유한 미디어 (최신 공유순). */
+export async function getSharedMedia(
+  kind?: "image" | "video",
+  q?: string,
+  limit = 60,
+): Promise<SharedMediaItem[]> {
+  const params: Record<string, string | number> = { limit };
+  if (kind) params.kind = kind;
+  if (q) params.q = q;
+  const res = await api.get<SharedMediaItem[]>(`${BASE}/media/shared`, {
+    params,
+  });
+  return res.data;
 }
 
 export interface PlaygroundUsageByModel {

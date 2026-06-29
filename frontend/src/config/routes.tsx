@@ -25,6 +25,7 @@ import UploadHistory from "../pages/finance/UploadHistory";
 import CategoryPage from "../pages/settings/CategoryPage";
 import CounterpartPage from "../pages/settings/CounterpartPage";
 import PlaygroundPage from "../pages/playground/PlaygroundPage";
+import ContentLibraryPage from "../pages/playground/ContentLibraryPage";
 import UsagePage from "../pages/playground/UsagePage";
 import AdminSessionsPage from "../pages/playground/AdminSessionsPage";
 import LogsPage from "../pages/playground/LogsPage";
@@ -82,6 +83,7 @@ export const APP_ROUTES: AppRoute[] = [
   { path: "/forms/jobs/:id/review", element: <JobMappingPage />, module: "form_filler" },
   { path: "/documents/usage", element: <DocumentsUsagePage />, module: "documents_admin_usage" },
   { path: "/playground", element: <PlaygroundPage />, module: "playground" },
+  { path: "/playground/library", element: <ContentLibraryPage />, module: "playground" },
   { path: "/playground/usage", element: <UsagePage />, module: "playground_usage" },
   { path: "/playground/admin/sessions", element: <AdminSessionsPage />, module: "playground_admin_sessions" },
   { path: "/playground/admin/logs", element: <LogsPage />, module: "playground_logs" },
