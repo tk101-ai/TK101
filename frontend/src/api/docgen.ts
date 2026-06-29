@@ -32,6 +32,8 @@ export interface DocGenRequest {
   limit?: number;
   /** 고품질 모드(LLM 검수→재생성 루프). 기본 false(초안, 빠름). */
   auto_review?: boolean;
+  /** 리터치 지시문(있으면) — 디자인/구성 방향을 생성에 주입(내부 재생성). */
+  design_directive?: string;
   /** source_mode 가 uploaded/both 일 때 참고할 업로드 파일들. */
   files?: File[];
 }
@@ -104,6 +106,9 @@ export async function generateDocument(req: DocGenRequest): Promise<DocGenRespon
   // 고품질 모드 토글 — 명시한 경우에만 전송(미전송 시 서버 기본값 적용).
   if (req.auto_review !== undefined) {
     fd.append("auto_review", String(req.auto_review));
+  }
+  if (req.design_directive) {
+    fd.append("design_directive", req.design_directive);
   }
   (req.files ?? []).forEach((f) => fd.append("files", f));
   const res = await api.post<DocGenResponse>("/api/docgen/generate", fd);

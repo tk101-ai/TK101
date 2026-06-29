@@ -9,6 +9,7 @@ POST /api/docgen/render_pptx  — (수정된) 초안 → .pptx 다운로드.
 from __future__ import annotations
 
 import asyncio
+import functools
 import io
 import logging
 import urllib.parse
@@ -201,6 +202,7 @@ async def generate(
     source_mode: SourceMode = Form("rag"),
     limit: int = Form(8, ge=0, le=20),
     auto_review: bool | None = Form(None),
+    design_directive: str | None = Form(None),
     files: list[UploadFile] | None = File(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -228,11 +230,17 @@ async def generate(
     try:
         if use_review:
             doc = await asyncio.to_thread(
-                generate_document_reviewed, topic, doc_type, chunks
+                functools.partial(
+                    generate_document_reviewed,
+                    topic,
+                    doc_type,
+                    chunks,
+                    design_directive=design_directive,
+                )
             )
         else:
             doc = await asyncio.to_thread(
-                generate_document, topic, doc_type, chunks
+                generate_document, topic, doc_type, chunks, design_directive
             )
     except ValueError as exc:
         raise HTTPException(

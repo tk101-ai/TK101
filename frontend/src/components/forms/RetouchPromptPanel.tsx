@@ -23,6 +23,7 @@ import {
   FolderOpenOutlined,
   SaveOutlined,
   ShareAltOutlined,
+  SyncOutlined,
   ThunderboltOutlined,
   UserOutlined,
 } from "@ant-design/icons";
@@ -56,6 +57,10 @@ interface RetouchPromptPanelProps {
   docType: DocType;
   topic?: string | null;
   sourceDocumentId?: string | null;
+  /** 리터치 프롬프트를 디자인 지시문으로 먹여 문서를 다시 생성(내부 재생성). */
+  onRegenerate?: (directive: string) => Promise<void>;
+  /** 재생성 진행 중(상위 생성 상태). */
+  regenerating?: boolean;
 }
 
 export default function RetouchPromptPanel({
@@ -64,6 +69,8 @@ export default function RetouchPromptPanel({
   docType,
   topic,
   sourceDocumentId,
+  onRegenerate,
+  regenerating,
 }: RetouchPromptPanelProps) {
   const [target, setTarget] = useState<RetouchTarget>("general");
   const [generating, setGenerating] = useState(false);
@@ -207,6 +214,17 @@ export default function RetouchPromptPanel({
             <Button icon={<SaveOutlined />} onClick={openSave}>
               프리셋으로 저장
             </Button>
+            {onRegenerate && (
+              <Tooltip title="이 프롬프트를 디자인 지시문으로 우리 생성기에 먹여 문서를 다시 생성합니다">
+                <Button
+                  icon={<SyncOutlined />}
+                  loading={regenerating}
+                  onClick={() => onRegenerate(promptText)}
+                >
+                  이 프롬프트로 다시 생성
+                </Button>
+              </Tooltip>
+            )}
           </Space>
         </div>
       )}

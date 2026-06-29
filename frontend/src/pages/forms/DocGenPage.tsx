@@ -252,6 +252,38 @@ export default function DocGenPage() {
     }
   };
 
+  // 리터치 프롬프트를 디자인 지시문으로 먹여 문서를 다시 생성(내부 재생성).
+  const handleRetouchRegenerate = async (directive: string) => {
+    const t = topic.trim();
+    if (t.length < 2) {
+      message.warning("재생성하려면 주제가 필요합니다");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await generateDocument({
+        topic: t,
+        doc_type: docType,
+        source_mode: sourceMode,
+        auto_review: highQuality,
+        design_directive: directive,
+        files,
+      });
+      setResult(res);
+      setTitle(res.title);
+      setSections(res.sections);
+      setFeedbacks({});
+      setReview(null);
+      setActiveDocId(res.document_id ?? null);
+      setDocsRefreshKey((k) => k + 1);
+      message.success("리터치 프롬프트로 재생성했습니다");
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "재생성 실패");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // 저장된 문서를 현재 결과 뷰로 불러온다(재열람 — 재렌더/다운로드/출처 확인).
   const handleOpenDoc = async (id: string) => {
     setBusy(true);
@@ -845,6 +877,8 @@ export default function DocGenPage() {
             docType={docType}
             topic={topic}
             sourceDocumentId={activeDocId}
+            onRegenerate={handleRetouchRegenerate}
+            regenerating={busy}
           />
         </Card>
       )}
