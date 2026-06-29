@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Space, Switch, Tabs, Tooltip, Typography } from "antd";
 import { ExperimentOutlined } from "@ant-design/icons";
 import ComparePanel from "../../components/playground/ComparePanel";
@@ -43,7 +44,9 @@ function CompareToggle({ value, onChange, hint }: CompareToggleProps) {
     >
       <ExperimentOutlined style={{ color: "#1677ff", fontSize: 16 }} />
       <Space size={8} style={{ flex: 1 }}>
-        <Text strong style={{ fontSize: 13 }}>비교 모드</Text>
+        <Text strong style={{ fontSize: 13 }}>
+          비교 모드
+        </Text>
         <Text type="secondary" style={{ fontSize: 12 }}>
           {hint}
         </Text>
@@ -55,10 +58,22 @@ function CompareToggle({ value, onChange, hint }: CompareToggleProps) {
   );
 }
 
+const TAB_KEYS = ["llm", "image", "video", "usage"];
+
 export default function PlaygroundPage() {
   const [llmCompare, setLlmCompare] = useState(false);
   const [imageCompare, setImageCompare] = useState(false);
   const [videoCompare, setVideoCompare] = useState(false);
+
+  // 탭은 ?tab= 으로 제어(콘텐츠 라이브러리에서 i2v 시작 후 영상 탭으로 딥링크).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const activeTab = tabParam && TAB_KEYS.includes(tabParam) ? tabParam : "llm";
+  const onTabChange = (key: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", key);
+    setSearchParams(next, { replace: true });
+  };
 
   return (
     <div style={{ maxWidth: 1480 }}>
@@ -72,7 +87,8 @@ export default function PlaygroundPage() {
       </div>
 
       <Tabs
-        defaultActiveKey="llm"
+        activeKey={activeTab}
+        onChange={onTabChange}
         size="middle"
         items={[
           {
@@ -99,11 +115,7 @@ export default function PlaygroundPage() {
                   onChange={setImageCompare}
                   hint="같은 프롬프트로 여러 이미지 모델 동시 생성"
                 />
-                {imageCompare ? (
-                  <MediaCompareView kind="image" />
-                ) : (
-                  <MediaGenPanel kind="image" />
-                )}
+                {imageCompare ? <MediaCompareView kind="image" /> : <MediaGenPanel kind="image" />}
               </>
             ),
           },
@@ -117,11 +129,7 @@ export default function PlaygroundPage() {
                   onChange={setVideoCompare}
                   hint="같은 프롬프트로 여러 영상 모델 동시 생성"
                 />
-                {videoCompare ? (
-                  <MediaCompareView kind="video" />
-                ) : (
-                  <MediaGenPanel kind="video" />
-                )}
+                {videoCompare ? <MediaCompareView kind="video" /> : <MediaGenPanel kind="video" />}
               </>
             ),
           },

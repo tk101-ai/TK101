@@ -238,6 +238,27 @@ async def describe_task_endpoint(
     if kind not in ("image", "video"):
         raise HTTPException(status_code=400, detail="kind 는 image 또는 video")
 
+    # i2v(image-to-video)는 MPS 의 CreateAigcVideoTask 로 생성된다(task_id 에 "AigcVideo-",
+    # VOD 의 t2v 는 "AigcVideoTask-"). MPS 결과 조회(DescribeTaskDetail)는 현재 계정에서
+    # ResourceNotFound — COS 출력/조회 spec 이 VOD 와 달라 텐센트 확인 대기 중(베타).
+    # 그동안 VOD describe 를 호출하면 InvalidParameterValue 503 으로 깨지므로, MPS task 는
+    # 에러 대신 "running" 으로 graceful 응답해 UI 가 '처리 중'을 보이게 한다.
+    is_mps_video = (
+        kind == "video"
+        and "AigcVideo-" in task_id
+        and "AigcVideoTask" not in task_id
+    )
+    if is_mps_video:
+        return PlaygroundTaskStatus(
+            task_id=task_id,
+            kind=kind,
+            status="running",
+            output_url=None,
+            error_message=None,
+            raw={"note": "MPS i2v 결과 수신 spec 텐센트 확인 대기(베타)"},
+            media_id=None,
+        )
+
     try:
         resp = await describe_image_task(task_id)
     except RuntimeError as exc:
