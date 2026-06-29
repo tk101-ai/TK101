@@ -44,6 +44,7 @@ import {
   type DocType,
   type SourceMode,
 } from "../../api/docgen";
+import RetouchPromptPanel from "../../components/forms/RetouchPromptPanel";
 
 const SEARCH_DEBOUNCE_MS = 200;
 
@@ -837,6 +838,14 @@ export default function DocGenPage() {
           >
             섹션 추가
           </Button>
+
+          <RetouchPromptPanel
+            title={title}
+            sections={sections}
+            docType={docType}
+            topic={topic}
+            sourceDocumentId={activeDocId}
+          />
         </Card>
       )}
       </div>

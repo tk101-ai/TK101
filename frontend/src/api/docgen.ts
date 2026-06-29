@@ -216,3 +216,106 @@ export async function reviewDocument(req: {
   const res = await api.post<DocReviewResponse>("/api/docgen/review", fd);
   return res.data;
 }
+
+// ---------------------------------------------------------------------------
+// 리터치 프롬프트 (디자인/내용 프리셋)
+// ---------------------------------------------------------------------------
+
+/** 어떤 AI용으로 다듬을지. internal=우리 생성기 재생성용. */
+export type RetouchTarget = "general" | "gamma" | "gpt" | "gemini" | "internal";
+
+export interface RetouchPromptResult {
+  prompt_text: string;
+  target: RetouchTarget;
+  model: string;
+}
+
+export interface RetouchPreset {
+  id: string;
+  title: string;
+  doc_type?: string | null;
+  target: RetouchTarget;
+  prompt_text: string;
+  is_shared: boolean;
+  shared_at: string | null;
+  source_document_id?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface SharedRetouchPreset extends RetouchPreset {
+  owner_name: string | null;
+  owner_department: string | null;
+  is_mine: boolean;
+}
+
+/** 현재 초안(편집 가능)으로 리터치 프롬프트 생성. */
+export async function generateRetouchPrompt(req: {
+  title: string;
+  sections: DocSection[];
+  doc_type: DocType;
+  topic?: string | null;
+  target: RetouchTarget;
+  source_document_id?: string | null;
+}): Promise<RetouchPromptResult> {
+  const res = await api.post<RetouchPromptResult>("/api/docgen/retouch-prompt", req);
+  return res.data;
+}
+
+/** 리터치 프롬프트를 프리셋으로 저장. */
+export async function saveRetouchPreset(body: {
+  title: string;
+  prompt_text: string;
+  doc_type?: DocType | null;
+  target: RetouchTarget;
+  source_document_id?: string | null;
+}): Promise<RetouchPreset> {
+  const res = await api.post<RetouchPreset>("/api/docgen/retouch-prompts", body);
+  return res.data;
+}
+
+/** 내 프리셋 목록(최신순). */
+export async function listRetouchPresets(
+  q?: string,
+  docType?: string,
+): Promise<RetouchPreset[]> {
+  const params: Record<string, string> = {};
+  if (q && q.trim()) params.q = q.trim();
+  if (docType) params.doc_type = docType;
+  const res = await api.get<RetouchPreset[]>("/api/docgen/retouch-prompts", {
+    params,
+  });
+  return res.data;
+}
+
+/** 공유 프리셋 목록(전체, 최신 공유순). */
+export async function listSharedRetouchPresets(
+  q?: string,
+  docType?: string,
+): Promise<SharedRetouchPreset[]> {
+  const params: Record<string, string> = {};
+  if (q && q.trim()) params.q = q.trim();
+  if (docType) params.doc_type = docType;
+  const res = await api.get<SharedRetouchPreset[]>(
+    "/api/docgen/retouch-prompts/shared",
+    { params },
+  );
+  return res.data;
+}
+
+/** 프리셋 수정 — 제목/본문 편집 또는 공유 토글. */
+export async function updateRetouchPreset(
+  id: string,
+  patch: { title?: string; prompt_text?: string; is_shared?: boolean },
+): Promise<RetouchPreset> {
+  const res = await api.patch<RetouchPreset>(
+    `/api/docgen/retouch-prompts/${id}`,
+    patch,
+  );
+  return res.data;
+}
+
+/** 프리셋 삭제. */
+export async function deleteRetouchPreset(id: string): Promise<void> {
+  await api.delete(`/api/docgen/retouch-prompts/${id}`);
+}

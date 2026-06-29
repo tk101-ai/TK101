@@ -27,6 +27,7 @@ from app.routers import (
     distribution_settlement,
     distribution_triggers,
     docgen,
+    docgen_retouch,
     documents_admin,
     forms,
     grants,
@@ -193,6 +194,7 @@ app.include_router(sns.internal_router)
 app.include_router(nas_search.router)
 app.include_router(forms.router)
 app.include_router(docgen.router)
+app.include_router(docgen_retouch.router)
 # PR-E #1: 관리자 전용 문서 토큰/비용 사용량 집계(require_admin).
 app.include_router(documents_admin.router)
 app.include_router(review_translation.router)
