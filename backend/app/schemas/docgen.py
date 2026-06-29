@@ -1,6 +1,7 @@
 """요구 기반 문서 생성 스키마."""
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Literal
 
@@ -99,3 +100,74 @@ class DocReviewResponse(BaseModel):
     section_reviews: list[DocSectionReview] = Field(default_factory=list)
     missing: list[str] = Field(default_factory=list)
     model: str
+
+
+# ---------------------------------------------------------------------------
+# 리터치 프롬프트(=디자인/내용 프리셋)
+# ---------------------------------------------------------------------------
+
+# target: 어떤 AI용으로 다듬을지. general=도구비종속, internal=우리 generator용.
+RetouchTarget = Literal["general", "gamma", "gpt", "gemini", "internal"]
+
+
+class RetouchPromptRequest(BaseModel):
+    """현재 초안(편집 가능 상태)으로 리터치 프롬프트 생성."""
+
+    title: str = Field(min_length=1, max_length=300)
+    sections: list[DocSection] = Field(min_length=1)
+    doc_type: DocType = "일반"
+    topic: str | None = Field(default=None, max_length=4000)
+    target: RetouchTarget = "general"
+    # 이 프롬프트를 만들어낸 원본 문서 id(있으면 프리셋 저장 시 연결).
+    source_document_id: str | None = None
+
+
+class RetouchPromptOut(BaseModel):
+    """생성된 리터치 프롬프트 본문."""
+
+    prompt_text: str
+    target: RetouchTarget
+    model: str
+
+
+class RetouchPresetSaveRequest(BaseModel):
+    """리터치 프롬프트를 프리셋으로 저장."""
+
+    title: str = Field(min_length=1, max_length=300)
+    prompt_text: str = Field(min_length=1)
+    doc_type: DocType | None = None
+    target: RetouchTarget = "general"
+    source_document_id: str | None = None
+
+
+class RetouchPresetPatchRequest(BaseModel):
+    """프리셋 수정 — 제목/본문 편집 또는 공유 토글. 보낸 필드만 반영."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    prompt_text: str | None = Field(default=None, min_length=1)
+    is_shared: bool | None = None
+
+
+class RetouchPresetOut(BaseModel):
+    """내 프리셋 1행."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    title: str
+    doc_type: str | None = None
+    target: str
+    prompt_text: str
+    is_shared: bool = False
+    shared_at: datetime | None = None
+    source_document_id: uuid.UUID | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class SharedRetouchPresetOut(RetouchPresetOut):
+    """공유 프리셋 1행 — 소유자 표기 포함."""
+
+    owner_name: str | None = None
+    owner_department: str | None = None
+    is_mine: bool = False
