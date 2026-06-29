@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Alert,
@@ -9,6 +9,7 @@ import {
   message,
   Popconfirm,
   Segmented,
+  Select,
   Space,
   Spin,
   Tag,
@@ -34,9 +35,13 @@ import {
   generateDocument,
   getDocgenDocument,
   listDocgenDocuments,
+  listRetouchPresets,
+  listSharedRetouchPresets,
   regenerateSection,
   reviewDocument,
   type DocgenDocumentBrief,
+  type RetouchPreset,
+  type SharedRetouchPreset,
   type DocGenResponse,
   type DocReviewResponse,
   type DocSection,
@@ -89,6 +94,60 @@ export default function DocGenPage() {
   // 생성 결과를 편집 가능한 상태로 보관(다운로드·재생성은 이 상태 기준).
   const [title, setTitle] = useState("");
   const [sections, setSections] = useState<DocSection[]>([]);
+
+  // ── 디자인 프리셋(리터치 프롬프트) — 생성 전에 골라 첫 생성부터 적용 ──
+  const [myPresets, setMyPresets] = useState<RetouchPreset[]>([]);
+  const [sharedPresets, setSharedPresets] = useState<SharedRetouchPreset[]>([]);
+  const [designPresetId, setDesignPresetId] = useState<string | undefined>();
+
+  // 프리셋 목록 로드(내 것 + 공유). 드롭다운 열 때마다 최신화(패널에서 새로 저장했을 수 있음).
+  const reloadPresets = async () => {
+    try {
+      const [mine, shared] = await Promise.all([
+        listRetouchPresets(),
+        listSharedRetouchPresets(),
+      ]);
+      setMyPresets(mine);
+      setSharedPresets(shared);
+    } catch {
+      // 프리셋 로드 실패해도 생성은 가능 — 조용히 무시.
+    }
+  };
+  useEffect(() => {
+    void reloadPresets();
+  }, []);
+
+  // 선택된 프리셋의 prompt_text(생성 시 design_directive 로 주입).
+  const designDirective = useMemo(() => {
+    if (!designPresetId) return undefined;
+    return (
+      myPresets.find((p) => p.id === designPresetId)?.prompt_text ??
+      sharedPresets.find((p) => p.id === designPresetId)?.prompt_text
+    );
+  }, [designPresetId, myPresets, sharedPresets]);
+
+  // 셀렉트 옵션 — 내 프리셋 / 공유 프리셋 그룹(중복 제거: 공유 목록의 내 것은 제외).
+  const presetOptions = useMemo(
+    () => [
+      {
+        label: "내 프리셋",
+        options: myPresets.map((p) => ({
+          label: `${p.title} · ${p.target}`,
+          value: p.id,
+        })),
+      },
+      {
+        label: "공유 프리셋",
+        options: sharedPresets
+          .filter((p) => !p.is_mine)
+          .map((p) => ({
+            label: `${p.title} · ${p.owner_name ?? "?"}`,
+            value: p.id,
+          })),
+      },
+    ],
+    [myPresets, sharedPresets],
+  );
 
   // ── 내 문서(저장된 생성 결과) 목록/검색 상태 ──
   const [docs, setDocs] = useState<DocgenDocumentBrief[]>([]);
@@ -234,6 +293,7 @@ export default function DocGenPage() {
         doc_type: docType,
         source_mode: sourceMode,
         auto_review: highQuality,
+        design_directive: designDirective,
         files,
       });
       setResult(res);
@@ -244,7 +304,11 @@ export default function DocGenPage() {
       // 방금 저장된 문서 id 로 목록 하이라이트 + 목록 갱신.
       setActiveDocId(res.document_id ?? null);
       setDocsRefreshKey((k) => k + 1);
-      message.success(`초안 생성 완료 (참고 ${res.sources.length}건)`);
+      message.success(
+        designDirective
+          ? `초안 생성 완료 (프리셋 적용 · 참고 ${res.sources.length}건)`
+          : `초안 생성 완료 (참고 ${res.sources.length}건)`,
+      );
     } catch (e) {
       message.error((e as any)?.response?.data?.detail || "문서 생성 실패");
     } finally {
@@ -651,12 +715,33 @@ export default function DocGenPage() {
                 disabled={busy}
               />
             </Space>
+            <Space size={6}>
+              <Text type="secondary" style={{ fontSize: 12 }}>디자인 프리셋</Text>
+              <Select
+                size="small"
+                style={{ minWidth: 180 }}
+                placeholder="없음"
+                allowClear
+                value={designPresetId}
+                onChange={(v) => setDesignPresetId(v)}
+                onDropdownVisibleChange={(open) => {
+                  if (open) void reloadPresets();
+                }}
+                options={presetOptions}
+                disabled={busy}
+              />
+            </Space>
           </Space>
           <Text type="secondary" style={{ fontSize: 12 }}>
             {highQuality
               ? "고품질: 초안 작성 후 AI 검수→문제 섹션 재생성까지 돌립니다(보통 1~2분, 더 정확)."
               : "초안: 빠르게 한 번에 작성합니다(보통 30초 내외)."}
           </Text>
+          {designDirective && (
+            <Text type="success" style={{ fontSize: 12 }}>
+              선택한 디자인 프리셋을 적용해 첫 생성부터 그 방향(레이아웃·톤)으로 작성합니다.
+            </Text>
+          )}
           {showUpload && (
             <Upload
               multiple
