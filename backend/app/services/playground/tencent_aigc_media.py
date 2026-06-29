@@ -229,14 +229,9 @@ async def create_video_task(
     }
     if input_image_url:
         # i2v(image-to-video): MPS 의 CreateAigcVideoTask (공개문서 1041/76487).
-        # 입력 이미지는 top-level ``ImageUrl``(공개 URL). 출력은 **COS 버킷 필수**
-        # (StoreCosParam) — 콘솔에서 버킷 생성 + MPS_QcsRole 승인 선행. 미설정이면
-        # 출력처 없는 고아 task 가 생성돼 결과 조회 불가(ResourceNotFound) 이므로 막는다.
-        if not settings.tencent_aigc_mps_cos_bucket or not settings.tencent_aigc_mps_cos_region:
-            raise RuntimeError(
-                "i2v(이미지→영상) 출력 COS 버킷 미설정 — 텐센트 콘솔에서 COS 버킷 생성 + "
-                "MPS_QcsRole 역할 승인 후 DOCGEN/TENCENT_AIGC_MPS_COS_* 설정 필요(베타)."
-            )
+        # 입력 이미지는 top-level ``ImageUrl``(공개 URL). 출력은 MPS 기본 COS 버킷에
+        # 저장된다(StoreCosParam 미지정 시 계정 기본). 결과 조회는 전용 액션
+        # ``DescribeAigcVideoTask`` (DescribeTaskDetail 아님).
         mps_body: dict[str, Any] = {
             "ModelName": model_name,
             "ModelVersion": model_version,
@@ -247,15 +242,25 @@ async def create_video_task(
                 "Resolution": resolution,
                 "AspectRatio": aspect_ratio,
             },
-            # 출력 저장 — MPS 가 생성 영상을 이 COS 경로에 쓴다(필수).
-            "StoreCosParam": {
+        }
+        # 출력 버킷을 명시 설정한 경우에만 지정(미설정이면 MPS 기본 버킷 사용).
+        if settings.tencent_aigc_mps_cos_bucket and settings.tencent_aigc_mps_cos_region:
+            mps_body["StoreCosParam"] = {
                 "CosBucketName": settings.tencent_aigc_mps_cos_bucket,
                 "CosBucketRegion": settings.tencent_aigc_mps_cos_region,
                 "CosBucketPath": settings.tencent_aigc_mps_cos_path,
-            },
-        }
+            }
         return await _call_mps_intl("CreateAigcVideoTask", mps_body)
     return await _call_vod_intl("CreateAigcVideoTask", body)
+
+
+async def describe_aigc_video_task(task_id: str) -> dict[str, Any]:
+    """MPS i2v 결과 조회 — AIGC 전용 액션. {Status, VideoUrls, Resolution, Message}.
+
+    일반 ``DescribeTaskDetail`` 은 AIGC task 를 ResourceNotFound 로 못 찾는다 —
+    AIGC 는 Describe**Aigc**VideoTask 가 정식 조회 액션(문서 mps.live/33644).
+    """
+    return await _call_mps_intl("DescribeAigcVideoTask", {"TaskId": task_id})
 
 
 # ---------------------------------------------------------------------------

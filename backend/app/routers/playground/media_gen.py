@@ -25,6 +25,7 @@ from app.services.playground.pricing import calc_image_cost, calc_video_cost
 from app.services.playground.tencent_aigc_media import (
     create_image_task,
     create_video_task,
+    describe_aigc_video_task,
     describe_image_task,
     parse_model_key,
 )
@@ -238,69 +239,89 @@ async def describe_task_endpoint(
     if kind not in ("image", "video"):
         raise HTTPException(status_code=400, detail="kind 는 image 또는 video")
 
-    # i2v(image-to-video)는 MPS 의 CreateAigcVideoTask 로 생성된다(task_id 에 "AigcVideo-",
-    # VOD 의 t2v 는 "AigcVideoTask-"). MPS 결과 조회(DescribeTaskDetail)는 현재 계정에서
-    # ResourceNotFound — COS 출력/조회 spec 이 VOD 와 달라 텐센트 확인 대기 중(베타).
-    # 그동안 VOD describe 를 호출하면 InvalidParameterValue 503 으로 깨지므로, MPS task 는
-    # 에러 대신 "running" 으로 graceful 응답해 UI 가 '처리 중'을 보이게 한다.
+    output_url: str | None = None
+    error_message: str | None = None
+    width: int | None = None
+    height: int | None = None
+
+    # i2v(image-to-video)는 MPS CreateAigcVideoTask 로 생성(task_id 에 "AigcVideo-",
+    # VOD 의 t2v 는 "AigcVideoTask-"). MPS AIGC 영상 결과는 전용 액션
+    # DescribeAigcVideoTask 로 조회한다(일반 DescribeTaskDetail 은 ResourceNotFound).
     is_mps_video = (
         kind == "video"
         and "AigcVideo-" in task_id
         and "AigcVideoTask" not in task_id
     )
+
     if is_mps_video:
-        return PlaygroundTaskStatus(
-            task_id=task_id,
-            kind=kind,
-            status="running",
-            output_url=None,
-            error_message=None,
-            raw={"note": "MPS i2v 결과 수신 spec 텐센트 확인 대기(베타)"},
-            media_id=None,
-        )
-
-    try:
-        resp = await describe_image_task(task_id)
-    except RuntimeError as exc:
-        logger.warning("describe %s task 실패: %s", kind, exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    raw_status = str(resp.get("Status") or "").upper()
-    if raw_status == "FINISH":
-        status_norm = "succeeded"
-    elif raw_status == "FAIL":
-        status_norm = "failed"
-    elif raw_status == "PROCESSING":
-        status_norm = "running"
-    elif raw_status in {"PENDING", "WAITING", "QUEUED"}:
-        status_norm = "pending"
-    else:
-        status_norm = "unknown"
-
-    inner_key = "AigcImageTask" if kind == "image" else "AigcVideoTask"
-    inner = resp.get(inner_key) or {}
-    output_url: str | None = None
-    error_message: str | None = None
-    width: int | None = None
-    height: int | None = None
-    if isinstance(inner, dict):
-        file_infos = (inner.get("Output") or {}).get("FileInfos") or []
-        if file_infos:
-            first = file_infos[0]
-            output_url = first.get("FileUrl")
-            meta = first.get("MetaData") or {}
-            if isinstance(meta, dict):
-                w = meta.get("Width")
-                h = meta.get("Height")
-                if isinstance(w, int):
-                    width = w
-                if isinstance(h, int):
-                    height = h
-        err_code = inner.get("ErrCode")
-        msg = inner.get("Message")
-        if err_code and err_code != 0:
+        try:
+            resp = await describe_aigc_video_task(task_id)
+        except RuntimeError as exc:
+            logger.warning("describe MPS i2v 실패: %s", exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        # {Status: RUN|DONE|FAIL.., VideoUrls: [signed_url], Resolution: "WxH", Message}
+        raw_status = str(resp.get("Status") or "").upper()
+        if raw_status == "DONE":
+            status_norm = "succeeded"
+        elif raw_status in {"FAIL", "FAILED", "ERROR"}:
             status_norm = "failed"
-            error_message = msg or f"ErrCode={err_code}"
+        elif raw_status in {"RUN", "RUNNING", "PROCESSING"}:
+            status_norm = "running"
+        elif raw_status in {"WAIT", "WAITING", "PENDING", "QUEUED"}:
+            status_norm = "pending"
+        else:
+            status_norm = "unknown"
+        urls = resp.get("VideoUrls") or []
+        if isinstance(urls, list) and urls:
+            output_url = urls[0]
+        res = str(resp.get("Resolution") or "")
+        if "x" in res.lower():
+            try:
+                w_s, h_s = res.lower().split("x")[:2]
+                width, height = int(w_s), int(h_s)
+            except ValueError:
+                pass
+        if status_norm == "failed":
+            error_message = str(resp.get("Message") or "i2v 생성 실패")
+    else:
+        try:
+            resp = await describe_image_task(task_id)
+        except RuntimeError as exc:
+            logger.warning("describe %s task 실패: %s", kind, exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        raw_status = str(resp.get("Status") or "").upper()
+        if raw_status == "FINISH":
+            status_norm = "succeeded"
+        elif raw_status == "FAIL":
+            status_norm = "failed"
+        elif raw_status == "PROCESSING":
+            status_norm = "running"
+        elif raw_status in {"PENDING", "WAITING", "QUEUED"}:
+            status_norm = "pending"
+        else:
+            status_norm = "unknown"
+
+        inner_key = "AigcImageTask" if kind == "image" else "AigcVideoTask"
+        inner = resp.get(inner_key) or {}
+        if isinstance(inner, dict):
+            file_infos = (inner.get("Output") or {}).get("FileInfos") or []
+            if file_infos:
+                first = file_infos[0]
+                output_url = first.get("FileUrl")
+                meta = first.get("MetaData") or {}
+                if isinstance(meta, dict):
+                    w = meta.get("Width")
+                    h = meta.get("Height")
+                    if isinstance(w, int):
+                        width = w
+                    if isinstance(h, int):
+                        height = h
+            err_code = inner.get("ErrCode")
+            msg = inner.get("Message")
+            if err_code and err_code != 0:
+                status_norm = "failed"
+                error_message = msg or f"ErrCode={err_code}"
 
     # DB 동기화 — 본인 task 만 다룬다 (다른 사용자의 task_id 라도 텐센트는 응답하지만, 우리는 본인 row만 update).
     media_stmt = select(PlaygroundMedia).where(
