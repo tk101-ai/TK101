@@ -45,6 +45,12 @@ _VERSION = "2018-07-17"  # VOD API 버전 (텐센트 공식 문서 기준).
 _ACTION = "CreateAigcApiToken"
 _ALGORITHM = "TC3-HMAC-SHA256"
 
+# 새로 발급된 ApiToken 은 게이트웨이에서 활성화까지 ~10s 걸린다(라이브 확인:
+# 발급 직후 401 → 10s 뒤 OK). 이 시간 지나야 사용 가능으로 간주한다.
+_ACTIVATION_WAIT_S = 13.0
+# 만료 이만큼 전부터 백그라운드 선발급(기존 토큰 서빙 중 새 토큰을 미리 활성화).
+_REFRESH_AHEAD_S = 150.0
+
 
 class TencentApiTokenManager:
     """VOD ApiToken 발급/캐시 매니저 (싱글톤).
@@ -57,42 +63,76 @@ class TencentApiTokenManager:
     def __init__(self) -> None:
         self._cached_token: str | None = None
         self._cached_until: datetime | None = None
+        # 이 시각 이후에 활성(발급 후 활성 지연 흡수). 그 전엔 401 나므로 안 쓴다.
+        self._cached_active_at: datetime | None = None
         self._lock = asyncio.Lock()
+        self._refreshing = False
+
+    def _has_active(self, now: datetime) -> bool:
+        return bool(
+            self._cached_token
+            and self._cached_until
+            and self._cached_until > now
+            and self._cached_active_at
+            and now >= self._cached_active_at
+        )
 
     async def get_token(self) -> str:
-        """캐시 유효하면 반환, 만료 임박이면 재발급."""
+        """활성·유효한 토큰을 반환. 없으면 발급 후 활성까지 대기(콜드만 지연)."""
         # Fallback: 수동 키 우선.
         if settings.tencent_aigc_api_key:
             return settings.tencent_aigc_api_key
 
         now = datetime.now(timezone.utc)
-        # 만료 30초 전부터 미리 재발급 → 만료 직전 호출 race 회피.
-        threshold = now + timedelta(seconds=30)
-        if (
-            self._cached_token
-            and self._cached_until
-            and self._cached_until > threshold
-        ):
-            return self._cached_token
+        if self._has_active(now):
+            # 만료 임박이면 백그라운드로 미리 재발급(기존 토큰은 계속 서빙).
+            if (
+                self._cached_until
+                and (self._cached_until - now).total_seconds() < _REFRESH_AHEAD_S
+                and not self._refreshing
+            ):
+                self._refreshing = True
+                asyncio.create_task(self._refresh_in_background())
+            return self._cached_token  # type: ignore[return-value]
 
         async with self._lock:
-            # double-check (다른 코루틴이 lock 안에서 이미 refresh 했을 수 있음).
             now = datetime.now(timezone.utc)
-            threshold = now + timedelta(seconds=30)
-            if (
-                self._cached_token
-                and self._cached_until
-                and self._cached_until > threshold
-            ):
-                return self._cached_token
+            if self._has_active(now):
+                return self._cached_token  # type: ignore[return-value]
 
             token, expires_at = await self._refresh()
+            active_at = datetime.now(timezone.utc) + timedelta(seconds=_ACTIVATION_WAIT_S)
             self._cached_token = token
             self._cached_until = expires_at
+            self._cached_active_at = active_at
             logger.info(
-                "텐센트 ApiToken 재발급 완료 (만료: %s)", expires_at.isoformat()
+                "텐센트 ApiToken 발급 — 활성 대기 %.0fs (만료: %s)",
+                _ACTIVATION_WAIT_S,
+                expires_at.isoformat(),
             )
+            # 활성화 전 사용 시 401 → 활성까지 대기 후 반환(콜드 첫 호출만 지연).
+            wait = (active_at - datetime.now(timezone.utc)).total_seconds()
+            if wait > 0:
+                await asyncio.sleep(wait)
             return token
+
+    async def _refresh_in_background(self) -> None:
+        """만료 전 미리 새 토큰 발급 → 활성 대기 → 교체. 대기 동안 기존 토큰 서빙."""
+        try:
+            token, expires_at = await self._refresh()
+            await asyncio.sleep(_ACTIVATION_WAIT_S)  # 활성 대기(기존 토큰 계속 유효)
+            self._cached_token = token
+            self._cached_until = expires_at
+            self._cached_active_at = datetime.now(timezone.utc)  # 이미 활성
+            logger.info("텐센트 ApiToken 선발급·교체 완료 (만료: %s)", expires_at.isoformat())
+        except Exception:  # noqa: BLE001 — 선발급 실패는 기존 토큰 만료 시 콜드 경로가 처리.
+            logger.warning("텐센트 ApiToken 선발급 실패 — 만료 시 재시도", exc_info=True)
+        finally:
+            self._refreshing = False
+
+    async def warmup(self) -> str:
+        """시작 시 토큰을 미리 발급·활성화해 첫 대화의 401(활성 지연)을 없앤다."""
+        return await self.get_token()
 
     async def _refresh(self) -> tuple[str, datetime]:
         """``CreateAigcApiToken`` 호출 → (ApiToken, 캐시 만료 시각) 반환."""

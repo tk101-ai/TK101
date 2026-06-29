@@ -90,6 +90,23 @@ async def _warmup_nas_query_embedder() -> None:
             logger.exception("NAS 리랭커 모델 워밍업 실패 — 첫 쿼리 시 lazy load로 재시도")
 
 
+async def _warmup_aigc_token() -> None:
+    """텐센트 채팅 ApiToken 을 기동 시 미리 발급·활성화.
+
+    새 토큰은 게이트웨이 활성화까지 ~10s 걸려, 재시작 직후 첫 대화가 401 이 나던
+    문제(라이브 확인)를 없앤다. 발급+활성 대기는 토큰 매니저가 처리한다.
+    """
+    if settings.tencent_aigc_api_key:
+        return  # 수동 키 모드는 발급 불필요.
+    try:
+        from app.services.playground.token_manager import token_manager
+
+        await token_manager.warmup()
+        logger.info("텐센트 채팅 ApiToken 워밍업 완료(활성)")
+    except Exception:  # noqa: BLE001
+        logger.exception("텐센트 ApiToken 워밍업 실패 — 첫 대화 시 lazy 발급으로 재시도")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
@@ -128,6 +145,8 @@ async def lifespan(app: FastAPI):
         )
     # NAS 검색 v2 쿼리 임베딩 모델 워밍업(백그라운드 — 기동을 막지 않음).
     warmup_task = asyncio.create_task(_warmup_nas_query_embedder())
+    # 텐센트 채팅 ApiToken 사전 발급·활성화(백그라운드) — 재시작 직후 첫 대화 401 방지.
+    token_warmup_task = asyncio.create_task(_warmup_aigc_token())
     worker_task: asyncio.Task | None = None
     stop_event = asyncio.Event()
     if _should_start_send_worker():
@@ -149,6 +168,12 @@ async def lifespan(app: FastAPI):
             warmup_task.cancel()
             try:
                 await warmup_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if not token_warmup_task.done():
+            token_warmup_task.cancel()
+            try:
+                await token_warmup_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         if worker_task is not None:
