@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { Empty, Input, Segmented, Space, Spin, Tabs, Typography, message } from "antd";
 import { PictureOutlined, TeamOutlined } from "@ant-design/icons";
 import {
@@ -40,6 +41,7 @@ function asShared(item: PlaygroundMediaItem): SharedMediaItem {
 }
 
 export default function ContentLibraryPage() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<TabKey>("mine");
   const [kind, setKind] = useState<KindFilter>("all");
   const [query, setQuery] = useState("");
@@ -99,8 +101,11 @@ export default function ContentLibraryPage() {
         audio_generation: values.audio_generation,
         enhance_prompt: values.enhance_prompt,
       });
-      message.success("영상 생성 시작 — 완료되면 보관함의 영상에 나타납니다 (베타)");
       setI2vTarget(null);
+      message.info(
+        "영상 생성 요청됨 (베타) — 영상 탭에서 진행 상태를 확인하세요. 텐센트 i2v 결과 수신은 점검 중입니다.",
+      );
+      navigate("/playground?tab=video");
     } catch (e) {
       message.error(
         (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
