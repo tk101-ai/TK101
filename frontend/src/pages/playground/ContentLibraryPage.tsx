@@ -77,7 +77,7 @@ export default function ContentLibraryPage() {
   const asActiveTask = (item: SharedMediaItem): ActiveTask => ({
     mediaId: item.id,
     taskId: "",
-    kind: "image",
+    kind: item.media_type,
     prompt: item.prompt ?? "",
     modelKey: item.model_key ?? "",
     status: "succeeded",
@@ -88,7 +88,11 @@ export default function ContentLibraryPage() {
     createdAt: item.created_at,
   });
 
+  // i2v(이미지→영상) 및 v2v(영상 리터치) 모두 I2VModal + /video/from-media 사용.
   const handleConvertToVideo = (item: SharedMediaItem) => {
+    setI2vTarget(asActiveTask(item));
+  };
+  const handleRetouchVideo = (item: SharedMediaItem) => {
     setI2vTarget(asActiveTask(item));
   };
 
@@ -143,9 +147,7 @@ export default function ContentLibraryPage() {
         enhance_prompt: values.enhance_prompt,
       });
       setI2vTarget(null);
-      message.info(
-        "영상 생성 요청됨 (베타) — 영상 탭에서 진행 상태를 확인하세요. 텐센트 i2v 결과 수신은 점검 중입니다.",
-      );
+      message.success("영상 생성 요청됨 — 영상 탭에서 진행 상태를 확인하세요");
       navigate("/playground?tab=video");
     } catch (e) {
       message.error(
@@ -226,6 +228,7 @@ export default function ContentLibraryPage() {
             onConvertToVideo={handleConvertToVideo}
             onReuse={handleReuse}
             onRetouch={handleRetouch}
+            onRetouchVideo={handleRetouchVideo}
           />
         )}
       />

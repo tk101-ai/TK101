@@ -28,6 +28,8 @@ interface MediaLibraryCardProps {
   onReuse?: (item: SharedMediaItem) => void;
   /** 이 이미지를 베이스로 리터치/편집(i2i). 본인 이미지에서만 노출. */
   onRetouch?: (item: SharedMediaItem) => void;
+  /** 이 영상을 베이스로 리터치(v2v). 본인 영상에서만 노출. */
+  onRetouchVideo?: (item: SharedMediaItem) => void;
 }
 
 function formatDate(iso: string): string {
@@ -48,6 +50,7 @@ export default function MediaLibraryCard({
   onConvertToVideo,
   onReuse,
   onRetouch,
+  onRetouchVideo,
 }: MediaLibraryCardProps) {
   const [busy, setBusy] = useState(false);
   const isVideo = item.media_type === "video";
@@ -150,6 +153,19 @@ export default function MediaLibraryCard({
                 onClick={() => onRetouch(item)}
               >
                 리터치
+              </Button>
+            </Tooltip>
+          )}
+
+          {isVideo && onRetouchVideo && (
+            <Tooltip title="이 영상을 베이스로 수정/리터치 (video-to-video · 최근 생성분)">
+              <Button
+                size="small"
+                type="primary"
+                icon={<HighlightOutlined />}
+                onClick={() => onRetouchVideo(item)}
+              >
+                영상 리터치
               </Button>
             </Tooltip>
           )}

@@ -292,7 +292,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
       return;
     }
     try {
-      await createVideoFromMedia({
+      const res = await createVideoFromMedia({
         prompt: values.prompt,
         image_media_id: target.mediaId,
         model_key: values.model_key,
@@ -302,9 +302,31 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
         audio_generation: values.audio_generation,
         enhance_prompt: values.enhance_prompt,
       });
-      message.success("영상 생성 작업 시작 — Video Gen 탭에서 확인하세요");
       setI2vTarget(null);
       setQuotaRefreshKey((k) => k + 1);
+      // 영상 패널(v2v 리터치)이면 결과를 이 갤러리에서 바로 폴링·표시.
+      if (kind === "video") {
+        setTasks((prev) => [
+          {
+            mediaId: null,
+            taskId: res.task_id,
+            kind: "video",
+            prompt: values.prompt,
+            modelKey: values.model_key,
+            status: "pending",
+            outputUrl: null,
+            errorMessage: null,
+            costUsd: null,
+            sourceMediaId: target.mediaId,
+            createdAt: new Date().toISOString(),
+          },
+          ...prev,
+        ]);
+        startPolling(res.task_id);
+        message.success("영상 리터치 시작 — 결과는 아래 갤러리에 표시됩니다");
+      } else {
+        message.success("영상 생성 작업 시작 — Video Gen 탭에서 확인하세요");
+      }
     } catch (err: unknown) {
       if (isQuotaExceededError(err)) {
         message.error(QUOTA_EXCEEDED_MESSAGE);
@@ -540,6 +562,9 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
                       }
                       onRetouch={
                         kind === "image" ? () => setRetouchTarget(t) : undefined
+                      }
+                      onRetouchVideo={
+                        kind === "video" ? () => setI2vTarget(t) : undefined
                       }
                       onReuse={() =>
                         applyReuse({ prompt: t.prompt, modelKey: t.modelKey })

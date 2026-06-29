@@ -19,6 +19,7 @@ export default function TaskCard({
   onConvertToVideo,
   onReuse,
   onRetouch,
+  onRetouchVideo,
 }: {
   task: ActiveTask;
   onConvertToVideo?: () => void;
@@ -26,9 +27,13 @@ export default function TaskCard({
   onReuse?: () => void;
   /** 이 이미지를 베이스로 리터치/편집(i2i). */
   onRetouch?: () => void;
+  /** 이 영상을 베이스로 리터치(v2v). */
+  onRetouchVideo?: () => void;
 }) {
   const canEditImage =
     task.kind === "image" && task.status === "succeeded" && Boolean(task.mediaId);
+  const canEditVideo =
+    task.kind === "video" && task.status === "succeeded" && Boolean(task.mediaId);
   const canConvert = Boolean(onConvertToVideo) && canEditImage;
   const succeeded = task.status === "succeeded" && Boolean(task.outputUrl);
 
@@ -148,6 +153,16 @@ export default function TaskCard({
           {onRetouch && canEditImage && (
             <Tooltip title="이 이미지를 베이스로 리터치/수정">
               <Button size="small" type="text" icon={<HighlightOutlined />} onClick={onRetouch} />
+            </Tooltip>
+          )}
+          {onRetouchVideo && canEditVideo && (
+            <Tooltip title="이 영상을 베이스로 리터치/수정 (최근 생성분)">
+              <Button
+                size="small"
+                type="text"
+                icon={<HighlightOutlined />}
+                onClick={onRetouchVideo}
+              />
             </Tooltip>
           )}
           {onReuse && (

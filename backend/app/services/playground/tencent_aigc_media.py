@@ -233,13 +233,15 @@ async def create_video_task(
     audio_generation: bool = False,
     enhance_prompt: bool = True,
     input_image_url: str | None = None,
+    input_video_url: str | None = None,
 ) -> dict[str, Any]:
     """Create video generation task. Returns {TaskId, RequestId}.
 
-    ``input_image_url`` 가 주어지면 image-to-video (i2v) 모드.
-    body 에 ``Input.FileInfos[0].FileUrl`` 을 추가한다. 텐센트 i2v 의 정확한
-    필드명은 라이브 probe 가 안 끝나 추정치 — 라이브에서 400 이면
-    필드명 (예: ``InputImage`` / ``ReferenceImage``) 변경 필요.
+    MPS CreateAigcVideoTask 입력 분기(라이브 probe 확정):
+    - ``input_video_url`` → v2v(영상 리터치): ``VideoInfos:[{VideoUrl}]``.
+    - ``input_image_url`` → i2v(이미지→영상): top-level ``ImageUrl``.
+    - 둘 다 없으면 VOD t2v(임시저장).
+    결과 조회는 전용 액션 ``DescribeAigcVideoTask``.
     """
     body: dict[str, Any] = {
         "SubAppId": int(settings.tencent_aigc_subapp_id),
@@ -257,22 +259,25 @@ async def create_video_task(
             "OutputComplianceCheck": "Enabled",
         },
     }
-    if input_image_url:
-        # i2v(image-to-video): MPS 의 CreateAigcVideoTask (공개문서 1041/76487).
-        # 입력 이미지는 top-level ``ImageUrl``(공개 URL). 출력은 MPS 기본 COS 버킷에
-        # 저장된다(StoreCosParam 미지정 시 계정 기본). 결과 조회는 전용 액션
-        # ``DescribeAigcVideoTask`` (DescribeTaskDetail 아님).
+    if input_video_url or input_image_url:
+        # MPS CreateAigcVideoTask (공개문서 1041/76487). 출력은 MPS 기본 COS 버킷에
+        # 저장(StoreCosParam 미지정 시 계정 기본). 결과 조회는 DescribeAigcVideoTask.
         mps_body: dict[str, Any] = {
             "ModelName": model_name,
             "ModelVersion": model_version,
             "Prompt": prompt,
-            "ImageUrl": input_image_url,
             "Duration": duration,
             "ExtraParameters": {
                 "Resolution": resolution,
                 "AspectRatio": aspect_ratio,
             },
         }
+        if input_video_url:
+            # v2v(video-to-video, 영상 리터치): 베이스 영상은 VideoInfos 배열.
+            mps_body["VideoInfos"] = [{"VideoUrl": input_video_url}]
+        else:
+            # i2v(image-to-video): 베이스 이미지는 top-level ImageUrl.
+            mps_body["ImageUrl"] = input_image_url
         # 출력 버킷을 명시 설정한 경우에만 지정(미설정이면 MPS 기본 버킷 사용).
         if settings.tencent_aigc_mps_cos_bucket and settings.tencent_aigc_mps_cos_region:
             mps_body["StoreCosParam"] = {
