@@ -38,3 +38,11 @@ export interface I2VFormValues {
   audio_generation: boolean;
   enhance_prompt: boolean;
 }
+
+/** i2i 리터치/편집 모달 입력값. */
+export interface ImageEditFormValues {
+  prompt: string;
+  model_key: string;
+  aspect_ratio: string;
+  enhance_prompt: boolean;
+}

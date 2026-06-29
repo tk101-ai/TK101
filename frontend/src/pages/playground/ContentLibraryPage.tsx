@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Empty, Input, Segmented, Space, Spin, Tabs, Typography, message } from "antd";
 import { PictureOutlined, TeamOutlined } from "@ant-design/icons";
 import {
+  createImageFromMedia,
   createVideoFromMedia,
   deleteMedia,
   getMediaModels,
@@ -17,7 +18,8 @@ import {
 } from "../../api/playground";
 import MediaLibraryCard from "../../components/playground/MediaLibraryCard";
 import I2VModal from "../../components/playground/media-gen/I2VModal";
-import type { ActiveTask } from "../../components/playground/media-gen/types";
+import ImageEditModal from "../../components/playground/media-gen/ImageEditModal";
+import type { ActiveTask, ImageEditFormValues } from "../../components/playground/media-gen/types";
 
 const { Title, Paragraph } = Typography;
 
@@ -50,13 +52,18 @@ export default function ContentLibraryPage() {
   const [shared, setShared] = useState<SharedMediaItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 이미지 → 영상(i2v).
+  // 이미지 → 영상(i2v) / 이미지 리터치(i2i).
   const [videoModels, setVideoModels] = useState<PlaygroundMediaModelOption[]>([]);
+  const [imageModels, setImageModels] = useState<PlaygroundMediaModelOption[]>([]);
   const [i2vTarget, setI2vTarget] = useState<ActiveTask | null>(null);
+  const [retouchTarget, setRetouchTarget] = useState<ActiveTask | null>(null);
 
   useEffect(() => {
     void getMediaModels()
-      .then((c) => setVideoModels(c.video))
+      .then((c) => {
+        setVideoModels(c.video);
+        setImageModels(c.image);
+      })
       .catch(() => {
         /* 모델 목록 실패해도 갤러리는 동작 */
       });
@@ -67,20 +74,48 @@ export default function ContentLibraryPage() {
     navigate(`/playground?tab=${item.media_type}&reuse=${item.id}`);
   };
 
+  const asActiveTask = (item: SharedMediaItem): ActiveTask => ({
+    mediaId: item.id,
+    taskId: "",
+    kind: "image",
+    prompt: item.prompt ?? "",
+    modelKey: item.model_key ?? "",
+    status: "succeeded",
+    outputUrl: mediaFileUrl(item.id),
+    errorMessage: null,
+    costUsd: null,
+    sourceMediaId: null,
+    createdAt: item.created_at,
+  });
+
   const handleConvertToVideo = (item: SharedMediaItem) => {
-    setI2vTarget({
-      mediaId: item.id,
-      taskId: "",
-      kind: "image",
-      prompt: item.prompt ?? "",
-      modelKey: item.model_key ?? "",
-      status: "succeeded",
-      outputUrl: mediaFileUrl(item.id),
-      errorMessage: null,
-      costUsd: null,
-      sourceMediaId: null,
-      createdAt: item.created_at,
-    });
+    setI2vTarget(asActiveTask(item));
+  };
+
+  // 이미지 리터치(i2i) — 이 이미지를 베이스로 수정.
+  const handleRetouch = (item: SharedMediaItem) => {
+    setRetouchTarget(asActiveTask(item));
+  };
+
+  const handleRetouchSubmit = async (values: ImageEditFormValues, target: ActiveTask) => {
+    if (!target.mediaId) return;
+    try {
+      await createImageFromMedia({
+        prompt: values.prompt,
+        image_media_id: target.mediaId,
+        model_key: values.model_key,
+        aspect_ratio: values.aspect_ratio,
+        enhance_prompt: values.enhance_prompt,
+      });
+      setRetouchTarget(null);
+      message.success("리터치 요청됨 — 이미지 탭에서 진행 상태를 확인하세요");
+      navigate("/playground?tab=image");
+    } catch (e) {
+      message.error(
+        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+          "리터치 시작에 실패했습니다",
+      );
+    }
   };
 
   const handleI2VSubmit = async (
@@ -190,6 +225,7 @@ export default function ContentLibraryPage() {
             onDelete={handleDelete}
             onConvertToVideo={handleConvertToVideo}
             onReuse={handleReuse}
+            onRetouch={handleRetouch}
           />
         )}
       />
@@ -263,6 +299,13 @@ export default function ContentLibraryPage() {
         videoModels={videoModels}
         onCancel={() => setI2vTarget(null)}
         onSubmit={handleI2VSubmit}
+      />
+
+      <ImageEditModal
+        target={retouchTarget}
+        imageModels={imageModels}
+        onCancel={() => setRetouchTarget(null)}
+        onSubmit={handleRetouchSubmit}
       />
     </div>
   );

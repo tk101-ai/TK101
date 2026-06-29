@@ -3,6 +3,7 @@ import { Avatar, Button, Popconfirm, Switch, Tag, Tooltip, Typography, message }
 import {
   DeleteOutlined,
   DownloadOutlined,
+  HighlightOutlined,
   RedoOutlined,
   ShareAltOutlined,
   UserOutlined,
@@ -25,6 +26,8 @@ interface MediaLibraryCardProps {
   onConvertToVideo?: (item: SharedMediaItem) => void;
   /** 이 항목 설정으로 생성 폼을 채워 재생성/수정. */
   onReuse?: (item: SharedMediaItem) => void;
+  /** 이 이미지를 베이스로 리터치/편집(i2i). 본인 이미지에서만 노출. */
+  onRetouch?: (item: SharedMediaItem) => void;
 }
 
 function formatDate(iso: string): string {
@@ -44,6 +47,7 @@ export default function MediaLibraryCard({
   onDelete,
   onConvertToVideo,
   onReuse,
+  onRetouch,
 }: MediaLibraryCardProps) {
   const [busy, setBusy] = useState(false);
   const isVideo = item.media_type === "video";
@@ -136,6 +140,19 @@ export default function MediaLibraryCard({
           <Button size="small" icon={<DownloadOutlined />} onClick={handleDownload} loading={busy}>
             다운로드
           </Button>
+
+          {!isVideo && onRetouch && (
+            <Tooltip title="이 이미지를 베이스로 수정/리터치 (image-to-image)">
+              <Button
+                size="small"
+                type="primary"
+                icon={<HighlightOutlined />}
+                onClick={() => onRetouch(item)}
+              >
+                리터치
+              </Button>
+            </Tooltip>
+          )}
 
           {!isVideo && onConvertToVideo && (
             <Tooltip title="이 이미지로 영상을 만듭니다 (image-to-video · 베타)">

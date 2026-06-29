@@ -146,8 +146,30 @@ async def create_image_task(
     negative_prompt: str | None = None,
     aspect_ratio: str = "1:1",
     enhance_prompt: bool = True,
+    input_image_url: str | None = None,
 ) -> dict[str, Any]:
-    """Create image generation task. Returns {TaskId, RequestId}."""
+    """Create image generation task. Returns {TaskId, RequestId}.
+
+    ``input_image_url`` 가 주어지면 image-to-image(i2i, 리터치/편집) 모드 —
+    MPS CreateAigcImageTask 에 ``ImageInfos[{ImageUrl}]`` 로 베이스 이미지를 전달
+    (i2v 와 동일 계열, 결과는 DescribeAigcImageTask 로 조회). 없으면 VOD t2i.
+    """
+    if input_image_url:
+        mps_body: dict[str, Any] = {
+            "ModelName": model_name,
+            "ModelVersion": model_version,
+            "Prompt": prompt,
+            # 참고/베이스 이미지(편집 대상). AigcImageInfo 배열, 1장 기본.
+            "ImageInfos": [{"ImageUrl": input_image_url}],
+        }
+        if settings.tencent_aigc_mps_cos_bucket and settings.tencent_aigc_mps_cos_region:
+            mps_body["StoreCosParam"] = {
+                "CosBucketName": settings.tencent_aigc_mps_cos_bucket,
+                "CosBucketRegion": settings.tencent_aigc_mps_cos_region,
+                "CosBucketPath": settings.tencent_aigc_mps_cos_path,
+            }
+        return await _call_mps_intl("CreateAigcImageTask", mps_body)
+
     output_config: dict[str, Any] = {
         "StorageMode": "Temporary",
         "AspectRatio": aspect_ratio,
@@ -166,6 +188,14 @@ async def create_image_task(
         body["NegativePrompt"] = negative_prompt
 
     return await _call_vod_intl("CreateAigcImageTask", body)
+
+
+async def describe_aigc_image_task(task_id: str) -> dict[str, Any]:
+    """MPS i2i 결과 조회 — AIGC 전용 액션. {Status, ImageUrls, Message}.
+
+    DescribeAigcVideoTask 의 이미지 버전(일반 DescribeTaskDetail 은 ResourceNotFound).
+    """
+    return await _call_mps_intl("DescribeAigcImageTask", {"TaskId": task_id})
 
 
 async def describe_task_detail(task_id: str) -> dict[str, Any]:

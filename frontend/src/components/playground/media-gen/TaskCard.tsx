@@ -1,6 +1,7 @@
 import { Alert, Button, Image, Tag, Tooltip, Typography } from "antd";
 import {
   DownloadOutlined,
+  HighlightOutlined,
   PictureOutlined,
   PlayCircleOutlined,
   RedoOutlined,
@@ -17,17 +18,18 @@ export default function TaskCard({
   task,
   onConvertToVideo,
   onReuse,
+  onRetouch,
 }: {
   task: ActiveTask;
   onConvertToVideo?: () => void;
   /** 이 항목의 설정으로 폼을 채워 이어서 재생성/수정. */
   onReuse?: () => void;
+  /** 이 이미지를 베이스로 리터치/편집(i2i). */
+  onRetouch?: () => void;
 }) {
-  const canConvert =
-    Boolean(onConvertToVideo) &&
-    task.kind === "image" &&
-    task.status === "succeeded" &&
-    Boolean(task.mediaId);
+  const canEditImage =
+    task.kind === "image" && task.status === "succeeded" && Boolean(task.mediaId);
+  const canConvert = Boolean(onConvertToVideo) && canEditImage;
   const succeeded = task.status === "succeeded" && Boolean(task.outputUrl);
 
   return (
@@ -143,6 +145,11 @@ export default function TaskCard({
             </Text>
           )}
           <span style={{ flex: 1 }} />
+          {onRetouch && canEditImage && (
+            <Tooltip title="이 이미지를 베이스로 리터치/수정">
+              <Button size="small" type="text" icon={<HighlightOutlined />} onClick={onRetouch} />
+            </Tooltip>
+          )}
           {onReuse && (
             <Tooltip title="이 설정으로 재생성/수정">
               <Button size="small" type="text" icon={<RedoOutlined />} onClick={onReuse} />

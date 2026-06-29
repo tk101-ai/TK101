@@ -356,6 +356,19 @@ class PlaygroundI2VRequest(BaseModel):
     enhance_prompt: bool = True
 
 
+class PlaygroundImageEditRequest(BaseModel):
+    """POST /api/playground/image/from-media 요청 본문 (i2i 리터치/편집).
+
+    image_media_id 로 본인의 완료된 이미지를 베이스로, 수정 프롬프트대로 편집.
+    """
+
+    prompt: str = Field(min_length=1, max_length=4000)
+    image_media_id: uuid.UUID
+    model_key: str = Field(default="Qwen:0925", max_length=100)
+    aspect_ratio: str = Field(default="1:1", max_length=20)
+    enhance_prompt: bool = True
+
+
 class PlaygroundMediaCleanupOut(BaseModel):
     """POST /api/playground/admin/media/cleanup 응답 (보존기간 정리 결과)."""
 

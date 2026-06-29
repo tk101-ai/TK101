@@ -15,6 +15,7 @@ from app.models.playground import PlaygroundMedia
 from app.models.user import User
 from app.schemas.playground import (
     PlaygroundI2VRequest,
+    PlaygroundImageEditRequest,
     PlaygroundImageRequest,
     PlaygroundTaskCreated,
     PlaygroundTaskStatus,
@@ -25,6 +26,7 @@ from app.services.playground.pricing import calc_image_cost, calc_video_cost
 from app.services.playground.tencent_aigc_media import (
     create_image_task,
     create_video_task,
+    describe_aigc_image_task,
     describe_aigc_video_task,
     describe_image_task,
     parse_model_key,
@@ -230,6 +232,80 @@ async def create_video_from_media_endpoint(
     )
 
 
+@router.post("/image/from-media", response_model=PlaygroundTaskCreated)
+async def create_image_from_media_endpoint(
+    body: PlaygroundImageEditRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PlaygroundTaskCreated:
+    """Image-to-Image (i2i) — 완성 이미지를 베이스로 리터치/편집.
+
+    image_media_id 로 본인의 완료된 이미지를 참조해 MPS CreateAigcImageTask
+    (ImageInfos) 로 편집 이미지 생성. 결과는 DescribeAigcImageTask 로 조회.
+    """
+    await check_quota_or_raise(db, user)
+
+    stmt = select(PlaygroundMedia).where(
+        PlaygroundMedia.id == body.image_media_id,
+        PlaygroundMedia.user_id == user.id,
+        PlaygroundMedia.media_type == "image",
+        PlaygroundMedia.status == "succeeded",
+    )
+    image_row = (await db.execute(stmt)).scalar_one_or_none()
+    if image_row is None:
+        raise HTTPException(
+            status_code=404, detail="참조 이미지 미디어를 찾을 수 없습니다"
+        )
+    image_url = image_row.url
+    if not image_url:
+        raise HTTPException(
+            status_code=400,
+            detail="참조 이미지의 텐센트 URL 이 없습니다 (만료되었거나 미보관)",
+        )
+    if image_row.expires_at and image_row.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=400, detail="참조 이미지 URL 이 만료되었습니다"
+        )
+
+    try:
+        name, version = parse_model_key(body.model_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        resp = await create_image_task(
+            prompt=body.prompt,
+            model_name=name,
+            model_version=version,
+            aspect_ratio=body.aspect_ratio,
+            enhance_prompt=body.enhance_prompt,
+            input_image_url=image_url,
+        )
+    except RuntimeError as exc:
+        logger.warning("create_image_task (i2i) 실패: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    task_id = resp.get("TaskId")
+    if not task_id:
+        raise HTTPException(status_code=502, detail=f"텐센트 응답에 TaskId 없음: {resp}")
+
+    media = PlaygroundMedia(
+        user_id=user.id,
+        media_type="image",
+        source_media_id=image_row.id,  # 어떤 이미지를 리터치했는지
+        task_id=str(task_id),
+        model_key=body.model_key,
+        prompt=body.prompt,
+        status="running",
+    )
+    db.add(media)
+    await db.commit()
+
+    return PlaygroundTaskCreated(
+        task_id=str(task_id), request_id=resp.get("RequestId"), kind="image",
+    )
+
+
 @router.get("/tasks/{kind}/{task_id}", response_model=PlaygroundTaskStatus)
 async def describe_task_endpoint(
     kind: str,
@@ -253,8 +329,38 @@ async def describe_task_endpoint(
         and "AigcVideo-" in task_id
         and "AigcVideoTask" not in task_id
     )
+    # i2i(image-to-image, 리터치)는 MPS CreateAigcImageTask("AigcImage-", VOD t2i 는
+    # "AigcImageTask-"). 결과는 전용 액션 DescribeAigcImageTask 로 조회.
+    is_mps_image = (
+        kind == "image"
+        and "AigcImage-" in task_id
+        and "AigcImageTask" not in task_id
+    )
 
-    if is_mps_video:
+    if is_mps_image:
+        try:
+            resp = await describe_aigc_image_task(task_id)
+        except RuntimeError as exc:
+            logger.warning("describe MPS i2i 실패: %s", exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        # {Status: RUN|DONE|FAIL.., ImageUrls: [signed_url], Message}
+        raw_status = str(resp.get("Status") or "").upper()
+        if raw_status == "DONE":
+            status_norm = "succeeded"
+        elif raw_status in {"FAIL", "FAILED", "ERROR"}:
+            status_norm = "failed"
+        elif raw_status in {"RUN", "RUNNING", "PROCESSING"}:
+            status_norm = "running"
+        elif raw_status in {"WAIT", "WAITING", "PENDING", "QUEUED"}:
+            status_norm = "pending"
+        else:
+            status_norm = "unknown"
+        urls = resp.get("ImageUrls") or []
+        if isinstance(urls, list) and urls:
+            output_url = urls[0]
+        if status_norm == "failed":
+            error_message = str(resp.get("Message") or "이미지 리터치 실패")
+    elif is_mps_video:
         try:
             resp = await describe_aigc_video_task(task_id)
         except RuntimeError as exc:
