@@ -228,9 +228,15 @@ async def create_video_task(
         },
     }
     if input_image_url:
-        # i2v(image-to-video): 공개문서(1041/76487) 기준 MPS 의 CreateAigcVideoTask.
-        # 입력 이미지는 top-level ``ImageUrl``(공개 접근 가능 URL). VOD 23개 후보가
-        # 전부 거부된 이유 = 서비스 자체가 MPS. 라이브 테스트로 계정 활성화/바디 확정.
+        # i2v(image-to-video): MPS 의 CreateAigcVideoTask (공개문서 1041/76487).
+        # 입력 이미지는 top-level ``ImageUrl``(공개 URL). 출력은 **COS 버킷 필수**
+        # (StoreCosParam) — 콘솔에서 버킷 생성 + MPS_QcsRole 승인 선행. 미설정이면
+        # 출력처 없는 고아 task 가 생성돼 결과 조회 불가(ResourceNotFound) 이므로 막는다.
+        if not settings.tencent_aigc_mps_cos_bucket or not settings.tencent_aigc_mps_cos_region:
+            raise RuntimeError(
+                "i2v(이미지→영상) 출력 COS 버킷 미설정 — 텐센트 콘솔에서 COS 버킷 생성 + "
+                "MPS_QcsRole 역할 승인 후 DOCGEN/TENCENT_AIGC_MPS_COS_* 설정 필요(베타)."
+            )
         mps_body: dict[str, Any] = {
             "ModelName": model_name,
             "ModelVersion": model_version,
@@ -240,6 +246,12 @@ async def create_video_task(
             "ExtraParameters": {
                 "Resolution": resolution,
                 "AspectRatio": aspect_ratio,
+            },
+            # 출력 저장 — MPS 가 생성 영상을 이 COS 경로에 쓴다(필수).
+            "StoreCosParam": {
+                "CosBucketName": settings.tencent_aigc_mps_cos_bucket,
+                "CosBucketRegion": settings.tencent_aigc_mps_cos_region,
+                "CosBucketPath": settings.tencent_aigc_mps_cos_path,
             },
         }
         return await _call_mps_intl("CreateAigcVideoTask", mps_body)
