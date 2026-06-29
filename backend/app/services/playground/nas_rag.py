@@ -22,8 +22,9 @@ from app.services.nas_search.query_refiner import refine_search_query
 
 logger = logging.getLogger(__name__)
 
-# RAG 검색 청크 수 (작업 지시: 5~6).
-RAG_CHUNK_LIMIT = 6
+# RAG 검색 청크 수. 채팅은 LLM 이 청크를 전부 읽으므로 정밀 순위(리랭크)보다
+# 커버리지가 중요 → 리랭크 없이 벡터 top-N 을 넉넉히 준다(아래 rerank=False).
+RAG_CHUNK_LIMIT = 10
 # 청크 1건당 컨텍스트에 넣을 최대 글자 수 — 과도한 토큰 폭증 방지.
 _MAX_CHARS_PER_CHUNK = 1500
 # 검색 타임아웃(초). 임베딩 모델이 콜드(배포 직후 ~33s)일 때 SSE 응답이
@@ -67,8 +68,10 @@ async def search_rag_context(
     if search_query != query:
         logger.info("RAG 쿼리 정제: %r → %r", query[:50], search_query[:50])
     try:
+        # rerank=False: CPU 리랭커(~8s/18청크)는 채팅 응답을 크게 지연시키고
+        # 노이즈 제거 효과도 약했음(운영 실측). 벡터 검색(~0.3s)으로 커버리지 우선.
         hits = await asyncio.wait_for(
-            search_relevant_chunks(query=search_query, limit=limit),
+            search_relevant_chunks(query=search_query, limit=limit, rerank=False),
             timeout=RAG_SEARCH_TIMEOUT_S,
         )
     except asyncio.TimeoutError:

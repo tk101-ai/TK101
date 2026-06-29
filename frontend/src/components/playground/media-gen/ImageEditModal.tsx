@@ -26,9 +26,14 @@ export default function ImageEditModal({
 
   useEffect(() => {
     if (target) {
+      // 이미지 통일성 — 원본을 만든 모델을 기본값으로(있고 목록에 존재하면).
+      const originalInList = imageModels.some((m) => m.key === target.modelKey);
       form.setFieldsValue({
         prompt: "",
-        model_key: imageModels[0]?.key ?? "",
+        model_key:
+          target.modelKey && originalInList
+            ? target.modelKey
+            : (imageModels[0]?.key ?? ""),
         aspect_ratio: "1:1",
         enhance_prompt: true,
       });
