@@ -208,6 +208,13 @@ class Settings(BaseSettings):
     # 공개문서 1041/76487 기준: ImageUrl(top-level, 공개 URL) 입력. VOD가 아님.
     tencent_aigc_mps_intl_endpoint: str = "mps.intl.tencentcloudapi.com"
     tencent_aigc_mps_version: str = "2019-06-12"
+    # MPS CreateAigcVideoTask 는 출력 COS 버킷(StoreCosParam)이 **필수**이고, MPS가
+    # COS 에 쓰도록 콘솔에서 MPS_QcsRole 역할 승인이 선행돼야 한다. 아래 3개를 채우면
+    # i2v create 에 StoreCosParam 을 붙인다. 비어 있으면 i2v 는 명확한 에러로 막는다
+    # (출력처 없는 고아 task 생성 방지).
+    tencent_aigc_mps_cos_bucket: str = ""  # CosBucketName (예: aigc-1300000000)
+    tencent_aigc_mps_cos_region: str = ""  # CosBucketRegion (예: ap-guangzhou)
+    tencent_aigc_mps_cos_path: str = "/aigc-video/"  # CosBucketPath
     # 비동기 task 폴링 간격 (초). 너무 짧으면 텐센트 RateLimited.
     tencent_aigc_task_poll_interval: float = 3.0
     # 폴링 최대 대기 시간 (초). 영상은 30~60초 걸릴 수 있어 넉넉히.
