@@ -3,14 +3,20 @@ import type { ReactNode } from "react";
 import { Empty, Input, Segmented, Space, Spin, Tabs, Typography, message } from "antd";
 import { PictureOutlined, TeamOutlined } from "@ant-design/icons";
 import {
+  createVideoFromMedia,
   deleteMedia,
+  getMediaModels,
   getMyMedia,
   getSharedMedia,
+  mediaFileUrl,
   setMediaShared,
   type PlaygroundMediaItem,
+  type PlaygroundMediaModelOption,
   type SharedMediaItem,
 } from "../../api/playground";
 import MediaLibraryCard from "../../components/playground/MediaLibraryCard";
+import I2VModal from "../../components/playground/media-gen/I2VModal";
+import type { ActiveTask } from "../../components/playground/media-gen/types";
 
 const { Title, Paragraph } = Typography;
 
@@ -41,6 +47,67 @@ export default function ContentLibraryPage() {
   const [mine, setMine] = useState<SharedMediaItem[]>([]);
   const [shared, setShared] = useState<SharedMediaItem[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 이미지 → 영상(i2v).
+  const [videoModels, setVideoModels] = useState<PlaygroundMediaModelOption[]>([]);
+  const [i2vTarget, setI2vTarget] = useState<ActiveTask | null>(null);
+
+  useEffect(() => {
+    void getMediaModels()
+      .then((c) => setVideoModels(c.video))
+      .catch(() => {
+        /* 모델 목록 실패해도 갤러리는 동작 */
+      });
+  }, []);
+
+  const handleConvertToVideo = (item: SharedMediaItem) => {
+    setI2vTarget({
+      mediaId: item.id,
+      taskId: "",
+      kind: "image",
+      prompt: item.prompt ?? "",
+      modelKey: item.model_key ?? "",
+      status: "succeeded",
+      outputUrl: mediaFileUrl(item.id),
+      errorMessage: null,
+      costUsd: null,
+      createdAt: item.created_at,
+    });
+  };
+
+  const handleI2VSubmit = async (
+    values: {
+      prompt: string;
+      model_key: string;
+      duration: number;
+      resolution: string;
+      aspect_ratio: string;
+      audio_generation: boolean;
+      enhance_prompt: boolean;
+    },
+    target: ActiveTask,
+  ) => {
+    if (!target.mediaId) return;
+    try {
+      await createVideoFromMedia({
+        prompt: values.prompt,
+        image_media_id: target.mediaId,
+        model_key: values.model_key,
+        duration: values.duration,
+        resolution: values.resolution,
+        aspect_ratio: values.aspect_ratio,
+        audio_generation: values.audio_generation,
+        enhance_prompt: values.enhance_prompt,
+      });
+      message.success("영상 생성 시작 — 완료되면 보관함의 영상에 나타납니다 (베타)");
+      setI2vTarget(null);
+    } catch (e) {
+      message.error(
+        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+          "영상 생성 시작에 실패했습니다",
+      );
+    }
+  };
 
   const kindArg = kind === "all" ? undefined : kind;
 
@@ -110,6 +177,7 @@ export default function ContentLibraryPage() {
             mode="mine"
             onToggleShare={handleToggleShare}
             onDelete={handleDelete}
+            onConvertToVideo={handleConvertToVideo}
           />
         )}
       />
@@ -174,6 +242,13 @@ export default function ContentLibraryPage() {
             children: sharedGrid,
           },
         ]}
+      />
+
+      <I2VModal
+        target={i2vTarget}
+        videoModels={videoModels}
+        onCancel={() => setI2vTarget(null)}
+        onSubmit={handleI2VSubmit}
       />
     </div>
   );

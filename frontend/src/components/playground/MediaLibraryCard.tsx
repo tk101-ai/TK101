@@ -5,6 +5,7 @@ import {
   DownloadOutlined,
   ShareAltOutlined,
   UserOutlined,
+  VideoCameraOutlined,
 } from "@ant-design/icons";
 import { downloadMedia, mediaFileUrl, type SharedMediaItem } from "../../api/playground";
 
@@ -19,6 +20,8 @@ interface MediaLibraryCardProps {
   onToggleShare?: (id: string, next: boolean) => Promise<void>;
   /** 삭제 (mine 모드). */
   onDelete?: (id: string) => Promise<void>;
+  /** 이미지 → 영상(i2v). 본인 이미지에서만 노출. */
+  onConvertToVideo?: (item: SharedMediaItem) => void;
 }
 
 function formatDate(iso: string): string {
@@ -36,6 +39,7 @@ export default function MediaLibraryCard({
   mode,
   onToggleShare,
   onDelete,
+  onConvertToVideo,
 }: MediaLibraryCardProps) {
   const [busy, setBusy] = useState(false);
   const isVideo = item.media_type === "video";
@@ -128,6 +132,18 @@ export default function MediaLibraryCard({
           <Button size="small" icon={<DownloadOutlined />} onClick={handleDownload} loading={busy}>
             다운로드
           </Button>
+
+          {!isVideo && onConvertToVideo && (
+            <Tooltip title="이 이미지로 영상을 만듭니다 (image-to-video · 베타)">
+              <Button
+                size="small"
+                icon={<VideoCameraOutlined />}
+                onClick={() => onConvertToVideo(item)}
+              >
+                영상화
+              </Button>
+            </Tooltip>
+          )}
 
           {mode === "mine" && onToggleShare && (
             <Tooltip

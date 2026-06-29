@@ -95,6 +95,46 @@ async def _call_vod_intl(action: str, payload_obj: dict[str, Any]) -> dict[str, 
     return response
 
 
+async def _call_mps_intl(action: str, payload_obj: dict[str, Any]) -> dict[str, Any]:
+    """mps.intl.tencentcloudapi.com (Media Processing Service) TC3 서명 POST.
+
+    i2v(CreateAigcVideoTask)는 공개문서상 MPS 소속이라 VOD와 별도 호출.
+    서명은 동일한 TC3 helper, service=mps / version=2019-06-12 로만 다르다.
+    """
+    if not settings.tencent_aigc_secret_id or not settings.tencent_aigc_secret_key:
+        raise RuntimeError("텐센트 SecretId/Key 미설정")
+
+    host = settings.tencent_aigc_mps_intl_endpoint
+    url = f"https://{host}"
+    payload = json.dumps(payload_obj, separators=(",", ":"), ensure_ascii=True)
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+
+    headers = _build_signed_headers(
+        secret_id=settings.tencent_aigc_secret_id,
+        secret_key=settings.tencent_aigc_secret_key,
+        service="mps",
+        host=host,
+        action=action,
+        version=settings.tencent_aigc_mps_version,
+        region=settings.tencent_aigc_region,
+        payload=payload,
+        timestamp=timestamp,
+    )
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.post(url, headers=headers, content=payload)
+        resp.raise_for_status()
+        data = resp.json()
+
+    response = data.get("Response", {})
+    if "Error" in response:
+        err = response["Error"]
+        raise RuntimeError(
+            f"텐센트(MPS) {action} 오류: {err.get('Code')} - {err.get('Message')}"
+        )
+    return response
+
+
 # ---------------------------------------------------------------------------
 # Image: CreateAigcImageTask
 # ---------------------------------------------------------------------------
@@ -188,13 +228,21 @@ async def create_video_task(
         },
     }
     if input_image_url:
-        # 2026-05-19 라이브 probe: 23개 후보 필드/액션 모두 텐센트가 거부.
-        # CreateAigcVideoTask 의 i2v 정식 spec 이 PPT 에 명시되지 않음.
-        # 활성화하려면 텐센트 담당자 (Justinkim) 한테 정확한 호출 spec 확인 필요.
-        raise RuntimeError(
-            "텐센트 i2v API spec 확정 전 — 텐센트 담당자에게 "
-            "CreateAigcVideoTask 의 입력 이미지 필드명 문의 필요"
-        )
+        # i2v(image-to-video): 공개문서(1041/76487) 기준 MPS 의 CreateAigcVideoTask.
+        # 입력 이미지는 top-level ``ImageUrl``(공개 접근 가능 URL). VOD 23개 후보가
+        # 전부 거부된 이유 = 서비스 자체가 MPS. 라이브 테스트로 계정 활성화/바디 확정.
+        mps_body: dict[str, Any] = {
+            "ModelName": model_name,
+            "ModelVersion": model_version,
+            "Prompt": prompt,
+            "ImageUrl": input_image_url,
+            "Duration": duration,
+            "ExtraParameters": {
+                "Resolution": resolution,
+                "AspectRatio": aspect_ratio,
+            },
+        }
+        return await _call_mps_intl("CreateAigcVideoTask", mps_body)
     return await _call_vod_intl("CreateAigcVideoTask", body)
 
 
