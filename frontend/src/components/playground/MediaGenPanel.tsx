@@ -201,6 +201,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
           outputUrl: null,
           errorMessage: null,
           costUsd: null,
+          sourceMediaId: null,
           createdAt: new Date().toISOString(),
         },
         ...prev,
@@ -417,7 +418,14 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
                     }}
                   />
                 </div>
-                <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fill, minmax(200px, 1fr))",
+                    gap: 12,
+                  }}
+                >
                   {group.tasks.map((t) => (
                     <TaskCard
                       key={t.taskId}
@@ -427,7 +435,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
                       }
                     />
                   ))}
-                </Space>
+                </div>
               </div>
             ))}
           </Space>

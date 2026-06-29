@@ -204,6 +204,7 @@ class PlaygroundMediaOut(BaseModel):
 
     id: uuid.UUID
     media_type: str  # "image" | "video"
+    source_media_id: uuid.UUID | None = None  # i2v 참고 이미지 row
     task_id: str | None
     model_key: str | None
     prompt: str | None

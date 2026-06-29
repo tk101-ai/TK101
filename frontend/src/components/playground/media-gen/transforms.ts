@@ -15,6 +15,7 @@ export function itemToTask(item: PlaygroundMediaItem): ActiveTask {
     outputUrl: item.file_path ? mediaFileUrl(item.id) : item.url,
     errorMessage: item.error_message,
     costUsd: item.cost_usd,
+    sourceMediaId: item.source_media_id ?? null,
     createdAt: item.created_at,
   };
 }

@@ -215,6 +215,7 @@ async def create_video_from_media_endpoint(
     media = PlaygroundMedia(
         user_id=user.id,
         media_type="video",
+        source_media_id=image_row.id,  # 참고 이미지(어떤 이미지로 만든 영상인지)
         task_id=str(task_id),
         model_key=body.model_key,
         prompt=body.prompt,
