@@ -100,7 +100,9 @@ class GeneratedDoc:
     trace_id: str | None = None
 
 
-def _build_user_prompt(topic: str, doc_type: str, chunks: list) -> str:
+def _build_user_prompt(
+    topic: str, doc_type: str, chunks: list, design_directive: str | None = None
+) -> str:
     guide = DOC_TYPE_GUIDE.get(doc_type, DOC_TYPE_GUIDE["일반"])
     if chunks:
         ctx = "\n\n".join(
@@ -119,9 +121,18 @@ def _build_user_prompt(topic: str, doc_type: str, chunks: list) -> str:
             "사용하고 각 본문을 [참고자료]에 근거해 채운다(소제목 추가/삭제/변경 금지):\n"
             f"{headings}\n"
         )
+    # 리터치 지시문(있으면) — 디자인/구성 방향을 최우선으로 반영하도록 상단 배치.
+    directive_block = ""
+    if design_directive and design_directive.strip():
+        directive_block = (
+            "\n[리터치 지시 — 아래 디자인/구성 방향을 최우선 반영하되, 사실·수치는 "
+            "여전히 [참고자료]에 근거하고 없는 수치는 지어내지 말 것]\n"
+            f"{design_directive.strip()}\n"
+        )
     return (
         f"문서 종류: {doc_type} ({guide})\n"
         f"작성 요구사항:\n{topic}\n"
+        f"{directive_block}"
         f"{skeleton_block}\n"
         f"[참고자료]\n{ctx}"
     )
@@ -140,11 +151,26 @@ def _parse_json(text: str) -> dict:
         raise
 
 
-def generate_document(topic: str, doc_type: str, chunks: list) -> GeneratedDoc:
-    """주제+참고자료 → 구조화 문서 초안. call_claude는 동기이므로 라우터에서 to_thread로 호출."""
+def generate_document(
+    topic: str,
+    doc_type: str,
+    chunks: list,
+    design_directive: str | None = None,
+) -> GeneratedDoc:
+    """주제+참고자료 → 구조화 문서 초안. call_claude는 동기이므로 라우터에서 to_thread로 호출.
+
+    design_directive: 리터치 프롬프트(있으면) — 디자인/구성 방향을 user 프롬프트에 주입.
+    """
     resp = call_claude(
         system_prompt=_SYSTEM,
-        messages=[{"role": "user", "content": _build_user_prompt(topic, doc_type, chunks)}],
+        messages=[
+            {
+                "role": "user",
+                "content": _build_user_prompt(
+                    topic, doc_type, chunks, design_directive
+                ),
+            }
+        ],
         model=settings.docgen_model,
         max_tokens=16000,  # 4~8섹션 한국어 문서 — 8192는 자주 잘려 JSON 파싱 실패→502
         temperature=0.4,   # 일관성↑(과거 기본 1.0이라 실행마다 품질 편차 컸음)
@@ -411,6 +437,7 @@ def generate_document_reviewed(
     chunks: list,
     *,
     max_sections: int | None = None,
+    design_directive: str | None = None,
 ) -> GeneratedDoc:
     """초안 생성 → LLM judge 검수 → 문제 섹션(근거성 미달/issues)만 재생성하는 오케스트레이터.
 
@@ -418,7 +445,7 @@ def generate_document_reviewed(
     재생성 섹션 수는 max_sections(기본 settings.docgen_auto_review_max_sections)로 상한.
     검수/재생성 단계에서 예외가 나도 초안은 살린다(best-effort 품질 향상).
     """
-    doc = generate_document(topic, doc_type, chunks)
+    doc = generate_document(topic, doc_type, chunks, design_directive)
     cap = max_sections if max_sections is not None else settings.docgen_auto_review_max_sections
     if cap <= 0 or not doc.sections:
         return doc
