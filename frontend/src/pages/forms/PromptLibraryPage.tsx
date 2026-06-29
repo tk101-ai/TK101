@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Avatar,
   Button,
+  ColorPicker,
+  Divider,
   Empty,
   Input,
   List,
@@ -58,6 +60,12 @@ const EMPTY_DRAFT = {
   prompt_text: "",
   target: "general" as RetouchTarget,
   doc_type: undefined as DocType | undefined,
+  // 테마(편집가능 .pptx/.docx 색·폰트). 빈 값이면 회사 기본.
+  palette_primary: "",
+  palette_accent: "",
+  palette_text: "",
+  heading_font: "",
+  body_font: "",
 };
 
 export default function PromptLibraryPage() {
@@ -99,21 +107,45 @@ export default function PromptLibraryPage() {
       prompt_text: p.prompt_text,
       target: p.target,
       doc_type: (p.doc_type as DocType) ?? undefined,
+      palette_primary: p.palette_primary ?? "",
+      palette_accent: p.palette_accent ?? "",
+      palette_text: p.palette_text ?? "",
+      heading_font: p.heading_font ?? "",
+      body_font: p.body_font ?? "",
     });
     setEditorOpen(true);
   };
 
   const handleSave = async () => {
-    if (!draft.title.trim() || !draft.prompt_text.trim()) {
-      message.warning("제목과 프롬프트 본문을 입력하세요");
+    const hasTheme =
+      draft.palette_primary ||
+      draft.palette_accent ||
+      draft.palette_text ||
+      draft.heading_font ||
+      draft.body_font;
+    if (!draft.title.trim()) {
+      message.warning("제목을 입력하세요");
+      return;
+    }
+    if (!draft.prompt_text.trim() && !hasTheme) {
+      message.warning("프롬프트 또는 테마(색·폰트) 중 하나는 채워주세요");
       return;
     }
     setSaving(true);
+    // 빈 문자열은 null(해제)로 전송.
+    const themeFields = {
+      palette_primary: draft.palette_primary || null,
+      palette_accent: draft.palette_accent || null,
+      palette_text: draft.palette_text || null,
+      heading_font: draft.heading_font.trim() || null,
+      body_font: draft.body_font.trim() || null,
+    };
     try {
       if (draft.id) {
         await updateRetouchPreset(draft.id, {
           title: draft.title.trim(),
           prompt_text: draft.prompt_text.trim(),
+          ...themeFields,
         });
         message.success("수정했습니다");
       } else {
@@ -122,8 +154,9 @@ export default function PromptLibraryPage() {
           prompt_text: draft.prompt_text.trim(),
           target: draft.target,
           doc_type: draft.doc_type ?? null,
+          ...themeFields,
         });
-        message.success("프롬프트를 만들었습니다");
+        message.success("디자인 프리셋을 만들었습니다");
       }
       setEditorOpen(false);
       void load();
@@ -179,15 +212,15 @@ export default function PromptLibraryPage() {
       >
         <div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
-            프롬프트 라이브러리
+            디자인 라이브러리
           </h2>
           <Text type="secondary">
-            문서 디자인·재생성에 쓰는 프롬프트(프리셋)를 직접 만들고, 보관·공유합니다. 문서
+            문서 디자인 프리셋(프롬프트 + 색·폰트 테마)을 직접 만들고 보관·공유합니다. 문서
             만들기·리터치에서 골라 적용돼요.
           </Text>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={openNew}>
-          새 프롬프트
+          새 프리셋
         </Button>
       </div>
 
@@ -211,7 +244,7 @@ export default function PromptLibraryPage() {
                 dataSource={mine}
                 locale={{
                   emptyText: (
-                    <Empty description="아직 만든 프롬프트가 없습니다. ‘새 프롬프트’로 추가하세요." />
+                    <Empty description="아직 만든 프리셋이 없습니다. ‘새 프리셋’으로 추가하세요." />
                   ),
                 }}
                 renderItem={(p) => (
@@ -257,7 +290,12 @@ export default function PromptLibraryPage() {
                       title={
                         <Space wrap>
                           <Text strong>{p.title}</Text>
-                          <Tag bordered={false}>{p.target}</Tag>
+                          {p.prompt_text?.trim() && <Tag bordered={false}>{p.target}</Tag>}
+                          {(p.palette_primary || p.heading_font) && (
+                            <Tag bordered={false} color="magenta">
+                              🎨 테마
+                            </Tag>
+                          )}
                           {p.doc_type && (
                             <Tag bordered={false} color="geekblue">
                               {p.doc_type}
@@ -342,7 +380,7 @@ export default function PromptLibraryPage() {
 
       <Modal
         open={editorOpen}
-        title={draft.id ? "프롬프트 수정" : "새 프롬프트"}
+        title={draft.id ? "디자인 프리셋 수정" : "새 디자인 프리셋"}
         okText="저장"
         cancelText="취소"
         confirmLoading={saving}
@@ -386,12 +424,67 @@ export default function PromptLibraryPage() {
             </Space>
           </Space>
           <Input.TextArea
-            placeholder="프롬프트 본문 — 원하는 디자인·구성·톤 방향을 자유롭게 적으세요. (다른 AI에 붙여넣거나, 문서 생성에 디자인 지시문으로 들어갑니다)"
+            placeholder="프롬프트 본문(선택) — 원하는 디자인·구성·톤 방향을 자유롭게 적으세요. HTML 디자인 덱·외부 AI·내부 재생성에 쓰입니다."
             value={draft.prompt_text}
-            autoSize={{ minRows: 8, maxRows: 22 }}
+            autoSize={{ minRows: 6, maxRows: 18 }}
             onChange={(e) => setDraft((d) => ({ ...d, prompt_text: e.target.value }))}
             style={{ fontSize: 13 }}
           />
+
+          <Divider style={{ margin: "4px 0" }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              테마 (편집가능 PPT/Word 색·폰트 — 선택, 비우면 회사 기본)
+            </Text>
+          </Divider>
+          <Space size={16} wrap>
+            {(
+              [
+                ["주색", "palette_primary"],
+                ["강조색", "palette_accent"],
+                ["글자색", "palette_text"],
+              ] as const
+            ).map(([label, key]) => (
+              <Space key={key} size={6}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {label}
+                </Text>
+                <ColorPicker
+                  allowClear
+                  value={draft[key] || undefined}
+                  onChange={(_, hex) => setDraft((d) => ({ ...d, [key]: hex }))}
+                  onClear={() => setDraft((d) => ({ ...d, [key]: "" }))}
+                />
+              </Space>
+            ))}
+          </Space>
+          <Space size={16} wrap>
+            <Space size={6}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                제목 폰트
+              </Text>
+              <Input
+                style={{ width: 150 }}
+                placeholder="예: Pretendard"
+                value={draft.heading_font}
+                onChange={(e) => setDraft((d) => ({ ...d, heading_font: e.target.value }))}
+              />
+            </Space>
+            <Space size={6}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                본문 폰트
+              </Text>
+              <Input
+                style={{ width: 150 }}
+                placeholder="예: Pretendard"
+                value={draft.body_font}
+                onChange={(e) => setDraft((d) => ({ ...d, body_font: e.target.value }))}
+              />
+            </Space>
+          </Space>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            ※ 색은 표지·제목바·차트·강조에 적용됩니다. 폰트는 문서를 여는 PC에 설치돼 있어야
+            보입니다(없으면 대체 폰트). 좌표·마스트헤드 같은 레이아웃은 HTML 덱에서만 가능합니다.
+          </Text>
         </Space>
       </Modal>
     </div>

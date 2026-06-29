@@ -76,11 +76,22 @@ class DocgenDocumentDetail(BaseModel):
     created_at: datetime
 
 
+class ThemeOverride(BaseModel):
+    """디자인 프리셋이 담는 테마(편집가능 .pptx/.docx 색·폰트). 빈 항목은 회사 기본."""
+
+    palette_primary: str | None = None  # '#RRGGBB'
+    palette_accent: str | None = None
+    palette_text: str | None = None
+    heading_font: str | None = None
+    body_font: str | None = None
+
+
 class DocRenderRequest(BaseModel):
-    """초안(수정 가능)을 .docx로 렌더."""
+    """초안(수정 가능)을 .docx/.pptx로 렌더. theme 가 있으면 그 색·폰트로."""
 
     title: str = Field(min_length=1, max_length=200)
     sections: list[DocSection] = Field(min_length=1)
+    theme: ThemeOverride | None = None
 
 
 class DocSectionRegenResponse(BaseModel):
@@ -132,25 +143,36 @@ class RetouchPromptOut(BaseModel):
 
 
 class RetouchPresetSaveRequest(BaseModel):
-    """리터치 프롬프트를 프리셋으로 저장."""
+    """디자인 프리셋 저장 — 프롬프트 또는 테마(또는 둘 다)."""
 
     title: str = Field(min_length=1, max_length=300)
-    prompt_text: str = Field(min_length=1)
+    prompt_text: str = Field(default="")
     doc_type: DocType | None = None
     target: RetouchTarget = "general"
     source_document_id: str | None = None
+    # 테마(편집가능 .pptx/.docx 색·폰트).
+    palette_primary: str | None = None
+    palette_accent: str | None = None
+    palette_text: str | None = None
+    heading_font: str | None = None
+    body_font: str | None = None
 
 
 class RetouchPresetPatchRequest(BaseModel):
-    """프리셋 수정 — 제목/본문 편집 또는 공유 토글. 보낸 필드만 반영."""
+    """프리셋 수정 — 제목/본문/테마 편집 또는 공유 토글. 보낸 필드만 반영."""
 
     title: str | None = Field(default=None, min_length=1, max_length=300)
-    prompt_text: str | None = Field(default=None, min_length=1)
+    prompt_text: str | None = None
     is_shared: bool | None = None
+    palette_primary: str | None = None
+    palette_accent: str | None = None
+    palette_text: str | None = None
+    heading_font: str | None = None
+    body_font: str | None = None
 
 
 class RetouchPresetOut(BaseModel):
-    """내 프리셋 1행."""
+    """디자인 프리셋 1행(프롬프트 + 테마)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -159,6 +181,11 @@ class RetouchPresetOut(BaseModel):
     doc_type: str | None = None
     target: str
     prompt_text: str
+    palette_primary: str | None = None
+    palette_accent: str | None = None
+    palette_text: str | None = None
+    heading_font: str | None = None
+    body_font: str | None = None
     is_shared: bool = False
     shared_at: datetime | None = None
     source_document_id: uuid.UUID | None = None

@@ -37,6 +37,7 @@ import {
   listDocgenDocuments,
   listRetouchPresets,
   listSharedRetouchPresets,
+  presetTheme,
   regenerateSection,
   reviewDocument,
   type DocgenDocumentBrief,
@@ -599,7 +600,11 @@ export default function DocGenPage() {
     if (sections.length === 0) return;
     try {
       const fn = kind === "docx" ? downloadGeneratedDocx : downloadGeneratedPptx;
-      await fn(title || "문서", sections);
+      // 선택한 디자인 프리셋의 테마(색·폰트)를 편집가능 문서에 적용.
+      const preset =
+        myPresets.find((p) => p.id === designPresetId) ??
+        sharedPresets.find((p) => p.id === designPresetId);
+      await fn(title || "문서", sections, preset ? presetTheme(preset) : undefined);
     } catch (e) {
       message.error((e as any)?.response?.data?.detail || `${kind} 다운로드 실패`);
     }

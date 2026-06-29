@@ -94,7 +94,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "forms-generate", path: "/forms/generate", label: "새 문서 작성", icon: <RobotOutlined />, module: "form_filler", category: "form_work" },
   { key: "forms-new", path: "/forms/new", label: "양식 채우기", icon: <EditOutlined />, module: "form_filler", category: "form_work" },
   { key: "forms-library", path: "/forms/library", label: "양식 라이브러리", icon: <FileTextOutlined />, module: "form_filler", category: "form_work" },
-  { key: "forms-prompts", path: "/forms/prompts", label: "프롬프트 라이브러리", icon: <BulbOutlined />, module: "form_filler", category: "form_work" },
+  { key: "forms-prompts", path: "/forms/prompts", label: "디자인 라이브러리", icon: <BulbOutlined />, module: "form_filler", category: "form_work" },
   // admin 전용 토큰/비용 패널. module=documents_admin_usage 는 admin 만 자동 부여(registry.ALL_MODULES).
   { key: "documents-usage", path: "/documents/usage", label: "문서 사용량", icon: <LineChartOutlined />, module: "documents_admin_usage", category: "form_work" },
   { key: "transactions", path: "/transactions", label: "거래내역", icon: <SwapOutlined />, module: "finance", category: "finance" },

@@ -289,11 +289,16 @@ def _render_section_body(doc, theme: Theme, blocks: list[Block]) -> None:
             _add_layout_fallback(doc, theme, b.data)
 
 
-def build_docx(title: str, sections: list[dict]) -> bytes:
-    """title + sections([{heading, body}]) → 디자인된 .docx 바이트."""
+def build_docx(
+    title: str, sections: list[dict], theme: Theme | None = None
+) -> bytes:
+    """title + sections([{heading, body}]) → 디자인된 .docx 바이트.
+
+    theme 가 주어지면 그 색·폰트로(디자인 프리셋), 없으면 회사 기본 테마.
+    """
     from docx import Document
 
-    theme = get_theme()
+    theme = theme or get_theme()
     doc = Document(theme.docx_template) if theme.docx_template else Document()
     _style_headings(doc, theme)
     _add_footer_page_number(doc, theme)
