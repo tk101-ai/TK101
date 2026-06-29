@@ -1,5 +1,10 @@
 import { Alert, Button, Image, Tag, Tooltip, Typography } from "antd";
-import { DownloadOutlined, PictureOutlined, PlayCircleOutlined } from "@ant-design/icons";
+import {
+  DownloadOutlined,
+  PictureOutlined,
+  PlayCircleOutlined,
+  RedoOutlined,
+} from "@ant-design/icons";
 import { mediaFileUrl } from "../../../api/playground";
 import { STATUS_COLOR, STATUS_LABEL } from "./constants";
 import { downloadTaskOutput } from "./transforms";
@@ -11,9 +16,12 @@ const { Text, Paragraph } = Typography;
 export default function TaskCard({
   task,
   onConvertToVideo,
+  onReuse,
 }: {
   task: ActiveTask;
   onConvertToVideo?: () => void;
+  /** 이 항목의 설정으로 폼을 채워 이어서 재생성/수정. */
+  onReuse?: () => void;
 }) {
   const canConvert =
     Boolean(onConvertToVideo) &&
@@ -135,6 +143,11 @@ export default function TaskCard({
             </Text>
           )}
           <span style={{ flex: 1 }} />
+          {onReuse && (
+            <Tooltip title="이 설정으로 재생성/수정">
+              <Button size="small" type="text" icon={<RedoOutlined />} onClick={onReuse} />
+            </Tooltip>
+          )}
           {succeeded && (
             <Tooltip title="다운로드">
               <Button
