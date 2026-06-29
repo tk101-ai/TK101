@@ -204,6 +204,10 @@ class Settings(BaseSettings):
     # Image/Video 생성 endpoint (international VOD). TC3-HMAC-SHA256 동일 서명.
     # 메모 호출 예시 기준: vod.intl.tencentcloudapi.com / CreateAigcImageTask · CreateAigcVideoTask
     tencent_aigc_vod_intl_endpoint: str = "vod.intl.tencentcloudapi.com"
+    # Image-to-Video(i2v)는 MPS(Media Processing Service)의 CreateAigcVideoTask.
+    # 공개문서 1041/76487 기준: ImageUrl(top-level, 공개 URL) 입력. VOD가 아님.
+    tencent_aigc_mps_intl_endpoint: str = "mps.intl.tencentcloudapi.com"
+    tencent_aigc_mps_version: str = "2019-06-12"
     # 비동기 task 폴링 간격 (초). 너무 짧으면 텐센트 RateLimited.
     tencent_aigc_task_poll_interval: float = 3.0
     # 폴링 최대 대기 시간 (초). 영상은 30~60초 걸릴 수 있어 넉넉히.
