@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -19,6 +20,7 @@ import {
   createVideoFromMedia,
   createVideoTask,
   describeTask,
+  getMedia,
   getMediaModels,
   getMyMedia,
   isQuotaExceededError,
@@ -52,6 +54,51 @@ const { Text } = Typography;
  */
 export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
   const [form] = Form.useForm();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // 기존 항목의 설정으로 폼을 채워 이어서 수정·재생성.
+  const applyReuse = (vals: {
+    prompt?: string | null;
+    modelKey?: string | null;
+    durationSec?: number | null;
+  }) => {
+    const next: Record<string, unknown> = {};
+    if (vals.prompt) next.prompt = vals.prompt;
+    if (vals.modelKey) next.model_key = vals.modelKey;
+    if (kind === "video" && vals.durationSec) {
+      next.duration = Math.round(vals.durationSec);
+    }
+    form.setFieldsValue(next);
+    message.success("이전 설정을 불러왔어요 — 수정 후 생성하세요");
+  };
+
+  // ?reuse=<media_id> 딥링크(콘텐츠 라이브러리/다른 탭에서 '재생성') → 폼 프리필.
+  useEffect(() => {
+    const reuseId = searchParams.get("reuse");
+    if (!reuseId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const item = await getMedia(reuseId);
+        if (cancelled || item.media_type !== kind) return;
+        applyReuse({
+          prompt: item.prompt,
+          modelKey: item.model_key,
+          durationSec: item.duration_sec,
+        });
+      } catch {
+        /* 항목이 없거나 권한 없음 — 무시 */
+      } finally {
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete("reuse");
+        setSearchParams(nextParams, { replace: true });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, kind]);
   const [models, setModels] = useState<PlaygroundMediaModelOption[]>([]);
   const [videoModels, setVideoModels] = useState<PlaygroundMediaModelOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -432,6 +479,9 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
                       task={t}
                       onConvertToVideo={
                         kind === "image" ? () => setI2vTarget(t) : undefined
+                      }
+                      onReuse={() =>
+                        applyReuse({ prompt: t.prompt, modelKey: t.modelKey })
                       }
                     />
                   ))}

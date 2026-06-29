@@ -107,6 +107,19 @@ async def list_shared_media(
     return out
 
 
+@router.get("/media/{media_id}", response_model=PlaygroundMediaOut)
+async def get_media(
+    media_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PlaygroundMediaOut:
+    """미디어 1건 메타(재생성 폼 프리필용). 소유자 또는 공유 미디어면 허용."""
+    row = await _fetch_media_or_404(db, media_id)
+    if row.user_id != user.id and not row.is_shared:
+        raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다")
+    return PlaygroundMediaOut.model_validate(row)
+
+
 @router.patch("/media/{media_id}/share", response_model=PlaygroundMediaOut)
 async def set_media_shared(
     media_id: uuid.UUID,

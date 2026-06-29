@@ -516,6 +516,14 @@ export function mediaFileUrl(mediaId: string): string {
   return `${BASE}/media/${encodeURIComponent(mediaId)}/file`;
 }
 
+/** 미디어 1건 메타 (재생성 폼 프리필용). 소유자 또는 공유분. */
+export async function getMedia(mediaId: string): Promise<PlaygroundMediaItem> {
+  const res = await api.get<PlaygroundMediaItem>(
+    `${BASE}/media/${encodeURIComponent(mediaId)}`,
+  );
+  return res.data;
+}
+
 /** 공유 갤러리 1행 — 내 미디어 항목 + 소유자 표기. */
 export interface SharedMediaItem extends PlaygroundMediaItem {
   owner_name: string | null;

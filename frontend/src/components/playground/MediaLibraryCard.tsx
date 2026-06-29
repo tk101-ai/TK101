@@ -3,6 +3,7 @@ import { Avatar, Button, Popconfirm, Switch, Tag, Tooltip, Typography, message }
 import {
   DeleteOutlined,
   DownloadOutlined,
+  RedoOutlined,
   ShareAltOutlined,
   UserOutlined,
   VideoCameraOutlined,
@@ -22,6 +23,8 @@ interface MediaLibraryCardProps {
   onDelete?: (id: string) => Promise<void>;
   /** 이미지 → 영상(i2v). 본인 이미지에서만 노출. */
   onConvertToVideo?: (item: SharedMediaItem) => void;
+  /** 이 항목 설정으로 생성 폼을 채워 재생성/수정. */
+  onReuse?: (item: SharedMediaItem) => void;
 }
 
 function formatDate(iso: string): string {
@@ -40,6 +43,7 @@ export default function MediaLibraryCard({
   onToggleShare,
   onDelete,
   onConvertToVideo,
+  onReuse,
 }: MediaLibraryCardProps) {
   const [busy, setBusy] = useState(false);
   const isVideo = item.media_type === "video";
@@ -141,6 +145,14 @@ export default function MediaLibraryCard({
                 onClick={() => onConvertToVideo(item)}
               >
                 영상화
+              </Button>
+            </Tooltip>
+          )}
+
+          {onReuse && (
+            <Tooltip title="이 설정(프롬프트·모델)으로 재생성/수정">
+              <Button size="small" icon={<RedoOutlined />} onClick={() => onReuse(item)}>
+                재생성
               </Button>
             </Tooltip>
           )}

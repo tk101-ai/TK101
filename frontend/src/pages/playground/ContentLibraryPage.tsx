@@ -62,6 +62,11 @@ export default function ContentLibraryPage() {
       });
   }, []);
 
+  // 재생성/수정 — 해당 생성 탭으로 이동 + 그 항목 설정으로 폼 프리필(?reuse).
+  const handleReuse = (item: SharedMediaItem) => {
+    navigate(`/playground?tab=${item.media_type}&reuse=${item.id}`);
+  };
+
   const handleConvertToVideo = (item: SharedMediaItem) => {
     setI2vTarget({
       mediaId: item.id,
@@ -184,6 +189,7 @@ export default function ContentLibraryPage() {
             onToggleShare={handleToggleShare}
             onDelete={handleDelete}
             onConvertToVideo={handleConvertToVideo}
+            onReuse={handleReuse}
           />
         )}
       />
@@ -197,7 +203,9 @@ export default function ContentLibraryPage() {
         items={shared}
         loading={loading}
         emptyText="아직 공유된 미디어가 없습니다."
-        renderCard={(item) => <MediaLibraryCard key={item.id} item={item} mode="shared" />}
+        renderCard={(item) => (
+          <MediaLibraryCard key={item.id} item={item} mode="shared" onReuse={handleReuse} />
+        )}
       />
     ),
     [shared, loading],
