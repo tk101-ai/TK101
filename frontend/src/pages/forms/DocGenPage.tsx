@@ -340,7 +340,30 @@ export default function DocGenPage() {
   };
 
   // 마법사 완료(자유 작성) — 수집값으로 바로 생성. state 도 채워 컨트롤을 동기화.
+  // 화면 전체 비우기 — 빈 상태에서 새로 시작(이전 내용 잔존 방지).
+  const clearAll = () => {
+    setResult(null);
+    setSections([]);
+    setTitle("");
+    setTopic("");
+    setActiveDocId(null);
+    setReview(null);
+    setFeedbacks({});
+    setDesignPresetId(undefined);
+    setTone(undefined);
+    setPreferredFormat(undefined);
+    setFileList([]);
+  };
+
   const handleWizardGenerate = async (p: WizardFreePayload) => {
+    // 마법사 = 새 문서. 이전 결과/내용을 먼저 비워 잔존 방지(빈 화면에서 시작).
+    setResult(null);
+    setSections([]);
+    setTitle("");
+    setActiveDocId(null);
+    setReview(null);
+    setFeedbacks({});
+
     setDocType(p.docType);
     setSourceMode(p.sourceMode);
     setFileList(p.fileList);
@@ -350,14 +373,8 @@ export default function DocGenPage() {
     setPreferredFormat(p.preferredFormat);
     setTopic(p.topic);
 
-    // stale state 회피 — directive·파일을 payload 에서 직접 계산.
-    const presetText = p.designPresetId
-      ? (myPresets.find((x) => x.id === p.designPresetId)?.prompt_text ??
-        sharedPresets.find((x) => x.id === p.designPresetId)?.prompt_text)
-      : undefined;
-    const directive =
-      [toneDirective(p.tone), presetText].filter(Boolean).join("\n\n") ||
-      undefined;
+    // 마법사가 해석해 넘긴 directive 를 그대로 사용(전달 신뢰성).
+    const directive = p.designDirective;
     const wizardFiles = p.fileList
       .map((f) => f.originFileObj as File | undefined)
       .filter((f): f is File => !!f);
@@ -379,7 +396,10 @@ export default function DocGenPage() {
       setReview(null);
       setActiveDocId(res.document_id ?? null);
       setDocsRefreshKey((k) => k + 1);
-      message.success(`문서 생성 완료 (참고 ${res.sources.length}건)`);
+      const fmt = p.preferredFormat === "pptx" ? "PPT" : "Word";
+      message.success(
+        `${fmt} 문서 생성 완료${directive ? " · 프롬프트 적용" : ""} (참고 ${res.sources.length}건)`,
+      );
     } catch (e) {
       message.error((e as any)?.response?.data?.detail || "문서 생성 실패");
     } finally {
@@ -767,13 +787,18 @@ export default function DocGenPage() {
             주제를 입력하면 회사 NAS 자료를 참고해 초안을 만들고, 섹션을 직접 고치거나 다시 생성할 수 있습니다.
           </Text>
         </div>
-        <Button
-          type="primary"
-          icon={<ThunderboltOutlined />}
-          onClick={() => setWizardOpen(true)}
-        >
-          문서 만들기 (가이드)
-        </Button>
+        <Space>
+          {(result || topic) && (
+            <Button onClick={clearAll}>새 문서(비우기)</Button>
+          )}
+          <Button
+            type="primary"
+            icon={<ThunderboltOutlined />}
+            onClick={() => setWizardOpen(true)}
+          >
+            문서 만들기 (가이드)
+          </Button>
+        </Space>
       </div>
 
       <Card size="small" style={{ marginBottom: 16 }}>
@@ -866,32 +891,52 @@ export default function DocGenPage() {
       {result && (
         <Card
           title={
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              variant="borderless"
-              style={{ fontSize: 16, fontWeight: 600, padding: 0 }}
-            />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {preferredFormat && (
+                <Tag
+                  color={preferredFormat === "pptx" ? "magenta" : "blue"}
+                  style={{ margin: 0 }}
+                >
+                  {preferredFormat === "pptx" ? "PPT" : "Word"}로 생성
+                </Tag>
+              )}
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                variant="borderless"
+                style={{ fontSize: 16, fontWeight: 600, padding: 0, flex: 1 }}
+              />
+            </div>
           }
           extra={
             <Space>
               <Button icon={<AuditOutlined />} loading={reviewing} onClick={handleReview}>
                 품질 검증
               </Button>
-              <Button
-                icon={<DownloadOutlined />}
-                type={preferredFormat === "docx" ? "primary" : "default"}
-                onClick={() => download("docx")}
-              >
-                .docx
-              </Button>
-              <Button
-                icon={<DownloadOutlined />}
-                type={preferredFormat === "pptx" ? "primary" : "default"}
-                onClick={() => download("pptx")}
-              >
-                PPT
-              </Button>
+              {/* 만든 포맷을 주 버튼으로, 다른 포맷은 보조로(내용은 두 포맷 공용). */}
+              {preferredFormat === "docx" ? (
+                <>
+                  <Button
+                    icon={<DownloadOutlined />}
+                    type="primary"
+                    onClick={() => download("docx")}
+                  >
+                    Word 다운로드
+                  </Button>
+                  <Button onClick={() => download("pptx")}>PPT로도</Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    icon={<DownloadOutlined />}
+                    type="primary"
+                    onClick={() => download("pptx")}
+                  >
+                    PPT 다운로드
+                  </Button>
+                  <Button onClick={() => download("docx")}>Word로도</Button>
+                </>
+              )}
             </Space>
           }
         >
