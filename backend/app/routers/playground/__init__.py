@@ -13,8 +13,11 @@
 | POST   | /api/playground/image                           | 로그인        | 이미지 task 생성           |
 | POST   | /api/playground/video                           | 로그인        | 영상 task 생성             |
 | GET    | /api/playground/tasks/{kind}/{task_id}          | 로그인        | 미디어 task 폴링           |
-| GET    | /api/playground/media                           | 로그인 (본인) | 본인 미디어 목록 (갤러리)  |
-| GET    | /api/playground/media/{id}/file                 | 로그인 (본인) | 미디어 파일 서빙           |
+| GET    | /api/playground/media                           | 로그인 (본인) | 본인 미디어 목록 (보관함)  |
+| GET    | /api/playground/media/shared                    | 로그인        | 공유 갤러리 (전체 공유분)  |
+| PATCH  | /api/playground/media/{id}/share                | 로그인 (본인) | 공유 on/off 토글           |
+| DELETE | /api/playground/media/{id}                      | 로그인 (본인) | 미디어 삭제 (row+파일)     |
+| GET    | /api/playground/media/{id}/file                 | 본인/공유     | 미디어 파일 서빙           |
 | GET    | /api/playground/admin/usage                     | **admin**     | 모델별/사용자별 사용량     |
 | POST   | /api/playground/admin/media/cleanup             | **admin**     | 보존기간 경과 미디어 정리  |
 

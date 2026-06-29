@@ -217,9 +217,30 @@ class PlaygroundMediaOut(BaseModel):
     height: int | None
     cost_usd: Decimal | None
     expires_at: datetime | None
+    # 콘텐츠 라이브러리 공유 여부 (소유자만 토글).
+    is_shared: bool = False
+    shared_at: datetime | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class SharedMediaOut(PlaygroundMediaOut):
+    """공유 갤러리 1행 — 본인 미디어 응답 + 소유자 표기.
+
+    ``is_mine`` 은 조회자가 소유자인지(공유 갤러리에 본인 것도 같이 노출되므로).
+    소유자 이름/부서는 users 조인으로 채운다(모델 컬럼이 아니라 수동 구성).
+    """
+
+    owner_name: str | None = None
+    owner_department: str | None = None
+    is_mine: bool = False
+
+
+class MediaShareRequest(BaseModel):
+    """PATCH /media/{id}/share 요청 — 공유 on/off 토글."""
+
+    is_shared: bool
 
 
 # ---------------------------------------------------------------------------
