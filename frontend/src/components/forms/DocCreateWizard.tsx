@@ -64,6 +64,8 @@ export interface WizardFreePayload {
   preferredFormat: "docx" | "pptx";
   tone?: string;
   designPresetId?: string;
+  /** 톤 + 선택 프리셋을 합성한 최종 지시문. 마법사가 직접 해석해 전달(전달 신뢰성). */
+  designDirective?: string;
   sourceMode: SourceMode;
   fileList: UploadFile[];
   highQuality: boolean;
@@ -183,11 +185,19 @@ export default function DocCreateWizard({ open, onClose, onFreeGenerate }: DocCr
       message.warning("업로드 문서를 추가하거나 출처를 바꾸세요");
       return;
     }
+    // 프리셋 본문을 마법사가 직접 해석(여기서 로드된 목록 기준) → 전달 누락 방지.
+    const presetText = designPresetId
+      ? (myPresets.find((x) => x.id === designPresetId)?.prompt_text ??
+        sharedPresets.find((x) => x.id === designPresetId)?.prompt_text)
+      : undefined;
+    const designDirective =
+      [toneDirective(tone), presetText].filter(Boolean).join("\n\n") || undefined;
     onFreeGenerate({
       docType,
       preferredFormat,
       tone,
       designPresetId,
+      designDirective,
       sourceMode,
       fileList,
       highQuality,
