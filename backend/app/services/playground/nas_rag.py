@@ -18,6 +18,7 @@ from app.services.nas_search.bridge import (
     NasChunkHit,
     search_relevant_chunks,
 )
+from app.services.nas_search.query_refiner import refine_search_query
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,26 @@ _MAX_CHARS_PER_CHUNK = 1500
 # 시작도 못 하고 막혀 500/502 가 나던 문제 방지 — 초과 시 일반 채팅으로 폴백.
 # (모델 로드는 백그라운드 스레드에서 계속 진행되어 다음 요청부터 웜.)
 RAG_SEARCH_TIMEOUT_S = 8.0
+# 대화 메시지 → 검색어 정제 타임아웃(초). Haiku 1회(~1-2s) + 자체 폴백.
+RAG_REFINE_TIMEOUT_S = 5.0
+
+
+async def _refine_query(message: str) -> str:
+    """대화 메시지에서 의미검색용 핵심 검색어 정제.
+
+    채팅 메시지는 "회사 소개서 관련된 내용 찾아줄 수 있을까? 간략하게만" 처럼
+    지시·잡담 토큰이 섞여 그대로 임베딩하면 주제어 비중이 떨어져 엉뚱한 문서가
+    매칭된다(운영 확인). docgen 과 동일한 정제기로 주제어만 뽑아 검색 품질을 높인다.
+    실패/타임아웃 시 원문으로 폴백.
+    """
+    try:
+        refined = await asyncio.wait_for(
+            asyncio.to_thread(refine_search_query, message),
+            timeout=RAG_REFINE_TIMEOUT_S,
+        )
+        return (refined or message).strip() or message
+    except (asyncio.TimeoutError, Exception):  # noqa: BLE001 — 정제 실패가 검색 막지 않게.
+        return message
 
 
 async def search_rag_context(
@@ -36,12 +57,18 @@ async def search_rag_context(
     *,
     limit: int = RAG_CHUNK_LIMIT,
 ) -> list[NasChunkHit]:
-    """쿼리로 NAS 청크를 검색. 실패/지연해도 예외를 올리지 않고 빈 리스트 반환."""
+    """쿼리로 NAS 청크를 검색. 실패/지연해도 예외를 올리지 않고 빈 리스트 반환.
+
+    검색 전에 대화 메시지를 핵심 검색어로 정제한다(장황한 원문 → 키워드).
+    """
     if not query or not query.strip():
         return []
+    search_query = await _refine_query(query)
+    if search_query != query:
+        logger.info("RAG 쿼리 정제: %r → %r", query[:50], search_query[:50])
     try:
         hits = await asyncio.wait_for(
-            search_relevant_chunks(query=query, limit=limit),
+            search_relevant_chunks(query=search_query, limit=limit),
             timeout=RAG_SEARCH_TIMEOUT_S,
         )
     except asyncio.TimeoutError:
