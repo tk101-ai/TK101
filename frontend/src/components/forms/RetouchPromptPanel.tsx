@@ -21,6 +21,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   FolderOpenOutlined,
+  FundProjectionScreenOutlined,
   SaveOutlined,
   ShareAltOutlined,
   SyncOutlined,
@@ -29,6 +30,7 @@ import {
 } from "@ant-design/icons";
 import {
   deleteRetouchPreset,
+  generateHtmlDeck,
   generateRetouchPrompt,
   listRetouchPresets,
   listSharedRetouchPresets,
@@ -40,6 +42,7 @@ import {
   type RetouchTarget,
   type SharedRetouchPreset,
 } from "../../api/docgen";
+import { triggerBlobDownload } from "../../utils/download";
 
 const { Text, Paragraph } = Typography;
 
@@ -106,6 +109,41 @@ export default function RetouchPromptPanel({
       );
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const [deckBusy, setDeckBusy] = useState(false);
+  const handleHtmlDeck = async () => {
+    if (sections.length === 0) {
+      message.warning("먼저 문서를 생성하세요");
+      return;
+    }
+    if (!promptText.trim()) {
+      message.warning("디자인 프롬프트가 필요합니다");
+      return;
+    }
+    setDeckBusy(true);
+    try {
+      const res = await generateHtmlDeck({
+        title: title || "문서",
+        sections,
+        doc_type: docType,
+        design_prompt: promptText,
+      });
+      const blob = new Blob([res.html], { type: "text/html" });
+      // 새 탭에서 디자인 덱 미리보기(브라우저 인쇄→PDF 가능).
+      window.open(URL.createObjectURL(blob), "_blank");
+      triggerBlobDownload(blob, `${title || "deck"}.html`);
+      message.success(
+        `HTML 디자인 덱 생성 — 새 탭에서 열림 · 인쇄→PDF 가능 (비용 $${res.cost_usd.toFixed(3)})`,
+      );
+    } catch (e) {
+      message.error(
+        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+          "HTML 덱 생성에 실패했습니다",
+      );
+    } finally {
+      setDeckBusy(false);
     }
   };
 
@@ -208,7 +246,17 @@ export default function RetouchPromptPanel({
             style={{ fontFamily: "monospace", fontSize: 12.5 }}
           />
           <Space style={{ marginTop: 10 }} wrap>
-            <Button type="primary" icon={<CopyOutlined />} onClick={handleCopy}>
+            <Tooltip title="이 디자인 프롬프트를 그대로 적용한 HTML 슬라이드 덱을 만들어 새 탭에서 엽니다 (브라우저 인쇄→PDF). 색·폰트·레이아웃이 실제로 반영됩니다.">
+              <Button
+                type="primary"
+                icon={<FundProjectionScreenOutlined />}
+                loading={deckBusy}
+                onClick={handleHtmlDeck}
+              >
+                HTML 디자인 덱 생성
+              </Button>
+            </Tooltip>
+            <Button icon={<CopyOutlined />} onClick={handleCopy}>
               복사
             </Button>
             <Button icon={<SaveOutlined />} onClick={openSave}>

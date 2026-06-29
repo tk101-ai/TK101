@@ -14,6 +14,8 @@
 """
 from __future__ import annotations
 
+import asyncio
+import functools
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -26,6 +28,8 @@ from app.models.docgen import DocgenRetouchPrompt
 from app.models.user import User
 from app.modules.constants import Module
 from app.schemas.docgen import (
+    HtmlDeckOut,
+    HtmlDeckRequest,
     RetouchPresetOut,
     RetouchPresetPatchRequest,
     RetouchPresetSaveRequest,
@@ -33,6 +37,7 @@ from app.schemas.docgen import (
     RetouchPromptRequest,
     SharedRetouchPresetOut,
 )
+from app.services.docgen.html_deck import generate_html_deck
 from app.services.docgen.retouch_prompt import build_retouch_prompt
 
 router = APIRouter(
@@ -62,6 +67,28 @@ async def _fetch_preset_or_404(
     if row is None or row.user_id != user.id:
         raise HTTPException(status_code=404, detail="프리셋을 찾을 수 없습니다")
     return row
+
+
+@router.post("/html-deck", response_model=HtmlDeckOut)
+async def create_html_deck(
+    body: HtmlDeckRequest,
+    user: User = Depends(get_current_user),
+) -> HtmlDeckOut:
+    """디자인 프롬프트 + 현재 콘텐츠 → 자체완결 HTML 슬라이드 덱(디자인 반영).
+
+    python-pptx 고정 렌더러가 못 살리는 임의 디자인을 LLM이 HTML/CSS 로 구현.
+    call_claude 는 동기이므로 to_thread 로 호출(요청당 LLM 1콜, 비용 반환).
+    """
+    html, model, cost = await asyncio.to_thread(
+        functools.partial(
+            generate_html_deck,
+            title=body.title,
+            sections=[s.model_dump() for s in body.sections],
+            doc_type=body.doc_type,
+            design_prompt=body.design_prompt,
+        )
+    )
+    return HtmlDeckOut(html=html, model=model, cost_usd=cost)
 
 
 @router.post("/retouch-prompt", response_model=RetouchPromptOut)
