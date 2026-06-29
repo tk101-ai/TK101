@@ -153,13 +153,23 @@ export async function regenerateSection(
 }
 
 /** 초안(수정 가능)을 .docx 로 렌더해 브라우저 다운로드. */
+/** 디자인 프리셋이 담는 테마(편집가능 .pptx/.docx 색·폰트). 빈 항목은 회사 기본. */
+export interface ThemeOverride {
+  palette_primary?: string | null;
+  palette_accent?: string | null;
+  palette_text?: string | null;
+  heading_font?: string | null;
+  body_font?: string | null;
+}
+
 export async function downloadGeneratedDocx(
   title: string,
   sections: DocSection[],
+  theme?: ThemeOverride,
 ): Promise<void> {
   const res = await api.post(
     "/api/docgen/render",
-    { title, sections },
+    { title, sections, theme },
     { responseType: "blob" },
   );
   const blob = new Blob([res.data], {
@@ -168,14 +178,15 @@ export async function downloadGeneratedDocx(
   triggerBlobDownload(blob, `${title || "문서"}.docx`);
 }
 
-/** 초안(수정 가능)을 .pptx 로 렌더해 브라우저 다운로드. */
+/** 초안(수정 가능)을 .pptx 로 렌더해 브라우저 다운로드. theme 가 있으면 그 색·폰트로. */
 export async function downloadGeneratedPptx(
   title: string,
   sections: DocSection[],
+  theme?: ThemeOverride,
 ): Promise<void> {
   const res = await api.post(
     "/api/docgen/render_pptx",
-    { title, sections },
+    { title, sections, theme },
     { responseType: "blob" },
   );
   const blob = new Blob([res.data], {
@@ -241,11 +252,37 @@ export interface RetouchPreset {
   doc_type?: string | null;
   target: RetouchTarget;
   prompt_text: string;
+  // 테마(편집가능 .pptx/.docx 색·폰트). 없으면 회사 기본.
+  palette_primary?: string | null;
+  palette_accent?: string | null;
+  palette_text?: string | null;
+  heading_font?: string | null;
+  body_font?: string | null;
   is_shared: boolean;
   shared_at: string | null;
   source_document_id?: string | null;
   created_at: string;
   updated_at?: string | null;
+}
+
+/** 프리셋의 테마 필드만 추려 ThemeOverride 로(다운로드 적용용). */
+export function presetTheme(p: RetouchPreset): ThemeOverride | undefined {
+  if (
+    !p.palette_primary &&
+    !p.palette_accent &&
+    !p.palette_text &&
+    !p.heading_font &&
+    !p.body_font
+  ) {
+    return undefined;
+  }
+  return {
+    palette_primary: p.palette_primary,
+    palette_accent: p.palette_accent,
+    palette_text: p.palette_text,
+    heading_font: p.heading_font,
+    body_font: p.body_font,
+  };
 }
 
 export interface SharedRetouchPreset extends RetouchPreset {
@@ -267,13 +304,18 @@ export async function generateRetouchPrompt(req: {
   return res.data;
 }
 
-/** 리터치 프롬프트를 프리셋으로 저장. */
+/** 디자인 프리셋 저장(프롬프트 + 테마). */
 export async function saveRetouchPreset(body: {
   title: string;
   prompt_text: string;
   doc_type?: DocType | null;
   target: RetouchTarget;
   source_document_id?: string | null;
+  palette_primary?: string | null;
+  palette_accent?: string | null;
+  palette_text?: string | null;
+  heading_font?: string | null;
+  body_font?: string | null;
 }): Promise<RetouchPreset> {
   const res = await api.post<RetouchPreset>("/api/docgen/retouch-prompts", body);
   return res.data;
@@ -308,10 +350,19 @@ export async function listSharedRetouchPresets(
   return res.data;
 }
 
-/** 프리셋 수정 — 제목/본문 편집 또는 공유 토글. */
+/** 프리셋 수정 — 제목/본문/테마 편집 또는 공유 토글. */
 export async function updateRetouchPreset(
   id: string,
-  patch: { title?: string; prompt_text?: string; is_shared?: boolean },
+  patch: {
+    title?: string;
+    prompt_text?: string;
+    is_shared?: boolean;
+    palette_primary?: string | null;
+    palette_accent?: string | null;
+    palette_text?: string | null;
+    heading_font?: string | null;
+    body_font?: string | null;
+  },
 ): Promise<RetouchPreset> {
   const res = await api.patch<RetouchPreset>(
     `/api/docgen/retouch-prompts/${id}`,

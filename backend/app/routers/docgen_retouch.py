@@ -126,6 +126,11 @@ async def save_retouch_preset(
         doc_type=body.doc_type,
         target=body.target,
         prompt_text=body.prompt_text,
+        palette_primary=body.palette_primary,
+        palette_accent=body.palette_accent,
+        palette_text=body.palette_text,
+        heading_font=body.heading_font,
+        body_font=body.body_font,
     )
     db.add(row)
     await db.commit()
@@ -204,6 +209,17 @@ async def patch_retouch_preset(
     if body.is_shared is not None:
         row.is_shared = body.is_shared
         row.shared_at = func.now() if body.is_shared else None
+    # 테마 필드 — 보낸 것만 반영(빈 문자열이면 해제 의도로 None 처리).
+    for fld in (
+        "palette_primary",
+        "palette_accent",
+        "palette_text",
+        "heading_font",
+        "body_font",
+    ):
+        val = getattr(body, fld)
+        if val is not None:
+            setattr(row, fld, val or None)
     await db.commit()
     await db.refresh(row)
     return RetouchPresetOut.model_validate(row)

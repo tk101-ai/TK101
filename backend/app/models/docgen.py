@@ -80,7 +80,14 @@ class DocgenRetouchPrompt(UUIDMixin, TimestampMixin, Base):
     # target: 어떤 AI용으로 다듬었는지. general/gamma/gpt/gemini/internal.
     target = Column(String(20), nullable=False, server_default="general")
     # 프롬프트 본문(사람이 읽는 브리프). 외부 핸드오프/내부 재생성 양쪽에서 사용.
-    prompt_text = Column(Text, nullable=False)
+    # 테마만 담는 프리셋이면 비어있을 수 있음(앱에서 최소 1개는 채우게 안내).
+    prompt_text = Column(Text, nullable=False, server_default="")
+    # 테마(편집가능 .pptx/.docx 에 적용할 색·폰트). 없으면 회사 기본.
+    palette_primary = Column(String(7), nullable=True)   # '#RRGGBB'
+    palette_accent = Column(String(7), nullable=True)
+    palette_text = Column(String(7), nullable=True)
+    heading_font = Column(String(80), nullable=True)
+    body_font = Column(String(80), nullable=True)
     # 공유 토글: True 면 form_filler 모듈 사용자 전체에게 공유 프리셋으로 노출.
     is_shared = Column(Boolean, nullable=False, server_default=text("false"))
     shared_at = Column(DateTime(timezone=True), nullable=True)

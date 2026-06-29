@@ -103,11 +103,19 @@ def _existing(path: str | None) -> str | None:
     return None
 
 
-def get_theme() -> Theme:
-    """settings 기반 현재 테마 구성. 색/템플릿/로고를 env로 덮어쓸 수 있다."""
-    primary = _hex_to_rgb(settings.docgen_brand_primary, (0x16, 0x33, 0x5B))
-    accent = _hex_to_rgb(settings.docgen_brand_accent, (0x2D, 0x7F, 0xF9))
-    text = _hex_to_rgb(settings.docgen_brand_text, (0x1A, 0x22, 0x30))
+def build_theme(
+    *,
+    primary: tuple[int, int, int],
+    accent: tuple[int, int, int],
+    text: tuple[int, int, int],
+    heading_font: str,
+    body_font: str,
+    footer_text: str,
+    logo_path: str | None,
+    pptx_template: str | None,
+    docx_template: str | None,
+) -> Theme:
+    """핵심 색·폰트로부터 파생 토큰까지 채운 Theme 구성(단일 소스)."""
     return Theme(
         primary=primary,
         accent=accent,
@@ -121,10 +129,52 @@ def get_theme() -> Theme:
         surface=_mix(primary, 0.965),
         hairline=_mix(text, 0.82),
         series_palette=_series_palette(primary, accent),
+        heading_font=heading_font,
+        body_font=body_font,
+        footer_text=footer_text,
+        logo_path=logo_path,
+        pptx_template=pptx_template,
+        docx_template=docx_template,
+    )
+
+
+def get_theme() -> Theme:
+    """settings 기반 회사 기본 테마. 색/템플릿/로고를 env로 덮어쓸 수 있다."""
+    return build_theme(
+        primary=_hex_to_rgb(settings.docgen_brand_primary, (0x16, 0x33, 0x5B)),
+        accent=_hex_to_rgb(settings.docgen_brand_accent, (0x2D, 0x7F, 0xF9)),
+        text=_hex_to_rgb(settings.docgen_brand_text, (0x1A, 0x22, 0x30)),
         heading_font=_HEADING_FONT,
         body_font=_BODY_FONT,
         footer_text=settings.docgen_footer_text or "",
         logo_path=_existing(settings.docgen_logo_path),
         pptx_template=_existing(settings.docgen_pptx_template),
         docx_template=_existing(settings.docgen_docx_template),
+    )
+
+
+def theme_from_overrides(
+    *,
+    primary_hex: str | None = None,
+    accent_hex: str | None = None,
+    text_hex: str | None = None,
+    heading_font: str | None = None,
+    body_font: str | None = None,
+) -> Theme:
+    """디자인 프리셋의 테마 값(색·폰트)을 회사 기본 위에 덮어쓴 Theme.
+
+    값이 없는 항목은 회사 기본을 유지(푸터·로고·템플릿도 기본 유지). 빈 입력이면
+    get_theme() 과 동일.
+    """
+    base = get_theme()
+    return build_theme(
+        primary=_hex_to_rgb(primary_hex, base.primary) if primary_hex else base.primary,
+        accent=_hex_to_rgb(accent_hex, base.accent) if accent_hex else base.accent,
+        text=_hex_to_rgb(text_hex, base.text) if text_hex else base.text,
+        heading_font=heading_font or base.heading_font,
+        body_font=body_font or base.body_font,
+        footer_text=base.footer_text,
+        logo_path=base.logo_path,
+        pptx_template=base.pptx_template,
+        docx_template=base.docx_template,
     )

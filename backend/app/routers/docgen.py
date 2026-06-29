@@ -53,6 +53,7 @@ from app.services.docgen import (
     render_markdown,
     review_document,
 )
+from app.services.docgen.theme import theme_from_overrides
 from app.services.documents.nas_output import save_to_nas
 from app.services.documents.sources import collect_sources
 
@@ -410,15 +411,31 @@ async def review(
     )
 
 
+def _theme_from_req(body: DocRenderRequest):
+    """렌더 요청의 테마 override → Theme (없으면 None=회사 기본)."""
+    t = body.theme
+    if not t:
+        return None
+    return theme_from_overrides(
+        primary_hex=t.palette_primary,
+        accent_hex=t.palette_accent,
+        text_hex=t.palette_text,
+        heading_font=t.heading_font,
+        body_font=t.body_font,
+    )
+
+
 @router.post("/render")
 async def render(
     body: DocRenderRequest,
     user: User = Depends(get_current_user),
 ) -> StreamingResponse:
-    """초안(수정 가능) → .docx 스트리밍 다운로드."""
+    """초안(수정 가능) → .docx 스트리밍 다운로드. theme 가 있으면 그 색·폰트로."""
     sections = [{"heading": s.heading, "body": s.body} for s in body.sections]
     try:
-        data = await asyncio.to_thread(build_docx, body.title, sections)
+        data = await asyncio.to_thread(
+            build_docx, body.title, sections, _theme_from_req(body)
+        )
     except Exception as exc:  # noqa: BLE001
         logger.exception("docx 렌더 실패")
         raise HTTPException(
@@ -447,10 +464,12 @@ async def render_pptx(
     body: DocRenderRequest,
     user: User = Depends(get_current_user),
 ) -> StreamingResponse:
-    """초안(수정 가능) → .pptx 스트리밍 다운로드."""
+    """초안(수정 가능) → .pptx 스트리밍 다운로드. theme 가 있으면 그 색·폰트로."""
     sections = [{"heading": s.heading, "body": s.body} for s in body.sections]
     try:
-        data = await asyncio.to_thread(build_pptx, body.title, sections)
+        data = await asyncio.to_thread(
+            build_pptx, body.title, sections, _theme_from_req(body)
+        )
     except Exception as exc:  # noqa: BLE001
         logger.exception("pptx 렌더 실패")
         raise HTTPException(

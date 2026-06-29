@@ -440,12 +440,17 @@ def _render_section(prs, theme: Theme, heading: str, blocks: list[Block],
                         page_no=counter[0])
 
 
-def build_pptx(title: str, sections: list[dict]) -> bytes:
-    """title + sections([{heading, body}]) → 디자인된 .pptx 바이트."""
+def build_pptx(
+    title: str, sections: list[dict], theme: Theme | None = None
+) -> bytes:
+    """title + sections([{heading, body}]) → 디자인된 .pptx 바이트.
+
+    theme 가 주어지면 그 색·폰트로(디자인 프리셋), 없으면 회사 기본 테마.
+    """
     from pptx import Presentation
     from pptx.util import Inches
 
-    theme = get_theme()
+    theme = theme or get_theme()
     prs = Presentation(theme.pptx_template) if theme.pptx_template else Presentation()
     # 16:9. (커스텀 템플릿이면 템플릿 크기를 존중해 덮어쓰지 않음.)
     if not theme.pptx_template:
