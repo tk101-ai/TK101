@@ -18,6 +18,7 @@ import FormLibraryPage from "../pages/forms/FormLibraryPage";
 import JobNewPage from "../pages/forms/JobNewPage";
 import JobMappingPage from "../pages/forms/JobMappingPage";
 import DocGenPage from "../pages/forms/DocGenPage";
+import PromptLibraryPage from "../pages/forms/PromptLibraryPage";
 import DocumentsUsagePage from "../pages/documents/DocumentsUsagePage";
 import TransactionImport from "../pages/finance/TransactionImport";
 import MatchingWorkbook from "../pages/finance/MatchingWorkbook";
@@ -78,6 +79,7 @@ export const APP_ROUTES: AppRoute[] = [
   { path: "/forms/new", element: <FormUploadPage />, module: "form_filler" },
   { path: "/forms/library", element: <FormLibraryPage />, module: "form_filler" },
   { path: "/forms/generate", element: <DocGenPage />, module: "form_filler" },
+  { path: "/forms/prompts", element: <PromptLibraryPage />, module: "form_filler" },
   { path: "/forms/templates/:id/review", element: <FormReviewPage />, module: "form_filler" },
   { path: "/forms/jobs/:id/sources", element: <JobNewPage />, module: "form_filler" },
   { path: "/forms/jobs/:id/review", element: <JobMappingPage />, module: "form_filler" },

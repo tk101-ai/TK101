@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Button,
@@ -10,14 +11,13 @@ import {
   Select,
   Space,
   Spin,
-  Steps,
   Tag,
   Typography,
   Upload,
   message,
 } from "antd";
 import type { UploadFile } from "antd";
-import { FileTextOutlined, RobotOutlined, UploadOutlined } from "@ant-design/icons";
+import { UploadOutlined } from "@ant-design/icons";
 import {
   listRetouchPresets,
   listSharedRetouchPresets,
@@ -86,10 +86,21 @@ const SOURCE_OPTIONS: { label: string; value: SourceMode }[] = [
 const UPLOAD_ACCEPT = ".pdf,.docx,.xlsx,.csv,.txt,.pptx";
 const MAX_UPLOAD_FILES = 5;
 
+/** 라벨 + 컨트롤 한 줄. */
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        {label}
+      </Text>
+      <div style={{ marginTop: 6 }}>{children}</div>
+    </div>
+  );
+}
+
 export default function DocCreateWizard({ open, onClose, onFreeGenerate }: DocCreateWizardProps) {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"free" | "form" | undefined>();
-  const [step, setStep] = useState(0);
+  const [mode, setMode] = useState<"free" | "form">("free");
 
   // 자유 작성 수집값.
   const [docType, setDocType] = useState<DocType>("제안서");
@@ -114,8 +125,7 @@ export default function DocCreateWizard({ open, onClose, onFreeGenerate }: DocCr
   // 모달 열릴 때 리셋 + 디자인 프리셋 로드.
   useEffect(() => {
     if (!open) return;
-    setMode(undefined);
-    setStep(0);
+    setMode("free");
     setSelectedTemplateId(undefined);
     void (async () => {
       try {
@@ -131,16 +141,16 @@ export default function DocCreateWizard({ open, onClose, onFreeGenerate }: DocCr
     })();
   }, [open]);
 
-  // 양식 단계 진입 시 템플릿 로드.
+  // 양식 모드 전환 시 템플릿 로드(1회).
   useEffect(() => {
-    if (open && mode === "form" && step === 1 && templates.length === 0) {
+    if (open && mode === "form" && templates.length === 0) {
       setTemplatesLoading(true);
       void listFormTemplates()
         .then(setTemplates)
         .catch(() => message.error("양식 목록을 불러오지 못했습니다"))
         .finally(() => setTemplatesLoading(false));
     }
-  }, [open, mode, step, templates.length]);
+  }, [open, mode, templates.length]);
 
   const presetOptions = useMemo(
     () => [
@@ -163,16 +173,6 @@ export default function DocCreateWizard({ open, onClose, onFreeGenerate }: DocCr
     ],
     [myPresets, sharedPresets],
   );
-
-  const freeSteps = ["방식", "종류·포맷", "톤·디자인", "자료·품질", "내용"];
-  const formSteps = ["방식", "양식 선택"];
-  const stepsItems = (mode === "form" ? formSteps : freeSteps).map((t) => ({
-    title: t,
-  }));
-  const lastStep = mode === "form" ? 1 : 4;
-
-  const next = () => setStep((s) => s + 1);
-  const prev = () => setStep((s) => Math.max(0, s - 1));
 
   const handleFreeFinish = () => {
     if (topic.trim().length < 2) {
@@ -220,93 +220,34 @@ export default function DocCreateWizard({ open, onClose, onFreeGenerate }: DocCr
       open={open}
       onCancel={onClose}
       title="문서 만들기"
-      width={680}
+      width={720}
       destroyOnClose
-      footer={null}
+      okText={mode === "free" ? "생성" : "양식 작성 시작"}
+      confirmLoading={mode === "form" && creatingJob}
+      onOk={mode === "free" ? handleFreeFinish : handleFormFinish}
     >
-      <Steps size="small" current={step} items={stepsItems} style={{ marginBottom: 20 }} />
+      <Segmented
+        block
+        options={[
+          { label: "자유 작성 (AI가 새로 작성)", value: "free" },
+          { label: "기존 양식 사용 (양식 채우기)", value: "form" },
+        ]}
+        value={mode}
+        onChange={(v) => setMode(v as "free" | "form")}
+        style={{ marginBottom: 18 }}
+      />
 
-      {/* ── 0. 방식 선택 ── */}
-      {step === 0 && (
-        <Space direction="vertical" size={12} style={{ width: "100%" }}>
-          <Text type="secondary">어떻게 만들까요?</Text>
-          <Radio.Group
-            value={mode}
-            onChange={(e) => setMode(e.target.value)}
-            style={{ width: "100%" }}
-          >
-            <Space direction="vertical" style={{ width: "100%" }}>
-              <Radio value="free">
-                <Space>
-                  <RobotOutlined />
-                  <span>
-                    <b>자유 작성</b> — 주제·자료를 주면 AI가 새로 작성(Word/PPT)
-                  </span>
-                </Space>
-              </Radio>
-              <Radio value="form">
-                <Space>
-                  <FileTextOutlined />
-                  <span>
-                    <b>기존 양식 사용</b> — 회사 양식(.docx/.xlsx)에 내용 채우기
-                  </span>
-                </Space>
-              </Radio>
-            </Space>
-          </Radio.Group>
-        </Space>
-      )}
-
-      {/* ── 양식: 1. 양식 선택 ── */}
-      {mode === "form" && step === 1 && (
-        <div>
-          {templatesLoading ? (
-            <div style={{ textAlign: "center", padding: 40 }}>
-              <Spin />
-            </div>
-          ) : templates.length === 0 ? (
-            <Empty description="등록된 양식이 없습니다. 양식 라이브러리에서 먼저 업로드하세요." />
-          ) : (
-            <Radio.Group
-              value={selectedTemplateId}
-              onChange={(e) => setSelectedTemplateId(e.target.value)}
-              style={{ width: "100%" }}
-            >
-              <Space direction="vertical" style={{ width: "100%" }}>
-                {templates.map((t) => (
-                  <Radio key={t.id} value={t.id}>
-                    <Space>
-                      <span>{t.name}</span>
-                      {t.file_format && <Tag bordered={false}>{t.file_format}</Tag>}
-                    </Space>
-                  </Radio>
-                ))}
-              </Space>
-            </Radio.Group>
-          )}
-        </div>
-      )}
-
-      {/* ── 자유: 1. 종류·포맷 ── */}
-      {mode === "free" && step === 1 && (
+      {mode === "free" ? (
         <Space direction="vertical" size={16} style={{ width: "100%" }}>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              문서 종류
-            </Text>
-            <div style={{ marginTop: 6 }}>
+          <Space size={32} wrap>
+            <Field label="문서 종류">
               <Segmented
                 options={DOC_TYPES}
                 value={docType}
                 onChange={(v) => setDocType(v as DocType)}
               />
-            </div>
-          </div>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              출력 포맷
-            </Text>
-            <div style={{ marginTop: 6 }}>
+            </Field>
+            <Field label="출력 포맷">
               <Segmented
                 options={[
                   { label: "PPT", value: "pptx" },
@@ -315,65 +256,52 @@ export default function DocCreateWizard({ open, onClose, onFreeGenerate }: DocCr
                 value={preferredFormat}
                 onChange={(v) => setPreferredFormat(v as "docx" | "pptx")}
               />
-              <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 6 }}>
-                Excel은 「기존 양식 사용」에서 .xlsx 양식으로 만들 수 있어요.
-              </Paragraph>
-            </div>
-          </div>
-        </Space>
-      )}
+            </Field>
+          </Space>
 
-      {/* ── 자유: 2. 톤·디자인 ── */}
-      {mode === "free" && step === 2 && (
-        <Space direction="vertical" size={16} style={{ width: "100%" }}>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              톤앤매너
-            </Text>
-            <div style={{ marginTop: 6 }}>
-              <Segmented
-                options={TONE_PRESETS.map((t) => ({ label: t.label, value: t.key }))}
-                value={tone}
-                onChange={(v) => setTone(v as string)}
-              />
-            </div>
-          </div>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              디자인 프리셋 (선택)
-            </Text>
-            <div style={{ marginTop: 6 }}>
-              <Select
-                style={{ minWidth: 240 }}
-                placeholder="없음"
-                allowClear
-                value={designPresetId}
-                onChange={(v) => setDesignPresetId(v)}
-                options={presetOptions}
-              />
-              <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 6 }}>
-                저장·공유된 리터치 프리셋의 디자인 방향을 첫 생성부터 적용합니다.
-              </Paragraph>
-            </div>
-          </div>
-        </Space>
-      )}
+          <Field label="톤앤매너">
+            <Segmented
+              options={TONE_PRESETS.map((t) => ({ label: t.label, value: t.key }))}
+              value={tone}
+              onChange={(v) => setTone(v as string)}
+            />
+          </Field>
 
-      {/* ── 자유: 3. 자료·품질 ── */}
-      {mode === "free" && step === 3 && (
-        <Space direction="vertical" size={16} style={{ width: "100%" }}>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              참고 자료
-            </Text>
-            <div style={{ marginTop: 6 }}>
+          <Field label="디자인 프리셋 (프롬프트) — 선택">
+            <Select
+              style={{ minWidth: 280 }}
+              placeholder="없음 (기본 디자인)"
+              allowClear
+              value={designPresetId}
+              onChange={(v) => setDesignPresetId(v)}
+              options={presetOptions}
+            />
+            <Paragraph type="secondary" style={{ fontSize: 12, margin: "6px 0 0" }}>
+              저장·공유된 프롬프트를 골라 첫 생성부터 적용합니다. 프롬프트는 「프롬프트
+              라이브러리」에서 직접 만들거나 관리할 수 있어요.
+            </Paragraph>
+          </Field>
+
+          <Space size={32} wrap align="start">
+            <Field label="참고 자료">
               <Segmented
                 options={SOURCE_OPTIONS}
                 value={sourceMode}
                 onChange={(v) => setSourceMode(v as SourceMode)}
               />
-            </div>
-          </div>
+            </Field>
+            <Field label="품질">
+              <Segmented
+                options={[
+                  { label: "초안(빠름)", value: "draft" },
+                  { label: "고품질(검수)", value: "high" },
+                ]}
+                value={highQuality ? "high" : "draft"}
+                onChange={(v) => setHighQuality(v === "high")}
+              />
+            </Field>
+          </Space>
+
           {showUpload && (
             <Upload
               multiple
@@ -388,67 +316,49 @@ export default function DocCreateWizard({ open, onClose, onFreeGenerate }: DocCr
               </Button>
             </Upload>
           )}
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              품질
-            </Text>
-            <div style={{ marginTop: 6 }}>
-              <Segmented
-                options={[
-                  { label: "초안(빠름)", value: "draft" },
-                  { label: "고품질(검수)", value: "high" },
-                ]}
-                value={highQuality ? "high" : "draft"}
-                onChange={(v) => setHighQuality(v === "high")}
-              />
-            </div>
-          </div>
-        </Space>
-      )}
 
-      {/* ── 자유: 4. 내용 ── */}
-      {mode === "free" && step === 4 && (
-        <Space direction="vertical" size={8} style={{ width: "100%" }}>
+          <Field label="원하는 내용·데이터 (자세할수록 결과가 좋아집니다)">
+            <Input.TextArea
+              rows={5}
+              placeholder="예: 신세계백화점 대상 중국 SNS 운영 대행 제안서. 운영 채널(샤오훙슈·더우인), 월 예산 1,500만원, 6개월 일정, 기대 KPI 포함."
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+            />
+          </Field>
+        </Space>
+      ) : (
+        <div>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            원하는 내용·데이터를 자세히 적을수록 결과가 좋아집니다.
+            회사 양식(.docx/.xlsx)을 골라 내용을 채웁니다. Excel도 여기서 만들 수 있어요.
           </Text>
-          <Input.TextArea
-            rows={6}
-            placeholder="예: 신세계백화점 대상 중국 SNS 운영 대행 제안서. 운영 채널(샤오훙슈·더우인), 월 예산 1,500만원, 6개월 일정, 기대 KPI 포함."
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-          />
-        </Space>
+          <div style={{ marginTop: 12 }}>
+            {templatesLoading ? (
+              <div style={{ textAlign: "center", padding: 40 }}>
+                <Spin />
+              </div>
+            ) : templates.length === 0 ? (
+              <Empty description="등록된 양식이 없습니다. 양식 라이브러리에서 먼저 업로드하세요." />
+            ) : (
+              <Radio.Group
+                value={selectedTemplateId}
+                onChange={(e) => setSelectedTemplateId(e.target.value)}
+                style={{ width: "100%" }}
+              >
+                <Space direction="vertical" style={{ width: "100%" }}>
+                  {templates.map((t) => (
+                    <Radio key={t.id} value={t.id}>
+                      <Space>
+                        <span>{t.name}</span>
+                        {t.file_format && <Tag bordered={false}>{t.file_format}</Tag>}
+                      </Space>
+                    </Radio>
+                  ))}
+                </Space>
+              </Radio.Group>
+            )}
+          </div>
+        </div>
       )}
-
-      {/* ── 푸터 ── */}
-      <div
-        style={{
-          marginTop: 24,
-          display: "flex",
-          justifyContent: "space-between",
-        }}
-      >
-        <Button onClick={onClose}>취소</Button>
-        <Space>
-          {step > 0 && <Button onClick={prev}>이전</Button>}
-          {step < lastStep && (
-            <Button type="primary" disabled={step === 0 && !mode} onClick={next}>
-              다음
-            </Button>
-          )}
-          {mode === "free" && step === lastStep && (
-            <Button type="primary" onClick={handleFreeFinish}>
-              생성
-            </Button>
-          )}
-          {mode === "form" && step === lastStep && (
-            <Button type="primary" loading={creatingJob} onClick={handleFormFinish}>
-              양식 작성 시작
-            </Button>
-          )}
-        </Space>
-      </div>
     </Modal>
   );
 }
