@@ -50,6 +50,10 @@ import {
   type SourceMode,
 } from "../../api/docgen";
 import RetouchPromptPanel from "../../components/forms/RetouchPromptPanel";
+import DocCreateWizard, {
+  toneDirective,
+  type WizardFreePayload,
+} from "../../components/forms/DocCreateWizard";
 
 const SEARCH_DEBOUNCE_MS = 200;
 
@@ -95,6 +99,13 @@ export default function DocGenPage() {
   const [title, setTitle] = useState("");
   const [sections, setSections] = useState<DocSection[]>([]);
 
+  // ── 문서 작성 마법사 + 톤/포맷 ──
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [tone, setTone] = useState<string | undefined>();
+  const [preferredFormat, setPreferredFormat] = useState<
+    "docx" | "pptx" | undefined
+  >();
+
   // ── 디자인 프리셋(리터치 프롬프트) — 생성 전에 골라 첫 생성부터 적용 ──
   const [myPresets, setMyPresets] = useState<RetouchPreset[]>([]);
   const [sharedPresets, setSharedPresets] = useState<SharedRetouchPreset[]>([]);
@@ -117,14 +128,16 @@ export default function DocGenPage() {
     void reloadPresets();
   }, []);
 
-  // 선택된 프리셋의 prompt_text(생성 시 design_directive 로 주입).
+  // 톤 + 선택 프리셋을 합성한 design_directive(생성 시 주입).
   const designDirective = useMemo(() => {
-    if (!designPresetId) return undefined;
+    const presetText = designPresetId
+      ? (myPresets.find((p) => p.id === designPresetId)?.prompt_text ??
+        sharedPresets.find((p) => p.id === designPresetId)?.prompt_text)
+      : undefined;
     return (
-      myPresets.find((p) => p.id === designPresetId)?.prompt_text ??
-      sharedPresets.find((p) => p.id === designPresetId)?.prompt_text
+      [toneDirective(tone), presetText].filter(Boolean).join("\n\n") || undefined
     );
-  }, [designPresetId, myPresets, sharedPresets]);
+  }, [designPresetId, tone, myPresets, sharedPresets]);
 
   // 셀렉트 옵션 — 내 프리셋 / 공유 프리셋 그룹(중복 제거: 공유 목록의 내 것은 제외).
   const presetOptions = useMemo(
@@ -148,6 +161,16 @@ export default function DocGenPage() {
     ],
     [myPresets, sharedPresets],
   );
+
+  // ?wizard=1 로 진입하면 마법사 자동 오픈(허브/사이드바에서 유도). 1회 처리 후 파라미터 정리.
+  useEffect(() => {
+    if (searchParams.get("wizard") === "1") {
+      setWizardOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("wizard");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // ── 내 문서(저장된 생성 결과) 목록/검색 상태 ──
   const [docs, setDocs] = useState<DocgenDocumentBrief[]>([]);
@@ -309,6 +332,54 @@ export default function DocGenPage() {
           ? `초안 생성 완료 (프리셋 적용 · 참고 ${res.sources.length}건)`
           : `초안 생성 완료 (참고 ${res.sources.length}건)`,
       );
+    } catch (e) {
+      message.error((e as any)?.response?.data?.detail || "문서 생성 실패");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 마법사 완료(자유 작성) — 수집값으로 바로 생성. state 도 채워 컨트롤을 동기화.
+  const handleWizardGenerate = async (p: WizardFreePayload) => {
+    setDocType(p.docType);
+    setSourceMode(p.sourceMode);
+    setFileList(p.fileList);
+    setHighQuality(p.highQuality);
+    setDesignPresetId(p.designPresetId);
+    setTone(p.tone);
+    setPreferredFormat(p.preferredFormat);
+    setTopic(p.topic);
+
+    // stale state 회피 — directive·파일을 payload 에서 직접 계산.
+    const presetText = p.designPresetId
+      ? (myPresets.find((x) => x.id === p.designPresetId)?.prompt_text ??
+        sharedPresets.find((x) => x.id === p.designPresetId)?.prompt_text)
+      : undefined;
+    const directive =
+      [toneDirective(p.tone), presetText].filter(Boolean).join("\n\n") ||
+      undefined;
+    const wizardFiles = p.fileList
+      .map((f) => f.originFileObj as File | undefined)
+      .filter((f): f is File => !!f);
+
+    setBusy(true);
+    try {
+      const res = await generateDocument({
+        topic: p.topic,
+        doc_type: p.docType,
+        source_mode: p.sourceMode,
+        auto_review: p.highQuality,
+        design_directive: directive,
+        files: wizardFiles,
+      });
+      setResult(res);
+      setTitle(res.title);
+      setSections(res.sections);
+      setFeedbacks({});
+      setReview(null);
+      setActiveDocId(res.document_id ?? null);
+      setDocsRefreshKey((k) => k + 1);
+      message.success(`문서 생성 완료 (참고 ${res.sources.length}건)`);
     } catch (e) {
       message.error((e as any)?.response?.data?.detail || "문서 생성 실패");
     } finally {
@@ -676,16 +747,33 @@ export default function DocGenPage() {
 
       {/* 우측: 생성 입력 + 결과 */}
       <div style={{ flex: 1, minWidth: 0, maxWidth: 1080 }}>
-      <div style={{ marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
-          문서 생성{" "}
-          <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-            요구 기반 · RAG 초안 · 편집/재생성
+      <div
+        style={{
+          marginBottom: 16,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 12,
+        }}
+      >
+        <div>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
+            문서 생성{" "}
+            <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
+              요구 기반 · RAG 초안 · 편집/재생성
+            </Text>
+          </h2>
+          <Text type="secondary">
+            주제를 입력하면 회사 NAS 자료를 참고해 초안을 만들고, 섹션을 직접 고치거나 다시 생성할 수 있습니다.
           </Text>
-        </h2>
-        <Text type="secondary">
-          주제를 입력하면 회사 NAS 자료를 참고해 초안을 만들고, 섹션을 직접 고치거나 다시 생성할 수 있습니다.
-        </Text>
+        </div>
+        <Button
+          type="primary"
+          icon={<ThunderboltOutlined />}
+          onClick={() => setWizardOpen(true)}
+        >
+          문서 만들기 (가이드)
+        </Button>
       </div>
 
       <Card size="small" style={{ marginBottom: 16 }}>
@@ -790,10 +878,18 @@ export default function DocGenPage() {
               <Button icon={<AuditOutlined />} loading={reviewing} onClick={handleReview}>
                 품질 검증
               </Button>
-              <Button icon={<DownloadOutlined />} onClick={() => download("docx")}>
+              <Button
+                icon={<DownloadOutlined />}
+                type={preferredFormat === "docx" ? "primary" : "default"}
+                onClick={() => download("docx")}
+              >
                 .docx
               </Button>
-              <Button icon={<DownloadOutlined />} onClick={() => download("pptx")}>
+              <Button
+                icon={<DownloadOutlined />}
+                type={preferredFormat === "pptx" ? "primary" : "default"}
+                onClick={() => download("pptx")}
+              >
                 PPT
               </Button>
             </Space>
@@ -968,6 +1064,12 @@ export default function DocGenPage() {
         </Card>
       )}
       </div>
+
+      <DocCreateWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onFreeGenerate={handleWizardGenerate}
+      />
     </div>
   );
 }
