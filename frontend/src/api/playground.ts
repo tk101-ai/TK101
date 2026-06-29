@@ -483,6 +483,7 @@ export async function describeTask(
 export interface PlaygroundMediaItem {
   id: string;
   media_type: "image" | "video";
+  source_media_id?: string | null; // i2v 참고 이미지 row
   task_id: string | null;
   model_key: string | null;
   prompt: string | null;

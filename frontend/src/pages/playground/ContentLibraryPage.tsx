@@ -73,6 +73,7 @@ export default function ContentLibraryPage() {
       outputUrl: mediaFileUrl(item.id),
       errorMessage: null,
       costUsd: null,
+      sourceMediaId: null,
       createdAt: item.created_at,
     });
   };

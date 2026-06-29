@@ -144,6 +144,13 @@ class PlaygroundMedia(UUIDMixin, Base):
     )
     # media_type: "image" | "video" | "audio".
     media_type = Column(String(20), nullable=False)
+    # i2v 등에서 참고한 소스 이미지 row(같은 테이블). 영상이 어떤 이미지로
+    # 만들어졌는지 표시용. 소스 삭제 시 SET NULL.
+    source_media_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("playground_media.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     # 텐센트 task_id — 폴링 키. unique.
     task_id = Column(String(200), nullable=True, unique=True)
     # "Kling:2.1" 같은 ModelName:Version 합성. 단가 매칭에 사용.
