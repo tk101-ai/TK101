@@ -11,6 +11,7 @@ LLM system 컨텍스트로 주입한다. 검색 인프라는 문서작성 모듈
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from app.services.nas_search.bridge import (
@@ -24,6 +25,10 @@ logger = logging.getLogger(__name__)
 RAG_CHUNK_LIMIT = 6
 # 청크 1건당 컨텍스트에 넣을 최대 글자 수 — 과도한 토큰 폭증 방지.
 _MAX_CHARS_PER_CHUNK = 1500
+# 검색 타임아웃(초). 임베딩 모델이 콜드(배포 직후 ~33s)일 때 SSE 응답이
+# 시작도 못 하고 막혀 500/502 가 나던 문제 방지 — 초과 시 일반 채팅으로 폴백.
+# (모델 로드는 백그라운드 스레드에서 계속 진행되어 다음 요청부터 웜.)
+RAG_SEARCH_TIMEOUT_S = 8.0
 
 
 async def search_rag_context(
@@ -31,11 +36,20 @@ async def search_rag_context(
     *,
     limit: int = RAG_CHUNK_LIMIT,
 ) -> list[NasChunkHit]:
-    """쿼리로 NAS 청크를 검색. 실패해도 예외를 올리지 않고 빈 리스트 반환."""
+    """쿼리로 NAS 청크를 검색. 실패/지연해도 예외를 올리지 않고 빈 리스트 반환."""
     if not query or not query.strip():
         return []
     try:
-        hits = await search_relevant_chunks(query=query, limit=limit)
+        hits = await asyncio.wait_for(
+            search_relevant_chunks(query=query, limit=limit),
+            timeout=RAG_SEARCH_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "NAS RAG 검색 타임아웃(%.0fs) — 임베딩 콜드 추정, 일반 채팅으로 진행",
+            RAG_SEARCH_TIMEOUT_S,
+        )
+        return []
     except Exception:  # noqa: BLE001 — 채팅을 막지 않도록 graceful.
         logger.warning("NAS RAG 검색 실패 — 일반 채팅으로 진행", exc_info=True)
         return []
