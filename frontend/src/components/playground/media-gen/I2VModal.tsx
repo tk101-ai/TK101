@@ -20,9 +20,16 @@ export default function I2VModal({
 
   useEffect(() => {
     if (target) {
+      // v2v(영상 리터치): 영상 통일성 위해 원본 영상의 모델을 기본값으로(목록에 있으면).
+      const isVideoSource = target.kind === "video";
+      const originalInList = videoModels.some((m) => m.key === target.modelKey);
       form.setFieldsValue({
-        prompt: target.prompt,
-        model_key: videoModels[0]?.key ?? "",
+        // 영상 리터치는 '수정 지시'를 새로 입력. 이미지→영상은 원본 프롬프트 시드.
+        prompt: isVideoSource ? "" : target.prompt,
+        model_key:
+          isVideoSource && target.modelKey && originalInList
+            ? target.modelKey
+            : (videoModels[0]?.key ?? ""),
         duration: 5,
         resolution: "720P",
         aspect_ratio: "16:9",
