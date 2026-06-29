@@ -70,3 +70,6 @@ class Module(str, Enum):
     # PR-E #1: 문서 토큰/비용 사용량 패널 — admin only. ALL_MODULES 로 admin 만 자동 부여.
     # 백엔드 권위는 GET /api/documents/admin/usage 의 require_admin(403).
     DOCUMENTS_ADMIN_USAGE = "documents_admin_usage"
+    # 테스트 워크스페이스(동아제약·현대백화점 등 신규 클라이언트 작업공간 시범).
+    # admin 자동 부여, 담당 부서엔 DB grant 로 부여. 데이터/API 연동은 추후.
+    TEST_WORKSPACE = "test_workspace"

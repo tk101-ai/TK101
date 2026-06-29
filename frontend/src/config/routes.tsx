@@ -19,6 +19,8 @@ import JobNewPage from "../pages/forms/JobNewPage";
 import JobMappingPage from "../pages/forms/JobMappingPage";
 import DocGenPage from "../pages/forms/DocGenPage";
 import PromptLibraryPage from "../pages/forms/PromptLibraryPage";
+import DongaPharmaWorkspace from "../pages/workspaces/DongaPharmaWorkspace";
+import HyundaiWorkspace from "../pages/workspaces/HyundaiWorkspace";
 import DocumentsUsagePage from "../pages/documents/DocumentsUsagePage";
 import TransactionImport from "../pages/finance/TransactionImport";
 import MatchingWorkbook from "../pages/finance/MatchingWorkbook";
@@ -80,6 +82,8 @@ export const APP_ROUTES: AppRoute[] = [
   { path: "/forms/library", element: <FormLibraryPage />, module: "form_filler" },
   { path: "/forms/generate", element: <DocGenPage />, module: "form_filler" },
   { path: "/forms/prompts", element: <PromptLibraryPage />, module: "form_filler" },
+  { path: "/workspaces/donga", element: <DongaPharmaWorkspace />, module: "test_workspace" },
+  { path: "/workspaces/hyundai", element: <HyundaiWorkspace />, module: "test_workspace" },
   { path: "/forms/templates/:id/review", element: <FormReviewPage />, module: "form_filler" },
   { path: "/forms/jobs/:id/sources", element: <JobNewPage />, module: "form_filler" },
   { path: "/forms/jobs/:id/review", element: <JobMappingPage />, module: "form_filler" },
