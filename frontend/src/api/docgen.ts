@@ -324,3 +324,20 @@ export async function updateRetouchPreset(
 export async function deleteRetouchPreset(id: string): Promise<void> {
   await api.delete(`/api/docgen/retouch-prompts/${id}`);
 }
+
+export interface HtmlDeckResult {
+  html: string;
+  model: string;
+  cost_usd: number;
+}
+
+/** 디자인 프롬프트 + 현재 콘텐츠 → 자체완결 HTML 슬라이드 덱(디자인 반영). */
+export async function generateHtmlDeck(req: {
+  title: string;
+  sections: DocSection[];
+  doc_type: DocType;
+  design_prompt: string;
+}): Promise<HtmlDeckResult> {
+  const res = await api.post<HtmlDeckResult>("/api/docgen/html-deck", req);
+  return res.data;
+}

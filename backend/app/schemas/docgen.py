@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -171,3 +172,21 @@ class SharedRetouchPresetOut(RetouchPresetOut):
     owner_name: str | None = None
     owner_department: str | None = None
     is_mine: bool = False
+
+
+class HtmlDeckRequest(BaseModel):
+    """디자인 프롬프트 + 콘텐츠 → HTML 슬라이드 덱 생성."""
+
+    title: str = Field(min_length=1, max_length=300)
+    sections: list[DocSection] = Field(min_length=1)
+    doc_type: DocType = "일반"
+    # 디자인 시스템(보통 리터치 프리셋의 prompt_text).
+    design_prompt: str = Field(min_length=1)
+
+
+class HtmlDeckOut(BaseModel):
+    """생성된 HTML 덱 + 비용."""
+
+    html: str
+    model: str
+    cost_usd: Decimal
