@@ -61,11 +61,14 @@ export function toneDirective(key?: string): string | undefined {
 
 export interface WizardFreePayload {
   docType: DocType;
-  preferredFormat: "docx" | "pptx";
+  // "html" = 생성과 동시에 디자인 프리셋 그대로의 HTML 디자인 덱 출력.
+  preferredFormat: "docx" | "pptx" | "html";
   tone?: string;
   designPresetId?: string;
   /** 톤 + 선택 프리셋을 합성한 최종 지시문. 마법사가 직접 해석해 전달(전달 신뢰성). */
   designDirective?: string;
+  /** 선택 프리셋의 디자인 프롬프트 본문(HTML 덱용, 톤 제외). */
+  designPromptText?: string;
   sourceMode: SourceMode;
   fileList: UploadFile[];
   highQuality: boolean;
@@ -106,7 +109,7 @@ export default function DocCreateWizard({ open, onClose, onFreeGenerate }: DocCr
 
   // 자유 작성 수집값.
   const [docType, setDocType] = useState<DocType>("제안서");
-  const [preferredFormat, setPreferredFormat] = useState<"docx" | "pptx">("pptx");
+  const [preferredFormat, setPreferredFormat] = useState<"docx" | "pptx" | "html">("pptx");
   const [tone, setTone] = useState<string | undefined>("standard");
   const [designPresetId, setDesignPresetId] = useState<string | undefined>();
   const [sourceMode, setSourceMode] = useState<SourceMode>("rag");
@@ -190,6 +193,10 @@ export default function DocCreateWizard({ open, onClose, onFreeGenerate }: DocCr
       ? (myPresets.find((x) => x.id === designPresetId)?.prompt_text ??
         sharedPresets.find((x) => x.id === designPresetId)?.prompt_text)
       : undefined;
+    if (preferredFormat === "html" && !presetText?.trim()) {
+      message.warning("디자인 덱은 디자인 프리셋을 선택해야 합니다");
+      return;
+    }
     const designDirective =
       [toneDirective(tone), presetText].filter(Boolean).join("\n\n") || undefined;
     onFreeGenerate({
@@ -198,6 +205,7 @@ export default function DocCreateWizard({ open, onClose, onFreeGenerate }: DocCr
       tone,
       designPresetId,
       designDirective,
+      designPromptText: presetText?.trim() || undefined,
       sourceMode,
       fileList,
       highQuality,
@@ -262,12 +270,19 @@ export default function DocCreateWizard({ open, onClose, onFreeGenerate }: DocCr
                 options={[
                   { label: "PPT", value: "pptx" },
                   { label: "Word", value: "docx" },
+                  { label: "디자인 덱(HTML)", value: "html" },
                 ]}
                 value={preferredFormat}
-                onChange={(v) => setPreferredFormat(v as "docx" | "pptx")}
+                onChange={(v) => setPreferredFormat(v as "docx" | "pptx" | "html")}
               />
             </Field>
           </Space>
+          {preferredFormat === "html" && (
+            <Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
+              생성과 동시에 아래 「디자인 프리셋」의 디자인 그대로 HTML 슬라이드 덱을 만들어 새
+              탭에서 엽니다(인쇄→PDF). 디자인 프리셋 선택이 필요합니다.
+            </Paragraph>
+          )}
 
           <Field label="톤앤매너">
             <Segmented
