@@ -3,6 +3,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ClipboardEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -108,6 +109,23 @@ export default function ChatInputBar({
     await onAddFiles(files);
   };
 
+  // 클립보드 이미지 붙여넣기(스크린샷 등) → 바로 첨부. (GPT/타 AI 와 동일 UX)
+  const onPaste = async (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => f !== null)
+      .map((f) =>
+        // 클립보드 이미지는 이름이 비어 있어 타임스탬프 이름 부여(분류/표시용).
+        f.name
+          ? f
+          : new File([f], `clipboard-${Date.now()}.png`, { type: f.type || "image/png" }),
+      );
+    if (files.length === 0) return;
+    e.preventDefault(); // 이미지일 때만 기본 붙여넣기 차단(텍스트는 그대로).
+    await onAddFiles(files);
+  };
+
   const flush = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -196,7 +214,8 @@ export default function ChatInputBar({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="메시지를 입력하세요 — Enter 전송, Shift+Enter 줄바꿈. 파일은 클립 또는 채팅 영역에 드래그앤드롭"
+          onPaste={onPaste}
+          placeholder="메시지를 입력하세요 — Enter 전송, Shift+Enter 줄바꿈. 이미지는 붙여넣기(Ctrl+V)·드래그앤드롭·클립"
           autoSize={{ minRows: 1, maxRows: 6 }}
           disabled={disabled || sending}
           style={{ flex: 1, fontSize: 13 }}
