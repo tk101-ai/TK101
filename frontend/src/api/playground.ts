@@ -466,6 +466,25 @@ export async function createVideoFromMedia(
   return res.data;
 }
 
+export interface CreateImageFromMediaBody {
+  prompt: string; // 수정 지시(리터치 프롬프트)
+  image_media_id: string; // 베이스 이미지 media row UUID
+  model_key: string;
+  aspect_ratio: string;
+  enhance_prompt: boolean;
+}
+
+/** 기존 완성 이미지(image_media_id)를 베이스로 i2i 리터치/편집 task 생성. */
+export async function createImageFromMedia(
+  body: CreateImageFromMediaBody,
+): Promise<PlaygroundTaskCreated> {
+  const res = await api.post<PlaygroundTaskCreated>(
+    `${BASE}/image/from-media`,
+    body,
+  );
+  return res.data;
+}
+
 export async function describeTask(
   kind: "image" | "video",
   taskId: string,

@@ -16,6 +16,7 @@ import {
 } from "antd";
 import {
   QUOTA_EXCEEDED_MESSAGE,
+  createImageFromMedia,
   createImageTask,
   createVideoFromMedia,
   createVideoTask,
@@ -40,7 +41,12 @@ import {
 import { groupTasksByDate, itemToTask } from "./media-gen/transforms";
 import TaskCard from "./media-gen/TaskCard";
 import I2VModal from "./media-gen/I2VModal";
-import type { ActiveTask, MediaGenPanelProps } from "./media-gen/types";
+import ImageEditModal from "./media-gen/ImageEditModal";
+import type {
+  ActiveTask,
+  ImageEditFormValues,
+  MediaGenPanelProps,
+} from "./media-gen/types";
 
 const { Text } = Typography;
 
@@ -105,6 +111,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
   const [tasks, setTasks] = useState<ActiveTask[]>([]);
   const [quotaRefreshKey, setQuotaRefreshKey] = useState(0);
   const [i2vTarget, setI2vTarget] = useState<ActiveTask | null>(null);
+  const [retouchTarget, setRetouchTarget] = useState<ActiveTask | null>(null);
   const [baseImage, setBaseImage] = useState<PlaygroundAttachment | null>(null);
   const pollersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
 
@@ -285,7 +292,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
       return;
     }
     try {
-      await createVideoFromMedia({
+      const res = await createVideoFromMedia({
         prompt: values.prompt,
         image_media_id: target.mediaId,
         model_key: values.model_key,
@@ -295,9 +302,31 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
         audio_generation: values.audio_generation,
         enhance_prompt: values.enhance_prompt,
       });
-      message.success("영상 생성 작업 시작 — Video Gen 탭에서 확인하세요");
       setI2vTarget(null);
       setQuotaRefreshKey((k) => k + 1);
+      // 영상 패널(v2v 리터치)이면 결과를 이 갤러리에서 바로 폴링·표시.
+      if (kind === "video") {
+        setTasks((prev) => [
+          {
+            mediaId: null,
+            taskId: res.task_id,
+            kind: "video",
+            prompt: values.prompt,
+            modelKey: values.model_key,
+            status: "pending",
+            outputUrl: null,
+            errorMessage: null,
+            costUsd: null,
+            sourceMediaId: target.mediaId,
+            createdAt: new Date().toISOString(),
+          },
+          ...prev,
+        ]);
+        startPolling(res.task_id);
+        message.success("영상 리터치 시작 — 결과는 아래 갤러리에 표시됩니다");
+      } else {
+        message.success("영상 생성 작업 시작 — Video Gen 탭에서 확인하세요");
+      }
     } catch (err: unknown) {
       if (isQuotaExceededError(err)) {
         message.error(QUOTA_EXCEEDED_MESSAGE);
@@ -309,6 +338,57 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
           (err as Error)?.message ||
           "영상 생성 요청 실패";
         message.error(`영상 생성 실패: ${detail}`);
+      }
+    }
+  };
+
+  // 이미지 리터치(i2i) 제출 — 베이스 이미지를 수정해 새 이미지 생성. 결과는 갤러리에서 폴링.
+  const handleRetouchSubmit = async (
+    values: ImageEditFormValues,
+    target: ActiveTask,
+  ) => {
+    if (!target.mediaId) {
+      message.error("이미지 ID를 찾을 수 없습니다");
+      return;
+    }
+    try {
+      const res = await createImageFromMedia({
+        prompt: values.prompt,
+        image_media_id: target.mediaId,
+        model_key: values.model_key,
+        aspect_ratio: values.aspect_ratio,
+        enhance_prompt: values.enhance_prompt,
+      });
+      setRetouchTarget(null);
+      setQuotaRefreshKey((k) => k + 1);
+      setTasks((prev) => [
+        {
+          mediaId: null,
+          taskId: res.task_id,
+          kind: "image",
+          prompt: values.prompt,
+          modelKey: values.model_key,
+          status: "pending",
+          outputUrl: null,
+          errorMessage: null,
+          costUsd: null,
+          sourceMediaId: target.mediaId,
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+      startPolling(res.task_id);
+      message.success("리터치 생성 시작 — 결과는 아래 갤러리에 표시됩니다");
+    } catch (err: unknown) {
+      if (isQuotaExceededError(err)) {
+        message.error(QUOTA_EXCEEDED_MESSAGE);
+      } else {
+        const detail =
+          (err as { response?: { data?: { detail?: string } }; message?: string })
+            ?.response?.data?.detail ||
+          (err as Error)?.message ||
+          "리터치 요청 실패";
+        message.error(`리터치 실패: ${detail}`);
       }
     }
   };
@@ -480,6 +560,12 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
                       onConvertToVideo={
                         kind === "image" ? () => setI2vTarget(t) : undefined
                       }
+                      onRetouch={
+                        kind === "image" ? () => setRetouchTarget(t) : undefined
+                      }
+                      onRetouchVideo={
+                        kind === "video" ? () => setI2vTarget(t) : undefined
+                      }
                       onReuse={() =>
                         applyReuse({ prompt: t.prompt, modelKey: t.modelKey })
                       }
@@ -498,6 +584,14 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
         videoModels={videoModels}
         onCancel={() => setI2vTarget(null)}
         onSubmit={handleI2VSubmit}
+      />
+
+      {/* 리터치(i2i) 모달 — image kind. imageModels = 이미지 모델 카탈로그(models) */}
+      <ImageEditModal
+        target={retouchTarget}
+        imageModels={models}
+        onCancel={() => setRetouchTarget(null)}
+        onSubmit={handleRetouchSubmit}
       />
     </div>
   );

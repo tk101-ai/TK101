@@ -46,39 +46,64 @@ export default function I2VModal({
     }
   };
 
+  // 베이스가 영상이면 v2v(영상 리터치), 이미지면 i2v(이미지→영상).
+  const isVideoSource = target?.kind === "video";
+
   return (
     <Modal
-      title="이 이미지로 영상 만들기"
+      title={isVideoSource ? "영상 리터치 (video-to-video)" : "이 이미지로 영상 만들기"}
       open={target !== null}
       onCancel={onCancel}
       onOk={() => void handleOk()}
-      okText="영상 생성"
+      okText={isVideoSource ? "리터치 생성" : "영상 생성"}
       cancelText="취소"
       confirmLoading={submitting}
       destroyOnClose
       width={520}
     >
-      {target?.outputUrl && (
-        <div style={{ marginBottom: 12, textAlign: "center" }}>
-          <img
-            src={target.outputUrl}
-            alt="source"
-            style={{
-              maxWidth: "100%",
-              maxHeight: 200,
-              borderRadius: 6,
-              border: "1px solid rgba(0,0,0,0.08)",
-            }}
-          />
-        </div>
-      )}
+      {target?.outputUrl &&
+        (isVideoSource ? (
+          <div style={{ marginBottom: 12, textAlign: "center" }}>
+            <video
+              src={target.outputUrl}
+              controls
+              preload="metadata"
+              style={{
+                maxWidth: "100%",
+                maxHeight: 200,
+                borderRadius: 6,
+                border: "1px solid rgba(0,0,0,0.08)",
+              }}
+            />
+          </div>
+        ) : (
+          <div style={{ marginBottom: 12, textAlign: "center" }}>
+            <img
+              src={target.outputUrl}
+              alt="source"
+              style={{
+                maxWidth: "100%",
+                maxHeight: 200,
+                borderRadius: 6,
+                border: "1px solid rgba(0,0,0,0.08)",
+              }}
+            />
+          </div>
+        ))}
       <Form form={form} layout="vertical" preserve={false}>
         <Form.Item
           name="prompt"
-          label="영상 프롬프트"
+          label={isVideoSource ? "수정 지시 (영상 리터치)" : "영상 프롬프트"}
           rules={[{ required: true, message: "프롬프트를 입력하세요" }]}
         >
-          <Input.TextArea rows={3} placeholder="예: 카메라가 천천히 줌인하며 캐릭터가 미소 짓는다" />
+          <Input.TextArea
+            rows={3}
+            placeholder={
+              isVideoSource
+                ? "예: 영상 색감을 시네마틱하게, 분위기를 따뜻하게"
+                : "예: 카메라가 천천히 줌인하며 캐릭터가 미소 짓는다"
+            }
+          />
         </Form.Item>
         <Form.Item
           name="model_key"
