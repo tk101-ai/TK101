@@ -35,6 +35,7 @@ import {
   generateDocument,
   getDocgenDocument,
   listDocgenDocuments,
+  generateHtmlDeck,
   listRetouchPresets,
   listSharedRetouchPresets,
   presetTheme,
@@ -104,7 +105,7 @@ export default function DocGenPage() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [tone, setTone] = useState<string | undefined>();
   const [preferredFormat, setPreferredFormat] = useState<
-    "docx" | "pptx" | undefined
+    "docx" | "pptx" | "html" | undefined
   >();
 
   // ── 디자인 프리셋(리터치 프롬프트) — 생성 전에 골라 첫 생성부터 적용 ──
@@ -397,6 +398,30 @@ export default function DocGenPage() {
       setReview(null);
       setActiveDocId(res.document_id ?? null);
       setDocsRefreshKey((k) => k + 1);
+
+      // 디자인 덱(HTML): 생성된 내용 + 선택 프리셋 디자인으로 바로 덱을 뽑아 새 탭에서 연다.
+      if (p.preferredFormat === "html" && p.designPromptText) {
+        try {
+          const deck = await generateHtmlDeck({
+            title: res.title,
+            sections: res.sections,
+            doc_type: p.docType,
+            design_prompt: p.designPromptText,
+          });
+          const blob = new Blob([deck.html], { type: "text/html" });
+          window.open(URL.createObjectURL(blob), "_blank");
+          message.success(
+            `디자인 덱 생성 — 새 탭에서 열림 · 인쇄→PDF (비용 $${deck.cost_usd.toFixed(3)})`,
+          );
+        } catch (e) {
+          message.error(
+            (e as any)?.response?.data?.detail ||
+              "내용은 생성됐지만 디자인 덱 생성에 실패했습니다",
+          );
+        }
+        return;
+      }
+
       const fmt = p.preferredFormat === "pptx" ? "PPT" : "Word";
       message.success(
         `${fmt} 문서 생성 완료${directive ? " · 프롬프트 적용" : ""} (참고 ${res.sources.length}건)`,
@@ -899,10 +924,21 @@ export default function DocGenPage() {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {preferredFormat && (
                 <Tag
-                  color={preferredFormat === "pptx" ? "magenta" : "blue"}
+                  color={
+                    preferredFormat === "html"
+                      ? "purple"
+                      : preferredFormat === "pptx"
+                        ? "magenta"
+                        : "blue"
+                  }
                   style={{ margin: 0 }}
                 >
-                  {preferredFormat === "pptx" ? "PPT" : "Word"}로 생성
+                  {preferredFormat === "html"
+                    ? "디자인 덱"
+                    : preferredFormat === "pptx"
+                      ? "PPT"
+                      : "Word"}
+                  로 생성
                 </Tag>
               )}
               <Input
