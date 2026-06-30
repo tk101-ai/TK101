@@ -17,6 +17,7 @@ from copy import deepcopy
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
+from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
@@ -167,6 +168,63 @@ def _enable_shrink_to_fit(cell) -> None:
     bodyPr.append(bodyPr.makeelement(qn("a:normAutofit"), {}))
 
 
+def _set_no_bullet(para) -> None:
+    """단락의 자동번호/불릿 제거(buNone). 템플릿 자동번호와 텍스트 번호가 겹쳐
+    '1. 1.'로 중복되던 문제 방지."""
+    pPr = para._p.get_or_add_pPr()
+    for tag in ("a:buChar", "a:buAutoNum", "a:buNone"):
+        e = pPr.find(qn(tag))
+        if e is not None:
+            pPr.remove(e)
+    pPr.append(pPr.makeelement(qn("a:buNone"), {}))
+
+
+def _fill_promo_cell(cell, directions: list) -> None:
+    """홍보 방향 셀을 기존 보고서 형식으로 렌더: 파란 굵은 'N. 제목' + 검정 '• 상세'
+    + 방향 사이 빈 줄. 자동번호는 끄고 번호를 직접 넣어 중복을 막는다."""
+    tf = cell.text_frame
+    tf.clear()
+    first = True
+    n = len(directions)
+    for i, d in enumerate(directions, 1):
+        head = tf.paragraphs[0] if first else tf.add_paragraph()
+        first = False
+        _set_no_bullet(head)
+        r = head.add_run()
+        r.text = f"{i}. {d.get('title', '').strip()}"
+        r.font.bold = True
+        r.font.size = Pt(12)
+        r.font.color.theme_color = MSO_THEME_COLOR.ACCENT_1  # 기존 보고서 파란색
+        for det in d.get("details", []):
+            p = tf.add_paragraph()
+            _set_no_bullet(p)
+            rd = p.add_run()
+            rd.text = f"• {str(det).strip()}"
+            rd.font.bold = False
+            rd.font.size = Pt(12)
+            rd.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+        if i < n:  # 방향 사이 빈 줄
+            _set_no_bullet(tf.add_paragraph())
+    _enable_shrink_to_fit(cell)
+
+
+def _fill_narrative(table, narrative: dict) -> None:
+    """요약표의 홍보 방향(구조화)·진행 이슈사항(한 문장)을 AI 초안으로 채움."""
+    if not narrative:
+        return
+    directions = narrative.get("directions")
+    issue = narrative.get("issue")
+    for ri in range(len(table.rows)):
+        label = re.sub(r"\s+", "", table.cell(ri, 0).text)
+        if label == "홍보방향" and directions:
+            _fill_promo_cell(table.cell(ri, 1), directions)
+        elif label == "진행이슈사항" and issue:
+            cell = table.cell(ri, 1)
+            _set_cell_text(cell, f"[초안] {issue}")
+            _copy_run_format(table.cell(ri, 0), cell)
+            _enable_shrink_to_fit(cell)
+
+
 def _fill_summary_table(table, values: dict) -> None:
     """5x2 요약표: col0 라벨과 매칭되는 col1 셀을 채움(라벨 정규화로 줄바꿈 무시).
     값 셀은 자동축소를 켜 긴 AI 서술도 칸 안에 맞춘다."""
@@ -309,9 +367,6 @@ def fill_report(
     _update_cover(prs, month, basis_date)
     _clear_stale_media(prs)  # 이전월 캡처(Top3·댓글·리뷰) 자동 제거
 
-    china_sum = {**china_summary_vals, **(china_narrative or {})}
-    na_sum = {**na_summary_vals, **(na_narrative or {})}
-
     region = None  # "china" | "na" | "review"
     for slide in prs.slides:
         text = _slide_text(slide)
@@ -324,7 +379,11 @@ def fill_report(
 
         for table in _tables(slide):
             if _is_summary(table):
-                _fill_summary_table(table, na_sum if region == "na" else china_sum)
+                is_na = region == "na"
+                # 계산 값(진행제품/배포수량/배포데이터)은 결정적으로 채우고,
+                # 홍보 방향/진행 이슈는 AI 초안을 기존 보고서 형식으로 렌더.
+                _fill_summary_table(table, na_summary_vals if is_na else china_summary_vals)
+                _fill_narrative(table, (na_narrative if is_na else china_narrative) or {})
             elif _is_detail(table):
                 if region == "na":
                     _fill_detail_table(table, na_detail_rows(na_records))
