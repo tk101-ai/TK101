@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from app.config import settings
 from app.services.llm.client import call_claude
@@ -28,6 +29,10 @@ _TONE = (
     "'문제/한계/저조/부진/부정' 같은 직설적 표현 대신 '다음 달 강화 기회', '추가 성장 "
     "여지', '향후 보완 포인트'처럼 **완곡하고 발전 지향적으로** 표현한다. "
     "'0%·저조·미흡·실패' 같은 노골적 부정 표현과 질책성 문구는 쓰지 않는다.\n"
+    "★중요(문체): 보고서는 **개조식**으로 쓴다 — 모든 문장/항목을 **명사형·체언으로 "
+    "종결**한다(예: '…확보', '…예정', '…유도', '…강화', '…극대화', '…반응을 보임', "
+    "'…기록', '…달성', '…필요'). '~입니다/~합니다/~했다/~한다/~된다/~이다/~있다' 같은 "
+    "완결 서술형 종결은 **절대 쓰지 않는다**.\n"
 )
 
 _SYSTEM = (
@@ -57,6 +62,41 @@ _MAX_ISSUE = 110
 def _clip(s: str, n: int) -> str:
     s = (s or "").strip()
     return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+
+
+# 서술형 종결 → 개조식(명사형) 변환. 프롬프트로도 지시하지만, 긴 문장은 모델이 가끔
+# '~했습니다/됩니다'로 빠지므로 결정적 안전망으로 종결부를 보정한다(이미 명사형이면 무변).
+_GAEJO_RULES = [
+    (re.compile(r"(?:하고|되고)\s*있습니다$"), ""),
+    (re.compile(r"(?:하였|했)습니다$"), ""),
+    (re.compile(r"(?:되었|됐)습니다$"), ""),
+    (re.compile(r"됩니다$"), ""),
+    (re.compile(r"드립니다$"), ""),
+    (re.compile(r"있습니다$"), "있음"),
+    (re.compile(r"(예정|계획|전망|기대)입니다$"), r"\1"),
+    (re.compile(r"입니다$"), ""),
+    (re.compile(r"합니다$"), ""),
+    (re.compile(r"(?:하였|했)다$"), ""),
+    (re.compile(r"(?:되었|됐|된)다$"), ""),
+    (re.compile(r"있다$"), "있음"),
+    (re.compile(r"(?:한|된|이)다$"), ""),
+]
+
+
+def _gaejo(s: str) -> str:
+    """단일 문장의 종결을 개조식(명사형)으로."""
+    s = (s or "").strip().rstrip(".").strip()
+    for pat, rep in _GAEJO_RULES:
+        new = pat.sub(rep, s)
+        if new != s:
+            return new.strip().rstrip(",").strip()
+    return s
+
+
+def _gaejo_text(s: str) -> str:
+    """다문장 텍스트(운영 리뷰 등)를 문장별로 개조식 변환 후 '. '로 결합."""
+    sents = [p for p in re.split(r"\.\s+", (s or "").strip()) if p.strip()]
+    return ". ".join(_gaejo(p) for p in sents)
 
 
 def draft_narrative(*, region_label: str, products: str, summary_text: str) -> dict:
@@ -97,17 +137,17 @@ def draft_narrative(*, region_label: str, products: str, summary_text: str) -> d
     for d in (data.get("directions") or [])[:_MAX_DIRECTIONS]:
         if not isinstance(d, dict):
             continue
-        title = _clip(str(d.get("title", "")), _MAX_TITLE)
+        title = _gaejo(_clip(str(d.get("title", "")), _MAX_TITLE))
         if not title:
             continue
         details = [
-            _clip(str(x), _MAX_DETAIL)
+            _gaejo(_clip(str(x), _MAX_DETAIL))
             for x in (d.get("details") or [])[:_MAX_DETAILS]
             if str(x).strip()
         ]
         directions.append({"title": title, "details": details})
 
-    issue = _clip(str(data.get("issue", "")), _MAX_ISSUE)
+    issue = _gaejo(_clip(str(data.get("issue", "")), _MAX_ISSUE))
     out: dict = {}
     if directions:
         out["directions"] = directions
@@ -161,8 +201,8 @@ def draft_top3(*, region_label: str, top_briefs: list[str]) -> dict:
     listing = "\n".join(f"{i}. {b}" for i, b in enumerate(top_briefs, 1))
     user = f"[시장] {region_label}\n[상위 게시물]\n{listing}\n\n위로 우수 콘텐츠 분석을 JSON으로."
     data = _call_json(_TOP3_SYSTEM, user, max_tokens=900)
-    insights = [_clip(str(x), 90) for x in (data.get("insights") or []) if str(x).strip()][:3]
-    contents = [_clip(str(x), 60) for x in (data.get("contents") or []) if str(x).strip()]
+    insights = [_gaejo(_clip(str(x), 90)) for x in (data.get("insights") or []) if str(x).strip()][:3]
+    contents = [_gaejo(_clip(str(x), 60)) for x in (data.get("contents") or []) if str(x).strip()]
     out: dict = {}
     if insights:
         out["insights"] = insights
@@ -195,12 +235,12 @@ def _items_td(raw) -> list:
     out = []
     for x in (raw or [])[:3]:
         if isinstance(x, dict):
-            t = _clip(str(x.get("title", "")), 40)
-            d = _clip(str(x.get("detail", "")), 90)
+            t = _gaejo(_clip(str(x.get("title", "")), 40))
+            d = _gaejo(_clip(str(x.get("detail", "")), 90))
             if t or d:
                 out.append({"title": t, "detail": d})
         elif str(x).strip():
-            out.append({"title": "", "detail": _clip(str(x), 90)})
+            out.append({"title": "", "detail": _gaejo(_clip(str(x), 90))})
     return out
 
 
@@ -208,7 +248,7 @@ def draft_review(*, month: int, context: str) -> dict:
     """운영 리뷰 + AS-IS/TO-BE(제목+상세). {"review":str,"as_is":[{title,detail}],...} 또는 {}."""
     user = f"[{month}월 운영 데이터]\n{context}\n\n위로 운영 리뷰와 AS-IS/TO-BE를 JSON으로."
     data = _call_json(_REVIEW_SYSTEM, user, max_tokens=1500)
-    review = _clip(str(data.get("review", "")), 380)
+    review = _gaejo_text(_clip(str(data.get("review", "")), 380))
     as_is = _items_td(data.get("as_is"))
     to_be = _items_td(data.get("to_be"))
     out: dict = {}
