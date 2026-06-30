@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import urllib.parse
+from pathlib import Path
 
 import httpx
 
@@ -20,10 +21,26 @@ _API_BASE = "https://sheets.googleapis.com/v4/spreadsheets"
 _TIMEOUT_S = 20.0
 
 
+def resolve_api_key() -> str | None:
+    """Sheets API 키 해석: env(GH 시크릿) 우선, 없으면 영속 마운트의 키 파일.
+
+    CI 시크릿 추가 권한이 없을 때도 운영이 동작하도록 파일 폴백을 둔다.
+    """
+    if settings.google_sheets_api_key:
+        return settings.google_sheets_api_key
+    try:
+        p = Path(settings.google_sheets_api_key_file)
+        if p.is_file():
+            return p.read_text().strip() or None
+    except OSError:
+        return None
+    return None
+
+
 async def fetch_tab(sheet_id: str, tab_name: str, *, api_key: str | None = None) -> list[list]:
     """한 탭의 값 전체를 list[list] 로 반환. 빈 셀은 행 길이에 따라 누락될 수 있어
     sheet_parser 의 안전 인덱싱(_cell)과 함께 쓴다."""
-    key = api_key or settings.google_sheets_api_key
+    key = api_key or resolve_api_key()
     if not key:
         raise RuntimeError("GOOGLE_SHEETS_API_KEY 가 설정되지 않았습니다")
     # 탭 이름을 range 로(전체 탭). 한글·특수문자 인코딩 + 작은따옴표로 감싼다.
