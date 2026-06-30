@@ -182,10 +182,10 @@ def _apply_data_font(cell, *, link: bool = False) -> None:
     for para in cell.text_frame.paragraphs:
         for run in para.runs:
             run.font.size = Pt(_DATA_FONT_PT)
-            run.font.name = _DATA_FONT_NAME
             run.font.bold = False
             if not link:
                 run.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+            _force_font_name(run)  # latin/ea/cs 모두 나눔고딕(한글 ea 포함)
 
 
 def _copy_run_format(donor_cell, target_cell, *, unbold: bool = True) -> None:
@@ -235,10 +235,41 @@ def _geom(sh):
     return (sh.top / _IN, (sh.left or 0) / _IN, (sh.width or 0) / _IN, (sh.height or 0) / _IN)
 
 
-def _write_shape(shape, lines, *, size: float = 10.5, bold: bool = False, color=None) -> None:
-    """도형 text_frame에 줄들을 쓴다(기존 단락 비우고). 자동축소 적용."""
+_FONT_NAME = "나눔고딕"  # 보고서 전체 폰트 통일
+
+
+def _force_font_name(run, name: str = _FONT_NAME) -> None:
+    """run 의 latin/ea/cs 폰트를 모두 지정(부분만 바뀌는 것 방지, 통일성)."""
+    rPr = run._r.get_or_add_rPr()
+    for tag in ("a:latin", "a:ea", "a:cs"):
+        e = rPr.find(qn(tag))
+        if e is None:
+            e = rPr.makeelement(qn(tag), {})
+            rPr.append(e)
+        e.set("typeface", name)
+
+
+def _write_shape(shape, lines, *, size: float | None = None, bold=None, color=None) -> None:
+    """도형 text_frame에 줄들을 쓴다. **샘플의 서식(폰트·크기·여백)을 보존**하고 텍스트만
+    교체한다(오너 요청: 새 양식 샘플을 참고해 기입). 기존 run/단락의 rPr·pPr 을 donor 로
+    재사용하고, size/bold/color 가 명시될 때만 덮어쓴다. 폰트는 나눔고딕으로 통일."""
     tf = shape.text_frame
     tf.word_wrap = True
+    # 샘플 서식 채취(첫 run rPr, 첫 단락 pPr)
+    donor_rpr = donor_ppr = None
+    for p in tf.paragraphs:
+        if donor_ppr is None:
+            pp = p._p.find(qn("a:pPr"))
+            if pp is not None:
+                donor_ppr = pp
+        for r in p.runs:
+            rp = r._r.find(qn("a:rPr"))
+            if rp is not None:
+                donor_rpr = rp
+                break
+        if donor_rpr is not None:
+            break
+    # 비우기
     for p in list(tf.paragraphs[1:]):
         p._p.getparent().remove(p._p)
     p0 = tf.paragraphs[0]
@@ -247,12 +278,25 @@ def _write_shape(shape, lines, *, size: float = 10.5, bold: bool = False, color=
     items = lines if isinstance(lines, list) else [lines]
     for i, line in enumerate(items):
         p = p0 if i == 0 else tf.add_paragraph()
-        _set_no_bullet(p)
+        if donor_ppr is not None:  # 단락 여백/정렬 보존
+            old = p._p.find(qn("a:pPr"))
+            if old is not None:
+                p._p.remove(old)
+            p._p.insert(0, deepcopy(donor_ppr))
         run = p.add_run()
         run.text = line
-        run.font.size = Pt(size)
-        run.font.bold = bold
-        run.font.color.rgb = color or _BLACK
+        if donor_rpr is not None:  # 폰트/크기/색 보존
+            old = run._r.find(qn("a:rPr"))
+            if old is not None:
+                run._r.remove(old)
+            run._r.insert(0, deepcopy(donor_rpr))
+        if size is not None:
+            run.font.size = Pt(size)
+        if bold is not None:
+            run.font.bold = bold
+        if color is not None:
+            run.font.color.rgb = color
+        _force_font_name(run)  # 나눔고딕 통일
     _shrink_tf(tf)
 
 
@@ -308,7 +352,7 @@ def _fill_top3_section(slide, payload: dict, month: int) -> None:
             f"최고 콘텐츠 {payload.get('top', 0):,}건"
         )
         lines = ["[초안] " + stat] + [f"→ {s}" for s in payload.get("insights", [])]
-        _write_shape(box, lines, size=11)
+        _write_shape(box, lines)
     # 설명 박스: '팔로워 수' 라벨을 가진 도형 3개를 좌→우로
     desc = sorted(
         (s for s in shapes if "팔로워 수" in s.text_frame.text),
@@ -316,7 +360,7 @@ def _fill_top3_section(slide, payload: dict, month: int) -> None:
     )
     for sh, fields in zip(desc, payload.get("boxes", [])):
         lines = [f"{k}: {v}" for k, v in fields.items()]
-        _write_shape(sh, lines, size=9)
+        _write_shape(sh, lines)
 
 
 def _fill_comment_section(slide, month: int, total_comments: int) -> None:
@@ -364,16 +408,16 @@ def _fill_review_section(slide, review: dict) -> None:
     if rv:  # 운영 리뷰: 상단(1.2~1.7) 텍스트 많은 도형(샘플)
         box = _richest([s for s in shapes if _zone(s, 1.2, 1.7)])
         if box is not None:
-            _write_shape(box, f"[초안] {rv}", size=11)
+            _write_shape(box, f"[초안] {rv}")
     # AS-IS(좌)/TO-BE(우): 제안 영역(3.8~4.6) 좌/우 텍스트 도형(샘플)
     if as_is:
         box = _richest([s for s in shapes if _zone(s, 3.8, 4.7, left_hi=3.5)])
         if box is not None:
-            _write_shape(box, _td_lines(as_is), size=10)
+            _write_shape(box, _td_lines(as_is))
     if to_be:
         box = _richest([s for s in shapes if _zone(s, 3.8, 4.7, left_lo=6.0)])
         if box is not None:
-            _write_shape(box, _td_lines(to_be), size=10)
+            _write_shape(box, _td_lines(to_be))
 
 
 def _set_no_bullet(para) -> None:
@@ -403,6 +447,7 @@ def _fill_promo_cell(cell, directions: list) -> None:
         r.font.bold = True
         r.font.size = Pt(12)
         r.font.color.theme_color = MSO_THEME_COLOR.ACCENT_1  # 기존 보고서 파란색
+        _force_font_name(r)  # 나눔고딕 통일
         for det in d.get("details", []):
             p = tf.add_paragraph()
             _set_no_bullet(p)
@@ -411,6 +456,7 @@ def _fill_promo_cell(cell, directions: list) -> None:
             rd.font.bold = False
             rd.font.size = Pt(12)
             rd.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+            _force_font_name(rd)  # 나눔고딕 통일
         if i < n:  # 방향 사이 빈 줄
             _set_no_bullet(tf.add_paragraph())
     _enable_shrink_to_fit(cell)
