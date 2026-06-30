@@ -29,6 +29,7 @@ from app.routers import (
     docgen,
     docgen_retouch,
     documents_admin,
+    donga_report,
     forms,
     grants,
     matching,
@@ -223,6 +224,7 @@ app.include_router(docgen_retouch.router)
 # PR-E #1: 관리자 전용 문서 토큰/비용 사용량 집계(require_admin).
 app.include_router(documents_admin.router)
 app.include_router(review_translation.router)
+app.include_router(donga_report.router)
 # Wave 2 재무 모듈 신규 라우터
 app.include_router(bank_import.router)
 app.include_router(categories.router)
