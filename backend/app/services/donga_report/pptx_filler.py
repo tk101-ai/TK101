@@ -16,7 +16,10 @@ import re
 from copy import deepcopy
 
 from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.oxml.ns import qn
+from pptx.util import Emu, Pt
 
 from .report_builder import (
     CHINA_DZDP_PLATFORMS,
@@ -96,6 +99,10 @@ def _ensure_data_rows(table, n_data: int) -> None:
 
 
 def _fill_detail_table(table, rows: list[list]) -> None:
+    """데이터 행을 채운다. 양식의 빈 데이터 셀은 run 폰트가 없어 채우면 기본(큰)
+    폰트로 렌더돼 행이 부풀고 표가 슬라이드를 넘친다 → 데이터 셀에 명시적 폰트
+    (검정 10.5pt 나눔고딕, 실제 보고서와 동급)를 줘 압축한다. (헤더는 흰 글씨라
+    복사하면 데이터가 흰색으로 묻혀 안 됨 → 명시 폰트 사용.)"""
     _ensure_data_rows(table, len(rows))
     ncols = len(table.columns)
     for ri, rowvals in enumerate(rows, start=1):
@@ -103,10 +110,29 @@ def _fill_detail_table(table, rows: list[list]) -> None:
             if ci >= ncols:
                 break
             cell = table.cell(ri, ci)
-            if isinstance(val, tuple):
+            is_link = isinstance(val, tuple)
+            if is_link:
                 _set_cell_link(cell, val[0], val[1])
             else:
                 _set_cell_text(cell, str(val))
+            _apply_data_font(cell, link=is_link)
+
+
+# 데이터 셀 기본 폰트(실제 보고서 데이터 셀 ~10.5~11pt 나눔고딕에 맞춤).
+_DATA_FONT_PT = 10.5
+_DATA_FONT_NAME = "나눔고딕"
+
+
+def _apply_data_font(cell, *, link: bool = False) -> None:
+    """데이터 셀 run 에 명시적 폰트(크기/이름/검정)를 적용해 행 부풀음 방지.
+    링크 셀은 색을 건드리지 않아 하이퍼링크 스타일(파랑)을 보존한다."""
+    for para in cell.text_frame.paragraphs:
+        for run in para.runs:
+            run.font.size = Pt(_DATA_FONT_PT)
+            run.font.name = _DATA_FONT_NAME
+            run.font.bold = False
+            if not link:
+                run.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
 
 
 def _copy_run_format(donor_cell, target_cell, *, unbold: bool = True) -> None:
@@ -167,21 +193,72 @@ def _is_detail(table) -> bool:
 
 
 # --- 표지/기준일 ------------------------------------------------------------
+# Top3·댓글 슬라이드(이전월 캡처/댓글 잔존) 식별 키워드.
+_CONTENT_ANALYSIS_KEYS = ("우수 콘텐츠", "댓글 분석")
+# 운영 리뷰 슬라이드(AS-IS/TO-BE 구조 보존) 식별 키워드.
+_REVIEW_KEYS = ("운영 리뷰", "운영 제안", "AS-IS", "TO-BE")
+# 콘텐츠 영역 시작 높이(in) — 이 위는 헤더/제목/빈 분석박스(보존), 이 아래가 캡처·댓글.
+_CONTENT_TOP_IN = 2.8
+_EMU_PER_IN = 914400
+
+
+def _clear_stale_media(prs) -> None:
+    """Top3·댓글·리뷰 슬라이드의 **이전월 스크린샷·댓글** 잔존물을 제거(자동 비우기).
+
+    양식이 5월 보고서 기반이라 이 슬라이드들엔 5월 캡처/댓글이 박혀 있어 다른 달
+    보고서에 틀린 내용이 보인다. 헤더·제목·빈 분석박스(상단)는 보존하고 콘텐츠
+    영역(분석박스 아래)의 잔존 도형을 지워 마케터가 해당 월 자료를 채울 빈 영역으로
+    남긴다.
+    - Top3·댓글: 콘텐츠 영역의 모든 도형(사진·그룹·말풍선·댓글 텍스트) 제거.
+    - 운영 리뷰: AS-IS/TO-BE 구조는 보존하고 사진/그룹(이미지)만 제거.
+    """
+    content_top = Emu(int(_CONTENT_TOP_IN * _EMU_PER_IN))
+    for slide in prs.slides:
+        text = _slide_text(slide)
+        is_content = any(k in text for k in _CONTENT_ANALYSIS_KEYS)
+        is_review = any(k in text for k in _REVIEW_KEYS)
+        if not (is_content or is_review):
+            continue
+        for sh in list(slide.shapes):
+            if sh.top is None or sh.top < content_top:
+                continue  # 헤더·제목·빈 분석박스 보존
+            is_media = sh.shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.GROUP)
+            # 리뷰 슬라이드는 이미지만 제거(AS-IS/TO-BE 도형 보존), 그 외는 전부 제거.
+            if is_review and not is_content and not is_media:
+                continue
+            sh._element.getparent().remove(sh._element)
+
+
 def _update_cover(prs, month: int, basis_date: str | None) -> None:
-    """표지·각주의 '월'/'기준일' 텍스트 갱신(있을 때만)."""
+    """표지·부제목·각주의 '월'/'기준일' 텍스트를 보고 월로 갱신.
+
+    양식이 5월 보고서 기반이라 '5월 운영 내용 요약', '5월', '운영보고서' 등 월 라벨이
+    텍스트 상자(표 셀 아님)에 박혀 있다. 표 셀은 GraphicFrame 이라 여기서 안 건드린다
+    (데이터 날짜 오염 없음). 월 표기가 있는 제목/부제목 run 의 'N월'만 교체한다.
+    """
+    date_re = r"\d{4}\s*년\s*\d+\s*월\s*\d+\s*일"
     for slide in prs.slides:
         for sh in slide.shapes:
             if not (getattr(sh, "has_text_frame", False) and sh.text_frame.text.strip()):
                 continue
             for para in sh.text_frame.paragraphs:
-                for run in para.runs:
-                    t = run.text
-                    if "운영보고서" in t:
-                        run.text = re.sub(r"\d+\s*월", f"{month}월", t)
-                    if basis_date and "기준으로 기재" in t:
-                        run.text = re.sub(
-                            r"\d{4}년\s*\d+월\s*\d+일", basis_date, t
-                        )
+                # 월 숫자와 '월'이 별도 run 으로 쪼개질 수 있어 **단락 단위**로 합쳐 치환.
+                ptext = "".join(r.text for r in para.runs)
+                if not ptext.strip():
+                    continue
+                if basis_date and re.search(date_re, ptext):
+                    new = re.sub(date_re, basis_date, ptext)
+                elif "기준으로 기재" in ptext:
+                    continue  # 기준일 노트는 basis_date 없으면 건드리지 않음
+                elif re.search(r"\d+\s*월", ptext):
+                    new = re.sub(r"\d+\s*월", f"{month}월", ptext)
+                else:
+                    continue
+                if new != ptext and para.runs:
+                    # 첫 run 에 합친 텍스트를 넣고 나머지 run 제거(제목/부제목은 균일 서식).
+                    para.runs[0].text = new
+                    for r in para.runs[1:]:
+                        r._r.getparent().remove(r._r)
 
 
 # --- 메인 -------------------------------------------------------------------
@@ -204,6 +281,7 @@ def fill_report(
     """
     prs = Presentation(io.BytesIO(template_bytes))
     _update_cover(prs, month, basis_date)
+    _clear_stale_media(prs)  # 이전월 캡처(Top3·댓글·리뷰) 자동 제거
 
     china_sum = {**china_summary_vals, **(china_narrative or {})}
     na_sum = {**na_summary_vals, **(na_narrative or {})}
