@@ -221,6 +221,10 @@ class Settings(BaseSettings):
     tencent_aigc_secret_key: str = ""  # 텐센트 클라우드 SecretKey
     tencent_aigc_vod_endpoint: str = "vod.tencentcloudapi.com"
     tencent_aigc_region: str = "ap-seoul"
+    # 생성 미디어 저장 모드. Temporary 는 ~24h(영상)/7d(이미지)에 만료돼 재편집
+    # (i2i/i2v/v2v) 베이스 URL 이 끊긴다. Permanent 로 두면 만료 없이 재사용 가능
+    # (VOD 스토리지 사용). 가이드 권장: Permanent 또는 즉시 다운로드.
+    tencent_aigc_storage_mode: str = "Permanent"
     # 캐시 만료 (실 ApiToken TTL 1시간 가정, 보수적으로 55분).
     tencent_aigc_token_ttl_seconds: int = 3300
     # Image/Video 생성 endpoint (international VOD). TC3-HMAC-SHA256 동일 서명.
