@@ -134,42 +134,60 @@ class TencentApiTokenManager:
         """시작 시 토큰을 미리 발급·활성화해 첫 대화의 401(활성 지연)을 없앤다."""
         return await self.get_token()
 
-    async def _refresh(self) -> tuple[str, datetime]:
-        """``CreateAigcApiToken`` 호출 → (ApiToken, 캐시 만료 시각) 반환."""
-        if not settings.tencent_aigc_subapp_id:
-            raise RuntimeError("텐센트 SubAppId 미설정 (TENCENT_AIGC_SUBAPP_ID)")
-        if not settings.tencent_aigc_secret_id or not settings.tencent_aigc_secret_key:
-            raise RuntimeError("텐센트 SecretId/Key 미설정")
-
+    async def _vod_call(self, action: str, body_obj: dict[str, Any]) -> dict:
+        """서명된 VOD 액션 호출 → Response dict. (Create/Describe/Delete 공용)"""
         endpoint = settings.tencent_aigc_vod_endpoint
-        region = settings.tencent_aigc_region
-        host = endpoint
-        url = f"https://{endpoint}"
-
-        body_obj: dict[str, Any] = {"SubAppId": int(settings.tencent_aigc_subapp_id)}
-        # canonical request 는 separators 고정된 JSON 사용 (서명 일관성).
         payload = json.dumps(body_obj, separators=(",", ":"))
-
         timestamp = int(datetime.now(timezone.utc).timestamp())
         headers = _build_signed_headers(
             secret_id=settings.tencent_aigc_secret_id,
             secret_key=settings.tencent_aigc_secret_key,
             service=_SERVICE,
-            host=host,
-            action=_ACTION,
+            host=endpoint,
+            action=action,
             version=_VERSION,
-            region=region,
+            region=settings.tencent_aigc_region,
             payload=payload,
             timestamp=timestamp,
         )
-
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(url, headers=headers, content=payload)
+            resp = await client.post(f"https://{endpoint}", headers=headers, content=payload)
             resp.raise_for_status()
-            data = resp.json()
+            return resp.json().get("Response", {})
 
-        # 텐센트 표준 응답 envelope: {"Response": {...}}.
-        response = data.get("Response", {})
+    async def _prune_tokens(self, keep: int = 5) -> int:
+        """ApiToken 풀이 한도(50)에 차면 오래된 것부터 정리(keep 개만 남김). 삭제 수 반환.
+        ⚠️ 누적 버그(발급만 하고 미삭제)로 풀이 차 CreateAigcApiToken 이 LimitExceeded
+        나는 것을 자가 복구한다. 단일 앱이라 keep 소수면 충분(같은 SubAppId 공유 시
+        타 인스턴스 토큰도 지울 수 있으나, 풀 한도 도달 자체가 비정상이라 정리 우선)."""
+        sub = int(settings.tencent_aigc_subapp_id)
+        toks = (await self._vod_call("DescribeAigcApiTokens", {"SubAppId": sub})).get(
+            "ApiTokens", []
+        )
+        to_del = toks[: max(0, len(toks) - keep)]
+        deleted = 0
+        for t in to_del:
+            r = await self._vod_call("DeleteAigcApiToken", {"SubAppId": sub, "ApiToken": t})
+            if "Error" not in r:
+                deleted += 1
+        if deleted:
+            logger.warning("ApiToken 풀 정리: %d개 삭제(잔여 ~%d)", deleted, max(keep, len(toks) - deleted))
+        return deleted
+
+    async def _refresh(self) -> tuple[str, datetime]:
+        """``CreateAigcApiToken`` 호출 → (ApiToken, 캐시 만료 시각) 반환.
+        풀 한도(LimitExceeded) 시 오래된 토큰 정리 후 1회 재시도."""
+        if not settings.tencent_aigc_subapp_id:
+            raise RuntimeError("텐센트 SubAppId 미설정 (TENCENT_AIGC_SUBAPP_ID)")
+        if not settings.tencent_aigc_secret_id or not settings.tencent_aigc_secret_key:
+            raise RuntimeError("텐센트 SecretId/Key 미설정")
+
+        body_obj: dict[str, Any] = {"SubAppId": int(settings.tencent_aigc_subapp_id)}
+        response = await self._vod_call(_ACTION, body_obj)
+        if response.get("Error", {}).get("Code") == "LimitExceeded":
+            # 풀이 50개 한도 → 정리 후 재시도.
+            await self._prune_tokens(keep=5)
+            response = await self._vod_call(_ACTION, body_obj)
         if "Error" in response:
             err = response["Error"]
             raise RuntimeError(

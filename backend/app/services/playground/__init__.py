@@ -36,45 +36,44 @@ from app.services.playground.token_manager import token_manager
 # - OpenAI: gpt-5-chat 만 200. 나머지(gpt-5.x, gpt-5-nano, gpt-4o)는 401 — 텐센트
 #   콘솔에서 모델 활성화/구매 필요. 활성화 후 추가 노출.
 # - MiniMax m2.5 는 401 (m2.7 만 200). 콘솔 활성화 후 추가.
+# 2026-06-30 라이브 probe(가이드 doc.tencentpoc.com 기반)로 활성 확인된 모델만 추가.
+# ⭐ Claude 는 'cd-' 접두사로 게이트웨이에서 동작(과거 'claude-*' 는 400 → 오인). gpt-5.x
+# 는 여전히 400(콘솔 미활성)이라 미추가. 활성화되면 여기 추가.
 PROVIDER_CHIPS: list[dict] = [
+    {
+        "provider_key": "claude",
+        "provider_label": "Claude (Anthropic)",
+        "models": [
+            {"key": "cd-sonnet-4.6", "label": "Claude Sonnet 4.6", "badge": "추천"},
+            {"key": "cd-opus-4.8", "label": "Claude Opus 4.8", "badge": "최고"},
+            {"key": "cd-haiku-4.5", "label": "Claude Haiku 4.5", "badge": "빠름"},
+        ],
+    },
     {
         "provider_key": "openai",
         "provider_label": "OpenAI",
         "models": [
             {"key": "gpt-5-chat", "label": "GPT-5 Chat", "badge": None},
-            # 2026-05-20 신규 활성 확인.
             {"key": "gpt-4.1", "label": "GPT-4.1", "badge": None},
+            {"key": "gpt-4o", "label": "GPT-4o", "badge": None},
         ],
     },
     {
         "provider_key": "gemini",
         "provider_label": "Gemini",
         "models": [
-            {"key": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "badge": "빠름"},
+            {"key": "gemini-3.5-flash", "label": "Gemini 3.5 Flash", "badge": "최신"},
+            {"key": "gemini-3.1-flash-lite", "label": "Gemini 3.1 Flash Lite", "badge": "빠름"},
             {"key": "gemini-2.5-pro", "label": "Gemini 2.5 Pro", "badge": None},
-            {
-                "key": "gemini-3-flash-preview",
-                "label": "Gemini 3 Flash Preview",
-                "badge": "PREVIEW",
-            },
-            {
-                "key": "gemini-3.1-pro-preview",
-                "label": "Gemini 3.1 Pro Preview",
-                "badge": "PREVIEW",
-            },
-            {
-                "key": "gemini-3.1-flash-lite-preview",
-                "label": "Gemini 3.1 Flash Lite Preview",
-                "badge": "PREVIEW",
-            },
+            {"key": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "badge": None},
         ],
     },
     {
         "provider_key": "glm",
         "provider_label": "GLM (Zhipu)",
         "models": [
-            {"key": "glm-5", "label": "GLM-5", "badge": None},
             {"key": "glm-5.1", "label": "GLM-5.1", "badge": "최신"},
+            {"key": "glm-5", "label": "GLM-5", "badge": None},
             {"key": "glm-5-turbo", "label": "GLM-5 Turbo", "badge": "빠름"},
         ],
     },
@@ -82,6 +81,7 @@ PROVIDER_CHIPS: list[dict] = [
         "provider_key": "kimi",
         "provider_label": "Kimi (Moonshot)",
         "models": [
+            {"key": "kimi-k2.6", "label": "Kimi K2.6", "badge": "최신"},
             {"key": "kimi-k2.5", "label": "Kimi K2.5", "badge": None},
         ],
     },
@@ -90,7 +90,6 @@ PROVIDER_CHIPS: list[dict] = [
         "provider_label": "MiniMax",
         "models": [
             {"key": "minimax-m2.7", "label": "MiniMax M2.7", "badge": "최신"},
-            # 2026-05-20 신규 활성 확인.
             {"key": "minimax-m2.5", "label": "MiniMax M2.5", "badge": None},
         ],
     },
@@ -98,7 +97,16 @@ PROVIDER_CHIPS: list[dict] = [
         "provider_key": "deepseek",
         "provider_label": "DeepSeek",
         "models": [
+            {"key": "deepseek-v4-pro", "label": "DeepSeek v4 Pro", "badge": "최신"},
+            {"key": "deepseek-v4-flash", "label": "DeepSeek v4 Flash", "badge": "빠름"},
             {"key": "deepseek-v3.2", "label": "DeepSeek v3.2", "badge": None},
+        ],
+    },
+    {
+        "provider_key": "grok",
+        "provider_label": "Grok (xAI)",
+        "models": [
+            {"key": "gk-4.3", "label": "Grok 4.3", "badge": "신규"},
         ],
     },
 ]

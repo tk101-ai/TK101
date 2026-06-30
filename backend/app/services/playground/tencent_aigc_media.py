@@ -171,7 +171,7 @@ async def create_image_task(
         return await _call_mps_intl("CreateAigcImageTask", mps_body)
 
     output_config: dict[str, Any] = {
-        "StorageMode": "Temporary",
+        "StorageMode": settings.tencent_aigc_storage_mode,
         "AspectRatio": aspect_ratio,
         "InputComplianceCheck": "Enabled",
         "OutputComplianceCheck": "Enabled",
@@ -263,7 +263,7 @@ async def create_video_task(
         "Prompt": prompt,
         "EnhancePrompt": "Enabled" if enhance_prompt else "Disabled",
         "OutputConfig": {
-            "StorageMode": "Temporary",
+            "StorageMode": settings.tencent_aigc_storage_mode,
             "Duration": duration,
             "Resolution": resolution,
             "AspectRatio": aspect_ratio,
