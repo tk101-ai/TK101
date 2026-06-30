@@ -256,56 +256,124 @@ def _write_shape(shape, lines, *, size: float = 10.5, bold: bool = False, color=
     _shrink_tf(tf)
 
 
-def _fill_top3_section(slide, top3: dict) -> None:
-    """우수 콘텐츠 슬라이드: 분석박스(top~1.4, 넓음)에 분석, 설명박스 3개(top~5.8,
-    좌→우)에 상위 게시물 요약. 스크린샷(그룹)은 손대지 않음."""
-    if not top3:
-        return
-    analysis = top3.get("analysis")
-    items = top3.get("items") or []
-    descs = []
+def _text_shapes(slide, *, in_groups: bool = True) -> list:
+    """슬라이드의 텍스트 도형(그룹 내부 포함) 목록."""
+    out = []
     for sh in slide.shapes:
-        if sh.shape_type != MSO_SHAPE_TYPE.AUTO_SHAPE or not getattr(sh, "has_text_frame", False):
-            continue
-        g = _geom(sh)
-        if g is None:
-            continue
-        top, left, w, h = g
-        if 1.1 < top < 2.1 and w > 9 and analysis:
-            _write_shape(sh, f"[초안] {analysis}", size=11)
-        elif top > 5.0 and 2.5 < w < 5.0:
-            descs.append((left, sh))
-    for (_, sh), item in zip(sorted(descs, key=lambda x: x[0]), items):
-        _write_shape(sh, f"• {item}", size=10)
+        if getattr(sh, "has_text_frame", False):
+            out.append(sh)
+        if in_groups and sh.shape_type == MSO_SHAPE_TYPE.GROUP:
+            for c in sh.shapes:
+                if getattr(c, "has_text_frame", False):
+                    out.append(c)
+    return out
+
+
+def _zone(sh, top_lo, top_hi, left_lo=None, left_hi=None) -> bool:
+    g = _geom(sh)
+    if g is None:
+        return False
+    top, left, _w, _h = g
+    if not (top_lo <= top <= top_hi):
+        return False
+    if left_lo is not None and left < left_lo:
+        return False
+    if left_hi is not None and left > left_hi:
+        return False
+    return True
+
+
+def _richest(shapes):
+    """텍스트가 가장 많은 도형(샘플 텍스트가 박힌 '내용 레이어'를 고름). 없으면 None."""
+    cand = [s for s in shapes if getattr(s, "has_text_frame", False)]
+    if not cand:
+        return None
+    return max(cand, key=lambda s: len(s.text_frame.text.strip()))
+
+
+def _fill_top3_section(slide, payload: dict, month: int) -> None:
+    """우수 콘텐츠 슬라이드(양식 샘플 형식):
+    - 분석 박스(top~1.4): 통계 한 줄 + AI 인사이트('→' 불릿).
+    - 설명 박스 3개(top~5.8, 좌→우): 팔로워/인터랙션/콘텐츠/배포 링크 4필드.
+    샘플 텍스트가 박힌 도형을 골라 덮어쓴다(빈 프레임과 겹치지 않게)."""
+    if not payload:
+        return
+    shapes = _text_shapes(slide)
+    # 분석 박스: 상단(1.1~1.7) 넓은 도형 중 텍스트 많은 것(샘플) 선택
+    analysis_cands = [s for s in shapes if _zone(s, 1.1, 1.7) and (_geom(s)[2] > 9)]
+    box = _richest(analysis_cands)
+    if box is not None:
+        stat = (
+            f"{month}월 우수 콘텐츠 총 인터랙션 {payload.get('total', 0):,}건, "
+            f"최고 콘텐츠 {payload.get('top', 0):,}건"
+        )
+        lines = ["[초안] " + stat] + [f"→ {s}" for s in payload.get("insights", [])]
+        _write_shape(box, lines, size=11)
+    # 설명 박스: '팔로워 수' 라벨을 가진 도형 3개를 좌→우로
+    desc = sorted(
+        (s for s in shapes if "팔로워 수" in s.text_frame.text),
+        key=lambda s: _geom(s)[1],
+    )
+    for sh, fields in zip(desc, payload.get("boxes", [])):
+        lines = [f"{k}: {v}" for k, v in fields.items()]
+        _write_shape(sh, lines, size=9)
+
+
+def _fill_comment_section(slide, month: int, total_comments: int) -> None:
+    """댓글 분석 슬라이드: 분석 박스에 실제 총 댓글 수 + 안내(감성·대표댓글은 댓글
+    텍스트 데이터 확보 시 자동). 샘플 댓글 말풍선(하단)은 텍스트를 비워 수동 입력용
+    빈 영역으로 둔다(가짜 샘플 댓글이 출력에 남지 않게)."""
+    shapes = _text_shapes(slide)
+    box = _richest([s for s in shapes if _zone(s, 1.1, 1.7)])
+    if box is not None:
+        _write_shape(
+            box,
+            [
+                f"{month}월 운영 댓글 총 {total_comments:,}건",
+                "※ 긍정/부정 등 감성 분석·대표 댓글은 댓글 데이터 확보 시 자동 입력 (현재 수동)",
+            ],
+            size=11,
+        )
+    # 하단 샘플 댓글 말풍선(top>3.0) 텍스트 비우기 — 수동 캡처/입력 영역.
+    for s in shapes:
+        if _zone(s, 3.0, 7.5) and s.text_frame.text.strip():
+            s.text_frame.clear()
+
+
+def _td_lines(items: list) -> list:
+    """[{title,detail}] → '제목 :' + '상세' + 빈 줄(양식 AS-IS/TO-BE 형식)."""
+    lines = []
+    for it in items:
+        if it.get("title"):
+            lines.append(f"{it['title']} :")
+        if it.get("detail"):
+            lines.append(it["detail"])
+        lines.append("")
+    return lines[:-1] if lines else lines
 
 
 def _fill_review_section(slide, review: dict) -> None:
-    """운영 리뷰 슬라이드: 운영리뷰 박스(상단 그룹 내 빈 도형) + AS-IS(좌)/TO-BE(우)
-    박스에 AI 초안. 라벨(AS-IS/TO-BE 텍스트)·구조는 보존."""
+    """운영 리뷰 슬라이드(양식 샘플 형식): 운영 리뷰 박스(상단 그룹 내 샘플 도형) +
+    AS-IS(좌)/TO-BE(우) 박스에 '제목 : 상세' 형식. 라벨/구조 보존."""
     if not review:
         return
     rv = review.get("review")
     as_is = review.get("as_is") or []
     to_be = review.get("to_be") or []
-    for sh in slide.shapes:
-        g = _geom(sh)
-        if g is None:
-            continue
-        top, left, w, h = g
-        if sh.shape_type == MSO_SHAPE_TYPE.GROUP and 1.2 < top < 1.7 and rv:
-            for c in sh.shapes:  # 그룹 내 빈 도형에 운영 리뷰
-                if getattr(c, "has_text_frame", False) and not c.text_frame.text.strip():
-                    _write_shape(c, f"[초안] {rv}", size=11)
-                    break
-        elif (
-            sh.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
-            and top > 3.4 and h > 2.0
-            and getattr(sh, "has_text_frame", False)
-        ):
-            if left < 3.5 and as_is:
-                _write_shape(sh, [f"• {x}" for x in as_is], size=11)
-            elif left > 6.0 and to_be:
-                _write_shape(sh, [f"• {x}" for x in to_be], size=11)
+    shapes = _text_shapes(slide)
+    if rv:  # 운영 리뷰: 상단(1.2~1.7) 텍스트 많은 도형(샘플)
+        box = _richest([s for s in shapes if _zone(s, 1.2, 1.7)])
+        if box is not None:
+            _write_shape(box, f"[초안] {rv}", size=11)
+    # AS-IS(좌)/TO-BE(우): 제안 영역(3.8~4.6) 좌/우 텍스트 도형(샘플)
+    if as_is:
+        box = _richest([s for s in shapes if _zone(s, 3.8, 4.7, left_hi=3.5)])
+        if box is not None:
+            _write_shape(box, _td_lines(as_is), size=10)
+    if to_be:
+        box = _richest([s for s in shapes if _zone(s, 3.8, 4.7, left_lo=6.0)])
+        if box is not None:
+            _write_shape(box, _td_lines(to_be), size=10)
 
 
 def _set_no_bullet(para) -> None:
@@ -503,6 +571,8 @@ def fill_report(
     china_top3: dict | None = None,
     na_top3: dict | None = None,
     review: dict | None = None,
+    china_comments: int = 0,
+    na_comments: int = 0,
     basis_date: str | None = None,
 ) -> bytes:
     """양식 bytes + 채움 데이터 → 채워진 PPTX bytes.
@@ -528,7 +598,9 @@ def fill_report(
 
         # 분석 슬라이드(빈 박스)를 AI 초안으로 채움 — 양식 구조는 그대로.
         if "우수 콘텐츠" in text:
-            _fill_top3_section(slide, (na_top3 if region == "na" else china_top3) or {})
+            _fill_top3_section(slide, (na_top3 if region == "na" else china_top3) or {}, month)
+        if "댓글 분석" in text:
+            _fill_comment_section(slide, month, na_comments if region == "na" else china_comments)
         if any(k in text for k in ("운영 리뷰", "운영 제안")):
             _fill_review_section(slide, review or {})
 

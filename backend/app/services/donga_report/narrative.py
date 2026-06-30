@@ -136,27 +136,27 @@ _TOP3_SYSTEM = (
     "너는 동아제약 OTC 글로벌 SNS 마케팅 운영보고서의 '우수 콘텐츠 분석' 작성자다.\n"
     "규칙:\n"
     "- 제공된 상위 게시물 데이터(계정·지표)에서만 사실을 인용한다.\n"
-    "- analysis: 이번 달 우수 콘텐츠의 공통 성공 요인·시사점을 2~3문장(200자 이내)으로.\n"
-    "- items: 상위 게시물 각각에 대해 '계정명 — 성과 포인트(왜 우수한가)' 한 줄(60자 이내). "
-    "입력 게시물 수만큼.\n"
-    "- 출력은 JSON 만: {\"analysis\":\"...\",\"items\":[\"...\"]}"
+    "- insights: 이번 달 우수 콘텐츠의 공통 성공 요인/시사점 2개. 각 한 줄(70자 이내).\n"
+    "- contents: 상위 게시물 각각의 '콘텐츠 내용'(무엇을 어떤 식으로 다뤘는지 추정) "
+    "한 줄(45자 이내). 입력 게시물 수만큼 순서대로.\n"
+    "- 출력은 JSON 만: {\"insights\":[\"...\",\"...\"],\"contents\":[\"...\"]}"
 )
 
 
 def draft_top3(*, region_label: str, top_briefs: list[str]) -> dict:
-    """우수 콘텐츠 Top3 분석 + 게시물별 한 줄. {"analysis":str,"items":[str]} 또는 {}."""
+    """우수 콘텐츠 분석. {"insights":[str], "contents":[str]} 또는 {}."""
     if not top_briefs:
         return {}
     listing = "\n".join(f"{i}. {b}" for i, b in enumerate(top_briefs, 1))
     user = f"[시장] {region_label}\n[상위 게시물]\n{listing}\n\n위로 우수 콘텐츠 분석을 JSON으로."
     data = _call_json(_TOP3_SYSTEM, user, max_tokens=900)
-    analysis = _clip(str(data.get("analysis", "")), 260)
-    items = [_clip(str(x), 80) for x in (data.get("items") or []) if str(x).strip()]
+    insights = [_clip(str(x), 90) for x in (data.get("insights") or []) if str(x).strip()][:3]
+    contents = [_clip(str(x), 60) for x in (data.get("contents") or []) if str(x).strip()]
     out: dict = {}
-    if analysis:
-        out["analysis"] = analysis
-    if items:
-        out["items"] = items
+    if insights:
+        out["insights"] = insights
+    if contents:
+        out["contents"] = contents
     return out
 
 
@@ -167,19 +167,33 @@ _REVIEW_SYSTEM = (
     "- 제공된 이번 달·전월 성과 데이터에서만 사실/수치를 인용한다(없는 수치 금지).\n"
     "- review: 중화권·북미 전체 운영 총평을 3~4문장(300자 이내). 전월 대비 변화가 "
     "있으면 언급.\n"
-    "- as_is: 현재 운영의 한계/현상을 2~3개 짧은 항목(각 한 줄).\n"
-    "- to_be: 그에 대한 개선 방향을 2~3개 짧은 항목(각 한 줄, as_is와 대응).\n"
-    "- 출력은 JSON 만: {\"review\":\"...\",\"as_is\":[\"...\"],\"to_be\":[\"...\"]}"
+    "- as_is/to_be: 각 2~3개 항목. 항목은 title(전략/현상 제목, 30자 내외)과 "
+    "detail(상세 한 줄, 70자 내외). as_is(현재 한계)와 to_be(개선 방향)는 대응.\n"
+    "- 출력은 JSON 만: "
+    '{"review":"...","as_is":[{"title":"...","detail":"..."}],"to_be":[{"title":"...","detail":"..."}]}'
 )
 
 
+def _items_td(raw) -> list:
+    out = []
+    for x in (raw or [])[:3]:
+        if isinstance(x, dict):
+            t = _clip(str(x.get("title", "")), 40)
+            d = _clip(str(x.get("detail", "")), 90)
+            if t or d:
+                out.append({"title": t, "detail": d})
+        elif str(x).strip():
+            out.append({"title": "", "detail": _clip(str(x), 90)})
+    return out
+
+
 def draft_review(*, month: int, context: str) -> dict:
-    """운영 리뷰 + AS-IS/TO-BE. {"review":str,"as_is":[str],"to_be":[str]} 또는 {}."""
+    """운영 리뷰 + AS-IS/TO-BE(제목+상세). {"review":str,"as_is":[{title,detail}],...} 또는 {}."""
     user = f"[{month}월 운영 데이터]\n{context}\n\n위로 운영 리뷰와 AS-IS/TO-BE를 JSON으로."
-    data = _call_json(_REVIEW_SYSTEM, user, max_tokens=1400)
+    data = _call_json(_REVIEW_SYSTEM, user, max_tokens=1500)
     review = _clip(str(data.get("review", "")), 380)
-    as_is = [_clip(str(x), 90) for x in (data.get("as_is") or []) if str(x).strip()][:3]
-    to_be = [_clip(str(x), 90) for x in (data.get("to_be") or []) if str(x).strip()][:3]
+    as_is = _items_td(data.get("as_is"))
+    to_be = _items_td(data.get("to_be"))
     out: dict = {}
     if review:
         out["review"] = review
