@@ -28,7 +28,9 @@ SHEET_NA = "26_북미체험단"
 # 월 섹션 헤더 패턴: "2026년 5월 OTA 체험단 …" / "2026년 5월 북미 체험단 …"
 _SECTION_RE = re.compile(r"(\d{4})\s*년\s*(\d{1,2})\s*월")
 
-# 북미 Media 약어 → 보고서 플랫폼 표기.
+# 북미 Media 약어 → 보고서 플랫폼 표기(URL 판별 실패 시 폴백).
+# ⚠️ 'TK'는 플랫폼이 아니라 제작주체(티케이 촬영)라 플랫폼 판별에 신뢰 불가 →
+# 실제 플랫폼은 포스팅 URL 도메인으로 판별한다(_platform_from_url).
 _NA_PLATFORM = {
     "ins": "인스타그램",
     "instagram": "인스타그램",
@@ -37,6 +39,18 @@ _NA_PLATFORM = {
     "yt": "유튜브",
     "youtube": "유튜브",
 }
+
+
+def _platform_from_url(url) -> str | None:
+    """포스팅 URL 도메인으로 플랫폼 판별(가장 신뢰도 높음)."""
+    u = str(url or "").lower()
+    if "tiktok" in u:
+        return "틱톡"
+    if "instagram" in u or "instagr.am" in u:
+        return "인스타그램"
+    if "youtu" in u:
+        return "유튜브"
+    return None
 
 
 @dataclass
@@ -193,7 +207,10 @@ def parse_na(rows: list[list]) -> list[MonthSection]:
         if not _is_data_row(row, ACCT, URL):
             continue
         raw_plat = str(_cell(row, PLAT) or "").strip().lower()
-        platform = _NA_PLATFORM.get(raw_plat, str(_cell(row, PLAT) or "").strip())
+        # 플랫폼은 URL 도메인 우선(정확), 없으면 Media 약어 폴백.
+        platform = _platform_from_url(_cell(row, URL)) or _NA_PLATFORM.get(
+            raw_plat, str(_cell(row, PLAT) or "").strip()
+        )
         cur.records.append(DistRecord(
             region="na",
             platform=platform,
