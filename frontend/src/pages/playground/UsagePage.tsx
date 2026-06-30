@@ -27,6 +27,7 @@ import {
   type PlaygroundUsageByUser,
   type PlaygroundUsageReport,
 } from "../../api/playground";
+import AigcMonitorSection from "./AigcMonitorSection";
 
 const { Title, Paragraph } = Typography;
 const { RangePicker } = DatePicker;
@@ -265,6 +266,8 @@ export default function UsagePage() {
           모델별·사용자별 토큰·비용 — 텐센트 단가표 (2026-05-19) 기준
         </Paragraph>
       </div>
+
+      <AigcMonitorSection />
 
       <Space direction="vertical" size={16} style={{ width: "100%" }}>
         {myQuota ? (

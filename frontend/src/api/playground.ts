@@ -620,6 +620,29 @@ export interface PlaygroundUsageReport {
   by_user: PlaygroundUsageByUser[];
 }
 
+export interface AigcMonitorTypeData {
+  usage: { date: string; count: number; usage: number }[];
+  total_count: number;
+  total_usage: number;
+  quotas: Array<Record<string, unknown>>;
+  error: string | null;
+}
+export interface AigcMonitorReport {
+  subapp_id: string;
+  days: number;
+  start: string;
+  end: string;
+  types: Record<string, AigcMonitorTypeData>;
+}
+
+/** 텐센트 AIGC 게이트웨이 사용량·Quota 모니터(Text/Image/Video). admin 전용. */
+export async function getAigcMonitor(days = 14): Promise<AigcMonitorReport> {
+  const res = await api.get<AigcMonitorReport>(`${BASE}/admin/aigc-monitor`, {
+    params: { days },
+  });
+  return res.data;
+}
+
 export async function getAdminUsage(
   start?: string,
   end?: string,
