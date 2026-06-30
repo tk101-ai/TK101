@@ -14,6 +14,14 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     cors_origins: str = "http://localhost:5173"
     google_youtube_api_key: str | None = None
+    # 동아제약 운영보고서 자동작성(테스트 워크스페이스) -------------------------
+    # 구글시트(관리문서)를 Sheets API v4로 직접 읽는다. 시트가 링크공유라 서비스
+    # 계정 없이 API 키만으로 읽기 가능. 키는 비밀 → .env(GOOGLE_SHEETS_API_KEY).
+    google_sheets_api_key: str | None = None
+    # 관리문서 구글시트 ID(비밀 아님). 시트가 바뀌면 env로 override.
+    donga_sheet_id: str = "1znVEKZtcKB8hojZCagYzsdlkfiag6FHMxV4KRJAO4k4"
+    # 운영보고서 양식(.pptx) 서버 경로. NAS-rw(sshfs)에 두어 오너가 월별 교체 가능.
+    donga_report_template_path: str = "/mnt/nas-rw/donga_report/template_2026.pptx"
     # 셀프 회원가입 허용 이메일 도메인(콤마 구분). 이 도메인 외 가입 거부.
     # 빈 문자열이면 셀프 가입 비활성(보수적 기본). 관리자가 정보 보고 승인하는 구조.
     allowed_signup_domains: str = "tk101global.com"

@@ -11,6 +11,8 @@ export interface WorkspaceTool {
   status: "ready" | "soon";
   /** 사용 가능 도구로 이동할 경로. */
   to?: string;
+  /** 경로 이동 대신 실행할 커스텀 액션(모달 열기 등). to 보다 우선. */
+  onClick?: () => void;
   actionLabel?: string;
   /** 연동 예정 메모(soon 일 때 보조 설명). */
   note?: string;
@@ -71,12 +73,12 @@ export default function WorkspacePage({ brand, subtitle, tools }: WorkspacePageP
                   ※ {t.note}
                 </Text>
               )}
-              {t.status === "ready" && t.to ? (
+              {t.status === "ready" && (t.onClick || t.to) ? (
                 <Button
                   type="primary"
                   size="small"
                   icon={<ArrowRightOutlined />}
-                  onClick={() => navigate(t.to!)}
+                  onClick={() => (t.onClick ? t.onClick() : navigate(t.to!))}
                   style={{ alignSelf: "flex-start" }}
                 >
                   {t.actionLabel ?? "바로 가기"}
