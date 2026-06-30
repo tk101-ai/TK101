@@ -118,6 +118,25 @@ _BRIDGE_RERANK_MULTIPLIER = 3
 _BRIDGE_RERANK_CAP = 30
 
 
+def _boost_self_company(hits: list[NasChunkHit]) -> list[NasChunkHit]:
+    """자체 회사문서(경로에 self-company 마커) 점수에 가산 부스트 후 재정렬.
+
+    코퍼스에서 절대 소수인 자체 자료(회사소개서 등)가 비슷한 점수대의 고객사 문서에
+    밀려 묻히지 않도록 작은 가산점을 준다(설정 ``nas_self_company_boost``). 비활성(0)
+    이거나 마커 미설정이면 원본 순서 그대로 반환. 불변(replace)으로 새 리스트 생성.
+    """
+    boost = settings.nas_self_company_boost
+    marker = settings.nas_self_company_path_marker
+    if boost <= 0 or not marker:
+        return hits
+    boosted = [
+        replace(h, score=h.score + boost) if marker in (h.file_path or "") else h
+        for h in hits
+    ]
+    boosted.sort(key=lambda h: h.score, reverse=True)
+    return boosted
+
+
 async def search_relevant_chunks(
     db=None,  # noqa: ANN001 (호환 유지용; Qdrant 경로에선 미사용)
     *,
@@ -147,11 +166,17 @@ async def search_relevant_chunks(
 
     qfilter = _dept_filter(dept_labels)
     use_rerank = rerank and settings.nas_rerank_enabled
-    fetch_n = (
-        min(limit * _BRIDGE_RERANK_MULTIPLIER, _BRIDGE_RERANK_CAP)
-        if use_rerank
-        else limit
+    boost_on = settings.nas_self_company_boost > 0 and bool(
+        settings.nas_self_company_path_marker
     )
+    if use_rerank:
+        fetch_n = min(limit * _BRIDGE_RERANK_MULTIPLIER, _BRIDGE_RERANK_CAP)
+    elif boost_on:
+        # 부스트가 켜진 비리랭크 경로: 자체문서가 top-N 바로 밖에 있어도 부스트로
+        # 끌어올릴 수 있게 후보 풀을 약간 넓게 가져온 뒤 재정렬·절단한다.
+        fetch_n = min(limit * 2, _BRIDGE_RERANK_CAP)
+    else:
+        fetch_n = limit
 
     try:
         points = await asyncio.to_thread(
@@ -173,7 +198,7 @@ async def search_relevant_chunks(
         _hit_from_point(p, score=float(getattr(p, "score", 0.0) or 0.0)) for p in points
     ]
     if not use_rerank or len(hits) <= 1:
-        return hits[:limit]
+        return _boost_self_company(hits)[:limit]
 
     # bge 리랭커로 (쿼리,청크) 직접 재채점 → 게이트(노이즈 ~0.001 / 관련 0.6~0.98).
     try:
@@ -189,7 +214,9 @@ async def search_relevant_chunks(
     rescored = [replace(h, score=float(s)) for h, s in zip(hits, scores)]
     rescored.sort(key=lambda h: h.score, reverse=True)
     gated = [h for h in rescored if h.score >= settings.nas_rerank_min_score]
-    return gated[:limit]
+    # 부스트는 게이트 **후** 적용 — 관련 없는 자체문서(게이트 미통과)는 그대로
+    # 떨구고, 관련 있는 자체문서만 비슷한 점수대에서 우선시한다.
+    return _boost_self_company(gated)[:limit]
 
 
 def _variable_queries(variables, template_name, max_vars):

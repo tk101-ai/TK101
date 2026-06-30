@@ -33,6 +33,23 @@ _MAX_CHARS_PER_CHUNK = 1500
 RAG_SEARCH_TIMEOUT_S = 8.0
 # 대화 메시지 → 검색어 정제 타임아웃(초). Haiku 1회(~1-2s) + 자체 폴백.
 RAG_REFINE_TIMEOUT_S = 5.0
+# 컨텍스트에 한 파일이 차지할 최대 청크 수. 같은 보고서에서 인접 청크가 top-N을
+# 독점해 다른 출처가 묻히는 것을 막아 출처 다양성을 높인다(리랭크 제거 후 보완).
+RAG_PER_FILE_CAP = 3
+
+
+def _cap_per_file(hits: list[NasChunkHit], cap: int = RAG_PER_FILE_CAP) -> list[NasChunkHit]:
+    """파일경로별 청크 수를 ``cap`` 으로 제한(점수 순서 유지). 한 파일 독점 방지."""
+    counts: dict[str, int] = {}
+    out: list[NasChunkHit] = []
+    for h in hits:
+        key = h.file_path or h.file_name or ""
+        n = counts.get(key, 0)
+        if n >= cap:
+            continue
+        counts[key] = n + 1
+        out.append(h)
+    return out
 
 
 async def _refine_query(message: str) -> str:
@@ -70,8 +87,9 @@ async def search_rag_context(
     try:
         # rerank=False: CPU 리랭커(~8s/18청크)는 채팅 응답을 크게 지연시키고
         # 노이즈 제거 효과도 약했음(운영 실측). 벡터 검색(~0.3s)으로 커버리지 우선.
+        # 파일당 상한 적용 후에도 limit 을 채우도록 후보를 넉넉히(2배) 가져온다.
         hits = await asyncio.wait_for(
-            search_relevant_chunks(query=search_query, limit=limit, rerank=False),
+            search_relevant_chunks(query=search_query, limit=limit * 2, rerank=False),
             timeout=RAG_SEARCH_TIMEOUT_S,
         )
     except asyncio.TimeoutError:
@@ -83,7 +101,8 @@ async def search_rag_context(
     except Exception:  # noqa: BLE001 — 채팅을 막지 않도록 graceful.
         logger.warning("NAS RAG 검색 실패 — 일반 채팅으로 진행", exc_info=True)
         return []
-    return [h for h in hits if (h.content or "").strip()]
+    nonempty = [h for h in hits if (h.content or "").strip()]
+    return _cap_per_file(nonempty)[:limit]
 
 
 def build_context_block(hits: list[NasChunkHit]) -> str:
