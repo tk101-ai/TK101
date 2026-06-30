@@ -156,14 +156,28 @@ def _copy_run_format(donor_cell, target_cell, *, unbold: bool = True) -> None:
             run._r.insert(0, new)
 
 
+def _enable_shrink_to_fit(cell) -> None:
+    """셀 텍스트가 길면 칸에 맞게 자동 축소(normAutofit). AI 서술이 길어도 칸 밖으로
+    삐져나오지 않게 한다(파워포인트/리브레오피스가 열 때 폰트 스케일 계산)."""
+    bodyPr = cell.text_frame._txBody.bodyPr
+    for tag in ("a:normAutofit", "a:spAutoFit", "a:noAutofit"):
+        e = bodyPr.find(qn(tag))
+        if e is not None:
+            bodyPr.remove(e)
+    bodyPr.append(bodyPr.makeelement(qn("a:normAutofit"), {}))
+
+
 def _fill_summary_table(table, values: dict) -> None:
-    """5x2 요약표: col0 라벨과 매칭되는 col1 셀을 채움(라벨 정규화로 줄바꿈 무시)."""
+    """5x2 요약표: col0 라벨과 매칭되는 col1 셀을 채움(라벨 정규화로 줄바꿈 무시).
+    값 셀은 자동축소를 켜 긴 AI 서술도 칸 안에 맞춘다."""
     for ri in range(len(table.rows)):
         label = re.sub(r"\s+", "", table.cell(ri, 0).text)
         for key, val in values.items():
             if re.sub(r"\s+", "", key) == label and val:
-                _set_cell_text(table.cell(ri, 1), val)
-                _copy_run_format(table.cell(ri, 0), table.cell(ri, 1))
+                cell = table.cell(ri, 1)
+                _set_cell_text(cell, val)
+                _copy_run_format(table.cell(ri, 0), cell)
+                _enable_shrink_to_fit(cell)
                 break
 
 
@@ -197,7 +211,9 @@ def _is_detail(table) -> bool:
 _CONTENT_ANALYSIS_KEYS = ("우수 콘텐츠", "댓글 분석")
 # 운영 리뷰 슬라이드(AS-IS/TO-BE 구조 보존) 식별 키워드.
 _REVIEW_KEYS = ("운영 리뷰", "운영 제안", "AS-IS", "TO-BE")
-# 콘텐츠 영역 시작 높이(in) — 이 위는 헤더/제목/빈 분석박스(보존), 이 아래가 캡처·댓글.
+# 제목 영역 아래(분석 박스 시작). 이 위(top 작은 값)는 헤더/섹션 제목이라 보존.
+_TITLE_BAND_IN = 1.3
+# 콘텐츠 영역 시작 높이(in) — 이 아래가 캡처·댓글 등 잔존 미디어/텍스트.
 _CONTENT_TOP_IN = 2.8
 _EMU_PER_IN = 914400
 
@@ -212,6 +228,7 @@ def _clear_stale_media(prs) -> None:
     - Top3·댓글: 콘텐츠 영역의 모든 도형(사진·그룹·말풍선·댓글 텍스트) 제거.
     - 운영 리뷰: AS-IS/TO-BE 구조는 보존하고 사진/그룹(이미지)만 제거.
     """
+    title_band = Emu(int(_TITLE_BAND_IN * _EMU_PER_IN))
     content_top = Emu(int(_CONTENT_TOP_IN * _EMU_PER_IN))
     for slide in prs.slides:
         text = _slide_text(slide)
@@ -220,13 +237,22 @@ def _clear_stale_media(prs) -> None:
         if not (is_content or is_review):
             continue
         for sh in list(slide.shapes):
-            if sh.top is None or sh.top < content_top:
-                continue  # 헤더·제목·빈 분석박스 보존
+            if sh.top is None or sh.top < title_band:
+                continue  # 헤더·섹션 제목 보존
             is_media = sh.shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.GROUP)
-            # 리뷰 슬라이드는 이미지만 제거(AS-IS/TO-BE 도형 보존), 그 외는 전부 제거.
-            if is_review and not is_content and not is_media:
-                continue
-            sh._element.getparent().remove(sh._element)
+            if sh.top >= content_top:
+                # 콘텐츠 영역: 캡처·말풍선·댓글 잔존물.
+                # 리뷰는 이미지만 제거(AS-IS/TO-BE 구조 보존), 그 외는 전부 제거.
+                if is_review and not is_content and not is_media:
+                    continue
+                sh._element.getparent().remove(sh._element)
+            elif is_content:
+                # 분석 박스 영역(제목~콘텐츠 사이): 이미지는 제거, 텍스트 박스는
+                # 비운다(이전월 분석 텍스트 잔존 방지, 박스 자체는 빈 채로 보존).
+                if is_media:
+                    sh._element.getparent().remove(sh._element)
+                elif getattr(sh, "has_text_frame", False) and sh.text_frame.text.strip():
+                    sh.text_frame.clear()
 
 
 def _update_cover(prs, month: int, basis_date: str | None) -> None:
