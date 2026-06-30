@@ -82,29 +82,80 @@ def _set_cell_link(cell, label: str, url: str) -> None:
             pass
 
 
+# 평균/합계를 계산할 수치 컬럼(헤더명으로 식별). 팔로워/날짜 등은 제외.
+_AGG_COLUMNS = {"좋아요", "저장", "댓글", "합계", "노출수", "공유", "즐겨찾기"}
+
+
 # --- 표 행 수 맞추기 ---------------------------------------------------------
-def _ensure_data_rows(table, n_data: int) -> None:
-    """헤더(0행) 아래 데이터 행 수를 정확히 n_data 로 맞춘다(마지막 행 복제/삭제)."""
+def _count_special_rows(table) -> int:
+    """표 하단의 평균/합계 행 개수(양식 구조 보존용)."""
+    n = 0
+    for ri in range(len(table.rows) - 1, 0, -1):
+        if table.cell(ri, 0).text.strip() in ("평균", "합계"):
+            n += 1
+        else:
+            break
+    return n
+
+
+def _ensure_data_rows(table, n_data: int, n_special: int = 0) -> None:
+    """헤더(0행)와 하단 평균/합계 행(n_special) 사이의 **데이터 행만** n_data 로 맞춘다.
+    평균/합계 행은 보존한다(양식 구조 유지)."""
     tbl = table._tbl
     trs = tbl.findall(qn("a:tr"))
-    cur = len(trs) - 1  # 헤더 제외
+    total = len(trs)
+    data_trs = trs[1: total - n_special] if n_special else trs[1:]
+    cur = len(data_trs)
     if cur < 1:
         return
     if cur < n_data:
-        template_tr = trs[-1]
+        template_tr = data_trs[-1]
+        anchor = trs[total - n_special] if n_special else None  # 첫 평균/합계 행
         for _ in range(n_data - cur):
-            tbl.append(deepcopy(template_tr))
+            new = deepcopy(template_tr)
+            if anchor is not None:
+                anchor.addprevious(new)  # 평균/합계 위에 삽입
+            else:
+                tbl.append(new)
     elif cur > n_data:
-        for tr in trs[1 + n_data:]:
+        for tr in data_trs[n_data:]:
             tbl.remove(tr)
 
 
+def _fill_aggregates(table, n_data: int, n_special: int) -> None:
+    """평균/합계 행의 수치 컬럼을 계산해 채운다(실제 보고서: 평균=소수1자리, 합계=정수).
+    팔로워 등 비집계 컬럼은 비운다(양식과 동일)."""
+    if n_special == 0:
+        return
+    ncols = len(table.columns)
+    nrows = len(table.rows)
+    headers = [table.cell(0, c).text.strip() for c in range(ncols)]
+    for c in range(ncols):
+        if headers[c] not in _AGG_COLUMNS:
+            continue
+        vals = []
+        for r in range(1, 1 + n_data):
+            t = table.cell(r, c).text.strip().replace(",", "")
+            if t.lstrip("-").isdigit():
+                vals.append(int(t))
+        total = sum(vals)
+        avg = total / n_data if n_data else 0
+        for si in range(nrows - n_special, nrows):
+            lab = table.cell(si, 0).text.strip()
+            cell = table.cell(si, c)
+            if lab == "평균":
+                _set_cell_text(cell, f"{avg:.1f}")
+            elif lab == "합계":
+                _set_cell_text(cell, f"{total:,}")
+            _apply_data_font(cell)
+
+
 def _fill_detail_table(table, rows: list[list]) -> None:
-    """데이터 행을 채운다. 양식의 빈 데이터 셀은 run 폰트가 없어 채우면 기본(큰)
-    폰트로 렌더돼 행이 부풀고 표가 슬라이드를 넘친다 → 데이터 셀에 명시적 폰트
-    (검정 10.5pt 나눔고딕, 실제 보고서와 동급)를 줘 압축한다. (헤더는 흰 글씨라
-    복사하면 데이터가 흰색으로 묻혀 안 됨 → 명시 폰트 사용.)"""
-    _ensure_data_rows(table, len(rows))
+    """데이터 행을 채운다. 양식 구조(평균/합계 행)는 보존하고 그 위 데이터 행만
+    맞춘다. 빈 데이터 셀은 폰트가 없어 채우면 기본(큰) 폰트로 렌더돼 행이 부풀므로
+    명시 폰트(검정 10.5pt 나눔고딕)를 줘 압축한다."""
+    n_special = _count_special_rows(table)
+    _ensure_data_rows(table, len(rows), n_special)
     ncols = len(table.columns)
     for ri, rowvals in enumerate(rows, start=1):
         for ci, val in enumerate(rowvals):
@@ -117,6 +168,7 @@ def _fill_detail_table(table, rows: list[list]) -> None:
             else:
                 _set_cell_text(cell, str(val))
             _apply_data_font(cell, link=is_link)
+    _fill_aggregates(table, len(rows), n_special)
 
 
 # 데이터 셀 기본 폰트(실제 보고서 데이터 셀 ~10.5~11pt 나눔고딕에 맞춤).
@@ -334,7 +386,11 @@ def _update_cover(prs, month: int, basis_date: str | None) -> None:
                     new = re.sub(date_re, basis_date, ptext)
                 elif "기준으로 기재" in ptext:
                     continue  # 기준일 노트는 basis_date 없으면 건드리지 않음
-                elif re.search(r"\d+\s*월", ptext):
+                # 월 라벨은 **제목/짧은 텍스트만** 교체. 긴 내용 박스(댓글 분석 등
+                # 시트로 수집 못하는 이전월 텍스트)는 건드리지 않아 양식과 동일 유지.
+                elif re.search(r"\d+\s*월", ptext) and (
+                    len(ptext.strip()) <= 25 or "운영보고서" in ptext
+                ):
                     new = re.sub(r"\d+\s*월", f"{month}월", ptext)
                 else:
                     continue
@@ -365,7 +421,9 @@ def fill_report(
     """
     prs = Presentation(io.BytesIO(template_bytes))
     _update_cover(prs, month, basis_date)
-    _clear_stale_media(prs)  # 이전월 캡처(Top3·댓글·리뷰) 자동 제거
+    # 양식 구조 보존 원칙: Top3·댓글·리뷰 슬라이드는 손대지 않는다(설명 박스·프레임
+    # 등 구조 유지). 이전월 스크린샷/분석 텍스트는 시트로 수집 불가한 영역이라
+    # 마케터가 수동 교체한다(자동 제거는 구조까지 지워 비활성화).
 
     region = None  # "china" | "na" | "review"
     for slide in prs.slides:
