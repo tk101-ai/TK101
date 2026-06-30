@@ -94,6 +94,9 @@ async def generate_report(
             asyncio.to_thread(draft_top3, region_label="북미", top_briefs=na_briefs),
             asyncio.to_thread(draft_review, month=month, context=review_ctx),
         )
+        # 우수 콘텐츠 슬라이드 채움용 페이로드(4필드 박스 + 통계/인사이트)
+        china_t3 = rb.top3_payload(ch, (china_t3 or {}).get("contents", []), (china_t3 or {}).get("insights", []))
+        na_t3 = rb.top3_payload(na, (na_t3 or {}).get("contents", []), (na_t3 or {}).get("insights", []))
 
     pptx = fill_report(
         template_bytes=_load_template(),
@@ -107,6 +110,8 @@ async def generate_report(
         china_top3=china_t3,
         na_top3=na_t3,
         review=review,
+        china_comments=rb.total_comments(ch),
+        na_comments=rb.total_comments(na),
         basis_date=basis_date,
     )
     meta = {

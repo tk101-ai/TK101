@@ -130,6 +130,34 @@ def total_interactions(records: list[DistRecord]) -> int:
     return sum(engagement(r) for r in records)
 
 
+def total_comments(records: list[DistRecord]) -> int:
+    """전체 댓글 수 합(댓글 분석 박스 통계용. 감성%는 댓글 텍스트 필요 → 별도)."""
+    return sum(_n(r.comments) for r in records)
+
+
+def top3_payload(records: list[DistRecord], contents: list[str], insights: list[str]) -> dict:
+    """우수 콘텐츠 슬라이드 채움용 페이로드(양식 4필드 박스 + 분석 통계/인사이트).
+
+    boxes: 상위 게시물별 {팔로워 수/인터랙션 수/콘텐츠 내용/배포 링크} (양식 라벨과 동일).
+    stat: 분석 박스 통계(총 인터랙션·최고 콘텐츠). insights: AI 분석 한 줄들.
+    """
+    tops = top_posts(records, 3)
+    boxes = []
+    for i, r in enumerate(tops):
+        boxes.append({
+            "팔로워 수": _fmt(r.followers),
+            "인터랙션 수": f"{engagement(r):,}",
+            "콘텐츠 내용": (contents[i] if i < len(contents) else "") or "",
+            "배포 링크": r.url or "",
+        })
+    return {
+        "boxes": boxes,
+        "insights": insights or [],
+        "total": total_interactions(records),
+        "top": engagement(tops[0]) if tops else 0,
+    }
+
+
 def _count_by_platform(records, platforms):
     return {p: sum(1 for r in records if r.platform == p) for p in platforms}
 
