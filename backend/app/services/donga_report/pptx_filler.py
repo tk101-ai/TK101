@@ -276,15 +276,7 @@ def _write_shape(shape, lines, *, size: float | None = None, bold=None, color=No
     for r in list(p0.runs):
         r._r.getparent().remove(r._r)
     items = lines if isinstance(lines, list) else [lines]
-    for i, line in enumerate(items):
-        p = p0 if i == 0 else tf.add_paragraph()
-        if donor_ppr is not None:  # 단락 여백/정렬 보존
-            old = p._p.find(qn("a:pPr"))
-            if old is not None:
-                p._p.remove(old)
-            p._p.insert(0, deepcopy(donor_ppr))
-        run = p.add_run()
-        run.text = line
+    def _style(run):
         if donor_rpr is not None:  # 폰트/크기/색 보존
             old = run._r.find(qn("a:rPr"))
             if old is not None:
@@ -297,6 +289,30 @@ def _write_shape(shape, lines, *, size: float | None = None, bold=None, color=No
         if color is not None:
             run.font.color.rgb = color
         _force_font_name(run)  # 나눔고딕 통일
+
+    for i, line in enumerate(items):
+        p = p0 if i == 0 else tf.add_paragraph()
+        if donor_ppr is not None:  # 단락 여백/정렬 보존
+            old = p._p.find(qn("a:pPr"))
+            if old is not None:
+                p._p.remove(old)
+            p._p.insert(0, deepcopy(donor_ppr))
+        if isinstance(line, dict):  # 라벨 + 하이퍼링크('바로가기') 줄
+            r1 = p.add_run()
+            r1.text = line.get("label", "")
+            _style(r1)
+            r2 = p.add_run()
+            r2.text = line.get("link", "바로가기")
+            _style(r2)
+            if line.get("url"):
+                try:
+                    r2.hyperlink.address = line["url"]
+                except Exception:  # noqa: BLE001
+                    pass
+        else:
+            run = p.add_run()
+            run.text = line
+            _style(run)
     _shrink_tf(tf)
 
 
@@ -359,7 +375,12 @@ def _fill_top3_section(slide, payload: dict, month: int) -> None:
         key=lambda s: _geom(s)[1],
     )
     for sh, fields in zip(desc, payload.get("boxes", [])):
-        lines = [f"{k}: {v}" for k, v in fields.items()]
+        lines = []
+        for k, v in fields.items():
+            if k == "배포 링크":  # 풀 URL 대신 '바로가기' 하이퍼링크
+                lines.append({"label": "배포 링크: ", "link": "바로가기", "url": v})
+            else:
+                lines.append(f"{k}: {v}")
         _write_shape(sh, lines)
 
 
