@@ -40,6 +40,21 @@ logger = logging.getLogger(__name__)
 router: APIRouter = make_subrouter()
 
 
+@router.get("/admin/aigc-monitor")
+async def admin_aigc_monitor_endpoint(
+    days: int = Query(default=14, ge=1, le=90),
+    _: User = Depends(require_admin),
+) -> dict:
+    """텐센트 AIGC 게이트웨이 사용량·Quota 모니터(Text/Image/Video). admin 전용.
+
+    내부 DB 사용량(/admin/usage)과 별개로, 텐센트 측 집계(DescribeAigcUsageData)와
+    한도(DescribeAigcQuotas)를 직접 조회한다.
+    """
+    from app.services.playground.aigc_monitor import get_overview
+
+    return await get_overview(days=days)
+
+
 @router.get("/admin/usage", response_model=PlaygroundUsageReport)
 async def admin_usage_endpoint(
     start: datetime | None = Query(default=None),
