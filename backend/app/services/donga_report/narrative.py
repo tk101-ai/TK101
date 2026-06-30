@@ -104,3 +104,87 @@ def draft_narrative(*, region_label: str, products: str, summary_text: str) -> d
     if issue:
         out["issue"] = issue
     return out
+
+
+def _call_json(system: str, user: str, *, max_tokens: int = 1200) -> dict:
+    """공통 LLM JSON 호출(실패/파싱오류 시 빈 dict)."""
+    try:
+        resp = call_claude(
+            system_prompt=system,
+            messages=[{"role": "user", "content": user}],
+            model=settings.docgen_model or settings.form_filler_sonnet_model,
+            max_tokens=max_tokens,
+            temperature=0.4,
+            trace_name="donga_report_ai",
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("운영보고서 AI 호출 실패 — 빈 값", exc_info=True)
+        return {}
+    text = (resp.text or "").strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if "{" in text:
+            text = text[text.find("{"): text.rfind("}") + 1]
+    try:
+        return json.loads(text)
+    except Exception:  # noqa: BLE001
+        logger.warning("운영보고서 AI JSON 파싱 실패 — 빈 값")
+        return {}
+
+
+_TOP3_SYSTEM = (
+    "너는 동아제약 OTC 글로벌 SNS 마케팅 운영보고서의 '우수 콘텐츠 분석' 작성자다.\n"
+    "규칙:\n"
+    "- 제공된 상위 게시물 데이터(계정·지표)에서만 사실을 인용한다.\n"
+    "- analysis: 이번 달 우수 콘텐츠의 공통 성공 요인·시사점을 2~3문장(200자 이내)으로.\n"
+    "- items: 상위 게시물 각각에 대해 '계정명 — 성과 포인트(왜 우수한가)' 한 줄(60자 이내). "
+    "입력 게시물 수만큼.\n"
+    "- 출력은 JSON 만: {\"analysis\":\"...\",\"items\":[\"...\"]}"
+)
+
+
+def draft_top3(*, region_label: str, top_briefs: list[str]) -> dict:
+    """우수 콘텐츠 Top3 분석 + 게시물별 한 줄. {"analysis":str,"items":[str]} 또는 {}."""
+    if not top_briefs:
+        return {}
+    listing = "\n".join(f"{i}. {b}" for i, b in enumerate(top_briefs, 1))
+    user = f"[시장] {region_label}\n[상위 게시물]\n{listing}\n\n위로 우수 콘텐츠 분석을 JSON으로."
+    data = _call_json(_TOP3_SYSTEM, user, max_tokens=900)
+    analysis = _clip(str(data.get("analysis", "")), 260)
+    items = [_clip(str(x), 80) for x in (data.get("items") or []) if str(x).strip()]
+    out: dict = {}
+    if analysis:
+        out["analysis"] = analysis
+    if items:
+        out["items"] = items
+    return out
+
+
+_REVIEW_SYSTEM = (
+    "너는 동아제약 OTC 글로벌 SNS 마케팅 월간 운영보고서의 '운영 리뷰(총평)'와 "
+    "'운영 제안(AS-IS/TO-BE)' 작성자다.\n"
+    "규칙:\n"
+    "- 제공된 이번 달·전월 성과 데이터에서만 사실/수치를 인용한다(없는 수치 금지).\n"
+    "- review: 중화권·북미 전체 운영 총평을 3~4문장(300자 이내). 전월 대비 변화가 "
+    "있으면 언급.\n"
+    "- as_is: 현재 운영의 한계/현상을 2~3개 짧은 항목(각 한 줄).\n"
+    "- to_be: 그에 대한 개선 방향을 2~3개 짧은 항목(각 한 줄, as_is와 대응).\n"
+    "- 출력은 JSON 만: {\"review\":\"...\",\"as_is\":[\"...\"],\"to_be\":[\"...\"]}"
+)
+
+
+def draft_review(*, month: int, context: str) -> dict:
+    """운영 리뷰 + AS-IS/TO-BE. {"review":str,"as_is":[str],"to_be":[str]} 또는 {}."""
+    user = f"[{month}월 운영 데이터]\n{context}\n\n위로 운영 리뷰와 AS-IS/TO-BE를 JSON으로."
+    data = _call_json(_REVIEW_SYSTEM, user, max_tokens=1400)
+    review = _clip(str(data.get("review", "")), 380)
+    as_is = [_clip(str(x), 90) for x in (data.get("as_is") or []) if str(x).strip()][:3]
+    to_be = [_clip(str(x), 90) for x in (data.get("to_be") or []) if str(x).strip()][:3]
+    out: dict = {}
+    if review:
+        out["review"] = review
+    if as_is:
+        out["as_is"] = as_is
+    if to_be:
+        out["to_be"] = to_be
+    return out

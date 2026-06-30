@@ -13,7 +13,7 @@ from app.config import settings
 
 from . import report_builder as rb
 from .gsheets import fetch_tab
-from .narrative import draft_narrative
+from .narrative import draft_narrative, draft_review, draft_top3
 from .pptx_filler import fill_report
 from .sheet_parser import SHEET_CHINA, SHEET_NA, parse_china, parse_na, pick_month
 
@@ -46,8 +46,10 @@ async def generate_report(
         fetch_tab(sheet_id, SHEET_CHINA),
         fetch_tab(sheet_id, SHEET_NA),
     )
-    ch_secs = pick_month(parse_china(ch_rows), month, year)
-    na_secs = pick_month(parse_na(na_rows), month, year)
+    all_ch = parse_china(ch_rows)
+    all_na = parse_na(na_rows)
+    ch_secs = pick_month(all_ch, month, year)
+    na_secs = pick_month(all_na, month, year)
     ch = rb.distributed(rb.flatten(ch_secs))
     na = rb.distributed(rb.flatten(na_secs))
     if not ch and not na:
@@ -58,11 +60,24 @@ async def generate_report(
 
     china_sum = rb.china_summary(ch, ch_secs)
     na_sum = rb.na_summary(na, na_secs)
+    # 전월 대비 추세(운영 리뷰 AI 근거)
+    prev_ch = rb.distributed(rb.flatten(pick_month(all_ch, month - 1, year)))
+    prev_na = rb.distributed(rb.flatten(pick_month(all_na, month - 1, year)))
 
-    china_narr = na_narr = None
+    china_narr = na_narr = china_t3 = na_t3 = review = None
     if include_narrative:
-        # AI 초안은 블로킹 LLM 호출 → 스레드로(검수 전제, 실패해도 폴백).
-        china_narr, na_narr = await asyncio.gather(
+        ch_briefs = [rb.post_brief(r) for r in rb.top_posts(ch, 3)]
+        na_briefs = [rb.post_brief(r) for r in rb.top_posts(na, 3)]
+        review_ctx = (
+            f"[중화권] {china_sum['진행 제품']}; {china_sum['배포 수량']} "
+            f"{china_sum['배포 데이터']}\n"
+            f"[북미] {na_sum['진행 제품']}; {na_sum['배포 수량']} {na_sum['배포 데이터']}\n"
+            f"[전월 대비 인터랙션] 중화권 {rb.total_interactions(prev_ch):,} → "
+            f"{rb.total_interactions(ch):,}; 북미 {rb.total_interactions(prev_na):,} → "
+            f"{rb.total_interactions(na):,}"
+        )
+        # AI 초안(블로킹 LLM)은 스레드로 병렬. 실패해도 폴백(빈 dict).
+        china_narr, na_narr, china_t3, na_t3, review = await asyncio.gather(
             asyncio.to_thread(
                 draft_narrative,
                 region_label="중화권(중국 OTA: 마펑워·씨트립·따종디엔핑)",
@@ -75,6 +90,9 @@ async def generate_report(
                 products=na_sum["진행 제품"],
                 summary_text=f"{na_sum['배포 수량']}\n{na_sum['배포 데이터']}",
             ),
+            asyncio.to_thread(draft_top3, region_label="중화권", top_briefs=ch_briefs),
+            asyncio.to_thread(draft_top3, region_label="북미", top_briefs=na_briefs),
+            asyncio.to_thread(draft_review, month=month, context=review_ctx),
         )
 
     pptx = fill_report(
@@ -86,6 +104,9 @@ async def generate_report(
         na_summary_vals=na_sum,
         china_narrative=china_narr,
         na_narrative=na_narr,
+        china_top3=china_t3,
+        na_top3=na_t3,
+        review=review,
         basis_date=basis_date,
     )
     meta = {
@@ -94,6 +115,8 @@ async def generate_report(
         "china_count": len(ch),
         "na_count": len(na),
         "narrative": bool(china_narr or na_narr),
+        "review": bool(review),
+        "top3": bool(china_t3 or na_t3),
     }
     logger.info("동아 운영보고서 생성: %s", meta)
     return pptx, meta

@@ -99,6 +99,37 @@ def na_detail_rows(records: list[DistRecord]) -> list[list]:
     return rows
 
 
+def engagement(r: DistRecord) -> int:
+    """게시물 합계(인터랙션). 중화권=좋+저+댓 / 북미=좋+댓+공+즐(노출 제외)."""
+    if r.region == "na":
+        return _n(r.likes) + _n(r.comments) + _n(r.shares) + _n(r.favorites)
+    return _n(r.likes) + _n(r.saves) + _n(r.comments)
+
+
+def top_posts(records: list[DistRecord], n: int = 3) -> list[DistRecord]:
+    """합계(인터랙션) 기준 상위 N개 게시물(우수 콘텐츠 선정)."""
+    return sorted(records, key=engagement, reverse=True)[:n]
+
+
+def post_brief(r: DistRecord) -> str:
+    """AI 프롬프트용 게시물 한 줄 요약(계정·플랫폼·지표)."""
+    if r.region == "na":
+        return (
+            f"{r.platform} {r.account}(팔로워 {_fmt(r.followers)}): 노출 {_fmt(r.impressions)}, "
+            f"좋아요 {_fmt(r.likes)}, 댓글 {_fmt(r.comments)}, 공유 {_fmt(r.shares)}, "
+            f"즐겨찾기 {_fmt(r.favorites)}, 합계 {engagement(r):,}"
+        )
+    return (
+        f"{r.platform} {r.account}(팔로워 {_fmt(r.followers)}): 좋아요 {_fmt(r.likes)}, "
+        f"저장 {_fmt(r.saves)}, 댓글 {_fmt(r.comments)}, 합계 {engagement(r):,}"
+    )
+
+
+def total_interactions(records: list[DistRecord]) -> int:
+    """전체 인터랙션 합(전월 대비 추세 계산용)."""
+    return sum(engagement(r) for r in records)
+
+
 def _count_by_platform(records, platforms):
     return {p: sum(1 for r in records if r.platform == p) for p in platforms}
 
