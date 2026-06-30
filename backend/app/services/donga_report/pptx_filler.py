@@ -209,15 +209,103 @@ def _copy_run_format(donor_cell, target_cell, *, unbold: bool = True) -> None:
             run._r.insert(0, new)
 
 
-def _enable_shrink_to_fit(cell) -> None:
-    """셀 텍스트가 길면 칸에 맞게 자동 축소(normAutofit). AI 서술이 길어도 칸 밖으로
-    삐져나오지 않게 한다(파워포인트/리브레오피스가 열 때 폰트 스케일 계산)."""
-    bodyPr = cell.text_frame._txBody.bodyPr
+def _shrink_tf(tf) -> None:
+    """텍스트가 길면 칸에 맞게 자동 축소(normAutofit). AI 서술이 길어도 칸 밖으로
+    삐져나오지 않게(파워포인트/리브레오피스가 열 때 폰트 스케일 계산)."""
+    bodyPr = tf._txBody.bodyPr
     for tag in ("a:normAutofit", "a:spAutoFit", "a:noAutofit"):
         e = bodyPr.find(qn(tag))
         if e is not None:
             bodyPr.remove(e)
     bodyPr.append(bodyPr.makeelement(qn("a:normAutofit"), {}))
+
+
+def _enable_shrink_to_fit(cell) -> None:
+    _shrink_tf(cell.text_frame)
+
+
+_IN = 914400
+_BLACK = RGBColor(0x00, 0x00, 0x00)
+
+
+def _geom(sh):
+    """도형 (top,left,w,h) in inches, top 없으면 None."""
+    if sh.top is None:
+        return None
+    return (sh.top / _IN, (sh.left or 0) / _IN, (sh.width or 0) / _IN, (sh.height or 0) / _IN)
+
+
+def _write_shape(shape, lines, *, size: float = 10.5, bold: bool = False, color=None) -> None:
+    """도형 text_frame에 줄들을 쓴다(기존 단락 비우고). 자동축소 적용."""
+    tf = shape.text_frame
+    tf.word_wrap = True
+    for p in list(tf.paragraphs[1:]):
+        p._p.getparent().remove(p._p)
+    p0 = tf.paragraphs[0]
+    for r in list(p0.runs):
+        r._r.getparent().remove(r._r)
+    items = lines if isinstance(lines, list) else [lines]
+    for i, line in enumerate(items):
+        p = p0 if i == 0 else tf.add_paragraph()
+        _set_no_bullet(p)
+        run = p.add_run()
+        run.text = line
+        run.font.size = Pt(size)
+        run.font.bold = bold
+        run.font.color.rgb = color or _BLACK
+    _shrink_tf(tf)
+
+
+def _fill_top3_section(slide, top3: dict) -> None:
+    """우수 콘텐츠 슬라이드: 분석박스(top~1.4, 넓음)에 분석, 설명박스 3개(top~5.8,
+    좌→우)에 상위 게시물 요약. 스크린샷(그룹)은 손대지 않음."""
+    if not top3:
+        return
+    analysis = top3.get("analysis")
+    items = top3.get("items") or []
+    descs = []
+    for sh in slide.shapes:
+        if sh.shape_type != MSO_SHAPE_TYPE.AUTO_SHAPE or not getattr(sh, "has_text_frame", False):
+            continue
+        g = _geom(sh)
+        if g is None:
+            continue
+        top, left, w, h = g
+        if 1.1 < top < 2.1 and w > 9 and analysis:
+            _write_shape(sh, f"[초안] {analysis}", size=11)
+        elif top > 5.0 and 2.5 < w < 5.0:
+            descs.append((left, sh))
+    for (_, sh), item in zip(sorted(descs, key=lambda x: x[0]), items):
+        _write_shape(sh, f"• {item}", size=10)
+
+
+def _fill_review_section(slide, review: dict) -> None:
+    """운영 리뷰 슬라이드: 운영리뷰 박스(상단 그룹 내 빈 도형) + AS-IS(좌)/TO-BE(우)
+    박스에 AI 초안. 라벨(AS-IS/TO-BE 텍스트)·구조는 보존."""
+    if not review:
+        return
+    rv = review.get("review")
+    as_is = review.get("as_is") or []
+    to_be = review.get("to_be") or []
+    for sh in slide.shapes:
+        g = _geom(sh)
+        if g is None:
+            continue
+        top, left, w, h = g
+        if sh.shape_type == MSO_SHAPE_TYPE.GROUP and 1.2 < top < 1.7 and rv:
+            for c in sh.shapes:  # 그룹 내 빈 도형에 운영 리뷰
+                if getattr(c, "has_text_frame", False) and not c.text_frame.text.strip():
+                    _write_shape(c, f"[초안] {rv}", size=11)
+                    break
+        elif (
+            sh.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
+            and top > 3.4 and h > 2.0
+            and getattr(sh, "has_text_frame", False)
+        ):
+            if left < 3.5 and as_is:
+                _write_shape(sh, [f"• {x}" for x in as_is], size=11)
+            elif left > 6.0 and to_be:
+                _write_shape(sh, [f"• {x}" for x in to_be], size=11)
 
 
 def _set_no_bullet(para) -> None:
@@ -412,6 +500,9 @@ def fill_report(
     na_summary_vals: dict,
     china_narrative: dict | None = None,
     na_narrative: dict | None = None,
+    china_top3: dict | None = None,
+    na_top3: dict | None = None,
+    review: dict | None = None,
     basis_date: str | None = None,
 ) -> bytes:
     """양식 bytes + 채움 데이터 → 채워진 PPTX bytes.
@@ -434,6 +525,12 @@ def fill_report(
             region = "na"
         elif re.search(r"3\s*[.．]?\s*리뷰", text):
             region = "review"
+
+        # 분석 슬라이드(빈 박스)를 AI 초안으로 채움 — 양식 구조는 그대로.
+        if "우수 콘텐츠" in text:
+            _fill_top3_section(slide, (na_top3 if region == "na" else china_top3) or {})
+        if any(k in text for k in ("운영 리뷰", "운영 제안")):
+            _fill_review_section(slide, review or {})
 
         for table in _tables(slide):
             if _is_summary(table):
