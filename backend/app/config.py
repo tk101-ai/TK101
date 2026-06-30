@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # 구글시트(관리문서)를 Sheets API v4로 직접 읽는다. 시트가 링크공유라 서비스
     # 계정 없이 API 키만으로 읽기 가능. 키는 비밀 → .env(GOOGLE_SHEETS_API_KEY).
     google_sheets_api_key: str | None = None
+    # API 키 파일 폴백 — env(GH 시크릿) 미설정 시 영속 마운트의 키 파일에서 읽는다.
+    # (CI 시크릿 권한이 없을 때 운영을 막지 않기 위함. Sheets 전용 제한 키 권장.)
+    google_sheets_api_key_file: str = "/mnt/nas-rw/donga_report/.sheets_api_key"
     # 관리문서 구글시트 ID(비밀 아님). 시트가 바뀌면 env로 override.
     donga_sheet_id: str = "1znVEKZtcKB8hojZCagYzsdlkfiag6FHMxV4KRJAO4k4"
     # 운영보고서 양식(.pptx) 서버 경로. NAS-rw(sshfs)에 두어 오너가 월별 교체 가능.

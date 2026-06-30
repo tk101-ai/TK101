@@ -38,9 +38,11 @@ async def status(_: User = Depends(get_current_user)) -> dict:
     """설정 준비 상태(라이브 시트 키·양식 파일)."""
     from pathlib import Path
 
+    from app.services.donga_report.gsheets import resolve_api_key
+
     return {
         "sheet_id": settings.donga_sheet_id,
-        "api_key_set": bool(settings.google_sheets_api_key),
+        "api_key_set": bool(resolve_api_key()),
         "template_exists": Path(settings.donga_report_template_path).is_file(),
         "template_path": settings.donga_report_template_path,
     }
