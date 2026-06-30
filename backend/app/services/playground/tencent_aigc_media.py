@@ -222,6 +222,19 @@ describe_video_task = describe_task_detail
 # ---------------------------------------------------------------------------
 # Video: CreateAigcVideoTask
 # ---------------------------------------------------------------------------
+# v2v(영상 리터치) 충실도 보강: 텐센트 VideoInfos 기반 v2v 는 레퍼런스 "재생성"이라
+# 사용자 프롬프트가 우세하면 원본의 화풍/구성이 약하게만 반영된다(운영 확인:
+# 애니 토끼 → 흰토끼 요청 → 실사 흰토끼). 사용자 프롬프트 앞에 원본 스타일·구성을
+# 유지하라는 지시를 자동 prepend 해 충실도를 끌어올린다(베스트에포트 — 벤더 한계상
+# 완전 보장은 아님). 한/영 병기로 EnhancePrompt 재작성에도 의도가 남게 한다.
+_V2V_STYLE_PRESERVE_PREFIX = (
+    "원본 영상의 비주얼 스타일·화풍·색감·구도·구성을 최대한 유지하고, "
+    "아래 요청 사항만 반영해 편집하세요. "
+    "Preserve the original video's visual style, art direction, color, and composition; "
+    "apply only the following change: "
+)
+
+
 async def create_video_task(
     *,
     prompt: str,
@@ -275,6 +288,8 @@ async def create_video_task(
         if input_video_url:
             # v2v(video-to-video, 영상 리터치): 베이스 영상은 VideoInfos 배열.
             mps_body["VideoInfos"] = [{"VideoUrl": input_video_url}]
+            # 원본 스타일 유지 지시를 프롬프트 앞에 붙여 재생성 충실도 보강.
+            mps_body["Prompt"] = _V2V_STYLE_PRESERVE_PREFIX + prompt
         else:
             # i2v(image-to-video): 베이스 이미지는 top-level ImageUrl.
             mps_body["ImageUrl"] = input_image_url
