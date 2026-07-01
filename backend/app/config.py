@@ -125,6 +125,30 @@ class Settings(BaseSettings):
     nas_self_company_path_marker: str = "/COMPANY/"
     nas_self_company_boost: float = 0.06
 
+    # 다국어 쿼리 확장 (크로스링구얼 검색) ----------------------------------------
+    # 코퍼스는 KO/ZH/EN 혼재(실측: 웨이보·샤오홍슈 등 중문 운영자료가 대다수).
+    # Qwen3 임베딩은 다국어지만 공유 벡터공간이 '의미'보다 '언어'로 먼저 군집해,
+    # 한국어 쿼리는 한국어 문서만 후보 풀에 담고 중문·영문 문서는 아예 못 끌어오는
+    # same-language 편향이 있다(2026-07-01 실측: KO 쿼리 top10 = KO 10/ZH 0, 같은
+    # 개념을 ZH로 치면 ZH 문서가 나옴 → 결과집합이 언어별로 분리). 리랭커도 후보
+    # 풀에 없는 문서는 못 살려 무효. 유일한 해법 = 쿼리를 KO/ZH/EN로 확장해 각
+    # 언어가 자기 언어 풀을 검색하고 RRF(순위기반, 점수스케일 무관)로 병합한다.
+    nas_multilingual_query_enabled: bool = True
+    # 확장 대상 언어(쉼표구분). ko 는 정제된 원쿼리, zh/en 은 번역 변형.
+    nas_multilingual_query_langs: str = "ko,zh,en"
+    # 언어 변형 생성 LLM(None이면 form_filler_haiku_model). 저비용 Haiku 1회.
+    nas_multilingual_query_model: str | None = None
+    # RRF 상수 k — 클수록 상위권 가중이 완만(표준값 60).
+    nas_multilingual_rrf_k: int = 60
+
+    @property
+    def nas_multilingual_query_lang_list(self) -> list[str]:
+        return [
+            x.strip().lower()
+            for x in self.nas_multilingual_query_langs.split(",")
+            if x.strip()
+        ]
+
     # 부서별 검색 스코핑 (선택 기능) ----------------------------------------------
     # 켜면 일반 사용자는 본인 부서(Qdrant dept)로 한정, 전체검색 허용 역할은 무필터.
     # 사용자 부서 enum(marketing_1/new_business/...)과 Qdrant 문서 dept 라벨

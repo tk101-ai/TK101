@@ -14,10 +14,13 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from app.config import settings
 from app.services.nas_search.bridge import (
     NasChunkHit,
     search_relevant_chunks,
+    search_relevant_chunks_multilingual,
 )
+from app.services.nas_search.query_multilingual import expand_query_multilingual
 from app.services.nas_search.query_refiner import refine_search_query
 
 logger = logging.getLogger(__name__)
@@ -70,6 +73,23 @@ async def _refine_query(message: str) -> str:
         return message
 
 
+async def _expand_query(message: str) -> list[str]:
+    """대화 메시지 → 다국어(KO/ZH/EN) 검색어 변형 목록.
+
+    Qwen3 임베딩의 same-language 편향(한국어 쿼리가 중문·영문 문서를 후보 풀에
+    못 담음)을 우회하기 위해 언어별 검색어를 만든다. 실패/타임아웃 시 정제된 원문
+    단일 쿼리로 폴백해 검색이 멈추지 않게 한다(refine 과 동일한 graceful 원칙).
+    """
+    try:
+        variants = await asyncio.wait_for(
+            asyncio.to_thread(expand_query_multilingual, message),
+            timeout=RAG_REFINE_TIMEOUT_S,
+        )
+        return variants or [await _refine_query(message)]
+    except (asyncio.TimeoutError, Exception):  # noqa: BLE001 — 확장 실패가 검색 막지 않게.
+        return [await _refine_query(message)]
+
+
 async def search_rag_context(
     query: str,
     *,
@@ -81,17 +101,30 @@ async def search_rag_context(
     """
     if not query or not query.strip():
         return []
-    search_query = await _refine_query(query)
-    if search_query != query:
-        logger.info("RAG 쿼리 정제: %r → %r", query[:50], search_query[:50])
     try:
-        # rerank=False: CPU 리랭커(~8s/18청크)는 채팅 응답을 크게 지연시키고
-        # 노이즈 제거 효과도 약했음(운영 실측). 벡터 검색(~0.3s)으로 커버리지 우선.
-        # 파일당 상한 적용 후에도 limit 을 채우도록 후보를 넉넉히(2배) 가져온다.
-        hits = await asyncio.wait_for(
-            search_relevant_chunks(query=search_query, limit=limit * 2, rerank=False),
-            timeout=RAG_SEARCH_TIMEOUT_S,
-        )
+        # 다국어 확장 ON: 대화 메시지를 KO/ZH/EN 검색어로 확장해 각 언어 풀을 검색하고
+        # RRF 로 병합한다(중문·영문 자료가 한국어 쿼리에 묻히는 same-language 편향 우회).
+        # OFF: 기존처럼 핵심어 정제 후 단일 raw-cosine 검색.
+        # 두 경로 모두 rerank=False — CPU 리랭커(~8s)는 채팅을 크게 지연시키고, 애초에
+        # 후보 풀에 없는 타언어 문서는 리랭크로도 못 살린다(2026-07-01 실측). 파일당
+        # 상한 적용 후에도 limit 을 채우도록 후보를 넉넉히(2배) 가져온다.
+        if settings.nas_multilingual_query_enabled:
+            variants = await _expand_query(query)
+            logger.info("RAG 다국어 검색어: %s", variants)
+            hits = await asyncio.wait_for(
+                search_relevant_chunks_multilingual(queries=variants, limit=limit * 2),
+                timeout=RAG_SEARCH_TIMEOUT_S,
+            )
+        else:
+            search_query = await _refine_query(query)
+            if search_query != query:
+                logger.info("RAG 쿼리 정제: %r → %r", query[:50], search_query[:50])
+            hits = await asyncio.wait_for(
+                search_relevant_chunks(
+                    query=search_query, limit=limit * 2, rerank=False
+                ),
+                timeout=RAG_SEARCH_TIMEOUT_S,
+            )
     except asyncio.TimeoutError:
         logger.warning(
             "NAS RAG 검색 타임아웃(%.0fs) — 임베딩 콜드 추정, 일반 채팅으로 진행",
