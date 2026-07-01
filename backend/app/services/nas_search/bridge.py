@@ -137,6 +137,110 @@ def _boost_self_company(hits: list[NasChunkHit]) -> list[NasChunkHit]:
     return boosted
 
 
+def _rrf_merge(result_lists: list[list[NasChunkHit]], k: int) -> list[NasChunkHit]:
+    """언어별 결과 리스트들을 RRF(Reciprocal Rank Fusion)로 병합.
+
+    각 리스트의 순위(1부터)만 쓰므로 KO/ZH/EN 코사인 점수 스케일 차이(예 0.64 vs
+    0.69)에 영향받지 않고 언어 균형이 맞는다. 같은 chunk 가 여러 언어 풀에 나오면
+    가산돼(크로스링구얼 합의) 상위로 올라온다. fused 값을 hit.score 로 실어
+    downstream(cap_per_file·source_paths)이 그대로 순서를 쓰게 한다.
+    """
+    fused: dict[str, float] = {}
+    rep: dict[str, NasChunkHit] = {}
+    for hits in result_lists:
+        for rank, h in enumerate(hits, start=1):
+            fused[h.chunk_id] = fused.get(h.chunk_id, 0.0) + 1.0 / (k + rank)
+            rep.setdefault(h.chunk_id, h)
+    merged = [replace(rep[cid], score=score) for cid, score in fused.items()]
+    merged.sort(key=lambda h: h.score, reverse=True)
+    return merged
+
+
+def _boost_self_company_rrf(hits: list[NasChunkHit], k: int) -> list[NasChunkHit]:
+    """RRF 공간에서의 자체 회사문서 부스트. cosine 공간의 ``_boost_self_company`` 와
+    같은 의도지만, RRF 점수는 스케일이 작아(≈1/k) 고정 가산(0.06)이 과하다. 대신
+    '최상위 1표'에 해당하는 ``1/(k+1)`` 만큼 가산해 비슷한 순위대에서 자체문서를
+    앞세운다. 설정 부스트가 0이거나 마커 미설정이면 원본 순서 그대로."""
+    if settings.nas_self_company_boost <= 0 or not settings.nas_self_company_path_marker:
+        return hits
+    marker = settings.nas_self_company_path_marker
+    bonus = 1.0 / (k + 1)
+    boosted = [
+        replace(h, score=h.score + bonus) if marker in (h.file_path or "") else h
+        for h in hits
+    ]
+    boosted.sort(key=lambda h: h.score, reverse=True)
+    return boosted
+
+
+async def search_relevant_chunks_multilingual(
+    db=None,  # noqa: ANN001 (호환 유지용)
+    *,
+    queries: list[str],
+    limit: int = 20,
+    dept_labels: list[str] | None = None,
+) -> list[NasChunkHit]:
+    """다국어 쿼리 변형들을 각각 검색해 RRF 로 병합(크로스링구얼 커버리지).
+
+    ``queries`` = [ko, zh, en] 처럼 언어별 검색어. Qwen3 임베딩의 same-language
+    편향으로 한국어 단일쿼리는 중문·영문 문서를 후보 풀에 아예 못 담는다(리랭커로도
+    복구 불가 — 풀에 없으니까). 각 변형이 자기 언어 풀을 검색하게 하고 RRF(순위기반)
+    로 병합해 언어 균형을 맞춘다. 지연 민감 경로(채팅)용이라 리랭크는 쓰지 않는다.
+    변형이 1개뿐이면 기존 raw-cosine 경로로 위임한다.
+    """
+    variants = [q.strip() for q in (queries or []) if q and q.strip()]
+    if not variants:
+        return []
+    if len(variants) == 1:
+        return await search_relevant_chunks(
+            query=variants[0], limit=limit, dept_labels=dept_labels, rerank=False
+        )
+
+    try:
+        vecs = await asyncio.to_thread(embed_queries, variants)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("다국어 쿼리 임베딩 실패")
+        raise RuntimeError(f"다국어 NAS 검색 임베딩 실패: {exc}") from exc
+
+    qfilter = _dept_filter(dept_labels)
+    # 언어별 풀을 넉넉히(limit*2, 상한) 뽑아 RRF 병합 여지를 준다.
+    pool = min(limit * 2, _BRIDGE_RERANK_CAP)
+
+    def _one(vec):
+        return (
+            get_client()
+            .query_points(
+                collection_name=settings.qdrant_collection_text,
+                query=vec,
+                query_filter=qfilter,
+                limit=pool,
+                with_payload=True,
+            )
+            .points
+        )
+
+    results = await asyncio.gather(
+        *[asyncio.to_thread(_one, v) for v in vecs], return_exceptions=True
+    )
+    result_lists: list[list[NasChunkHit]] = []
+    for res in results:
+        if isinstance(res, Exception):
+            logger.warning("다국어 검색 일부 실패(건너뜀): %s", res)
+            continue
+        result_lists.append(
+            [
+                _hit_from_point(p, score=float(getattr(p, "score", 0.0) or 0.0))
+                for p in res
+            ]
+        )
+    if not result_lists:
+        return []
+
+    k = settings.nas_multilingual_rrf_k
+    merged = _rrf_merge(result_lists, k)
+    return _boost_self_company_rrf(merged, k)[:limit]
+
+
 async def search_relevant_chunks(
     db=None,  # noqa: ANN001 (호환 유지용; Qdrant 경로에선 미사용)
     *,
