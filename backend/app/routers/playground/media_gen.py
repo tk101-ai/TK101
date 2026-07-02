@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.playground import PlaygroundMedia
@@ -38,6 +39,23 @@ from ._common import ensure_attachment_is_user_image, make_subrouter
 logger = logging.getLogger(__name__)
 
 router: APIRouter = make_subrouter()
+
+
+def compute_media_expires_at(
+    storage_mode: str, kind: str, now: datetime
+) -> datetime | None:
+    """재편집(i2i/i2v/v2v) 베이스 URL 의 만료 시각을 저장 모드로 결정한다.
+
+    - ``Permanent`` (기본, #161): 만료 없음 → ``None``. 재편집 가드가 막지 않는다.
+    - ``Temporary``: 텐센트 실제 만료 반영 — 이미지 ~7d / 영상 ~24h.
+
+    디스크 정리는 ``expires_at`` 이 아니라 ``created_at`` 기준이라 무관
+    (media_cleanup 참고). 이 값은 오직 재편집 가드에서만 쓰인다.
+    """
+    if storage_mode.strip().lower() == "permanent":
+        return None
+    ttl = timedelta(days=7) if kind == "image" else timedelta(hours=24)
+    return now + ttl
 
 
 @router.post("/image", response_model=PlaygroundTaskCreated)
@@ -178,8 +196,9 @@ async def create_video_from_media_endpoint(
         )
     is_video_source = source_row.media_type == "video"
     label = "영상" if is_video_source else "이미지"
-    # 텐센트가 가져갈 수 있는 URL 필요. 생성 영상의 COS 서명 URL 은 ~12h 만료라
-    # 최근 생성분만 v2v 가능(만료 시 명확한 에러).
+    # 텐센트가 가져갈 수 있는 URL 필요. StorageMode=Permanent(기본, #161)면 만료
+    # 없이 재편집 가능(expires_at 미설정). Temporary 면 텐센트 실제 만료(영상 ~24h /
+    # 이미지 ~7d) 를 반영해 expires_at 이 지난 경우만 차단한다.
     source_url = source_row.url
     if not source_url:
         raise HTTPException(
@@ -458,7 +477,9 @@ async def describe_task_endpoint(
             )
             if file_path:
                 media_row.file_path = file_path
-            media_row.expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+            media_row.expires_at = compute_media_expires_at(
+                settings.tencent_aigc_storage_mode, kind, datetime.now(timezone.utc)
+            )
             # 비용 계산
             if kind == "image":
                 media_row.cost_usd = calc_image_cost(media_row.model_key)
