@@ -256,6 +256,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
           errorMessage: null,
           costUsd: null,
           sourceMediaId: null,
+          sourceMediaKind: null,
           createdAt: new Date().toISOString(),
         },
         ...prev,
@@ -318,6 +319,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
             errorMessage: null,
             costUsd: null,
             sourceMediaId: target.mediaId,
+            sourceMediaKind: target.kind,
             createdAt: new Date().toISOString(),
           },
           ...prev,
@@ -373,6 +375,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
           errorMessage: null,
           costUsd: null,
           sourceMediaId: target.mediaId,
+          sourceMediaKind: "image",
           createdAt: new Date().toISOString(),
         },
         ...prev,
@@ -389,6 +392,70 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
           (err as Error)?.message ||
           "리터치 요청 실패";
         message.error(`리터치 실패: ${detail}`);
+      }
+    }
+  };
+
+  // 결과 카드에서 바로 이어서 편집 — 별도 모달 없이 이 항목을 베이스로 후속
+  // 프롬프트를 즉시 실행. 영상이면 v2v, 이미지면 i2i. 모델은 원본 것을 재사용하고
+  // 나머지 파라미터는 폼 기본값을 쓴다(후속 편집은 가벼운 반복을 목표).
+  const handleFollowUp = async (task: ActiveTask, followPrompt: string) => {
+    const trimmed = followPrompt.trim();
+    if (!trimmed) return;
+    if (!task.mediaId) {
+      message.error("원본 미디어 ID를 찾을 수 없습니다 (완료된 항목에서만 가능)");
+      return;
+    }
+    try {
+      const res =
+        task.kind === "video"
+          ? await createVideoFromMedia({
+              prompt: trimmed,
+              image_media_id: task.mediaId,
+              model_key: task.modelKey,
+              duration: 5,
+              resolution: "720P",
+              aspect_ratio: "16:9",
+              audio_generation: false,
+              enhance_prompt: true,
+            })
+          : await createImageFromMedia({
+              prompt: trimmed,
+              image_media_id: task.mediaId,
+              model_key: task.modelKey,
+              aspect_ratio: "1:1",
+              enhance_prompt: true,
+            });
+      setQuotaRefreshKey((k) => k + 1);
+      setTasks((prev) => [
+        {
+          mediaId: null,
+          taskId: res.task_id,
+          kind: task.kind,
+          prompt: trimmed,
+          modelKey: task.modelKey,
+          status: "pending",
+          outputUrl: null,
+          errorMessage: null,
+          costUsd: null,
+          sourceMediaId: task.mediaId,
+          sourceMediaKind: task.kind,
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+      startPolling(res.task_id);
+      message.success("이어서 편집 시작 — 결과는 위쪽에 새 카드로 표시됩니다");
+    } catch (err: unknown) {
+      if (isQuotaExceededError(err)) {
+        message.error(QUOTA_EXCEEDED_MESSAGE);
+      } else {
+        const detail =
+          (err as { response?: { data?: { detail?: string } }; message?: string })
+            ?.response?.data?.detail ||
+          (err as Error)?.message ||
+          "이어서 편집 요청 실패";
+        message.error(`이어서 편집 실패: ${detail}`);
       }
     }
   };
@@ -569,6 +636,7 @@ export default function MediaGenPanel({ kind }: MediaGenPanelProps) {
                       onReuse={() =>
                         applyReuse({ prompt: t.prompt, modelKey: t.modelKey })
                       }
+                      onFollowUp={(p) => handleFollowUp(t, p)}
                     />
                   ))}
                 </div>

@@ -227,6 +227,9 @@ async def create_video_from_media_endpoint(
             enhance_prompt=body.enhance_prompt,
             input_video_url=source_url if is_video_source else None,
             input_image_url=None if is_video_source else source_url,
+            # v2v: 베이스 영상의 원본 프롬프트를 넘겨, 사용자가 피사체를 언급하지
+            # 않아도 원본 주체가 유지되도록 프롬프트 앵커로 사용한다.
+            source_prompt=source_row.prompt if is_video_source else None,
         )
     except RuntimeError as exc:
         logger.warning("create_video_task (%s) 실패: %s", "v2v" if is_video_source else "i2v", exc)
