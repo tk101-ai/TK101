@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,6 +59,50 @@ def compute_media_expires_at(
     return now + ttl
 
 
+async def assert_source_fetchable(url: str, label: str) -> None:
+    """텐센트가 리터치 베이스(원본)를 실제로 가져갈 수 있는지 사전 확인.
+
+    베이스 URL 은 텐센트 COS 서명 URL 이라 물리적으로 만료(~24h)된다. DB 의
+    ``expires_at`` 은 #161(StorageMode=Permanent) 이후 None 이라 재편집 가드가
+    이걸 못 잡고, 만료된 URL 을 텐센트에 넘기면 텐센트는 원본을 못 받아 사실상
+    t2v(프롬프트만)로 엉뚱한 결과를 조용히 뱉는다(운영 확인: 토끼 영상 → 남자/건물).
+    무의미한 유료 생성을 막기 위해 실제로 GET(Range)으로 접근성을 확인한다.
+
+    COS presigned URL 은 method 별 서명이라 HEAD 는 오탐(403)이 나므로 GET+Range 를
+    쓴다. 네트워크 일시 오류는 차단하지 않고 텐센트가 시도하도록 통과시킨다.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(url, headers={"Range": "bytes=0-0"})
+    except httpx.HTTPError:
+        return  # 일시 네트워크 오류 — 차단하지 않음
+    if resp.status_code in (401, 403, 404, 410):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"베이스 {label}의 원본 URL 이 만료되어 리터치할 수 없습니다. "
+                f"원본 {label}을(를) 다시 생성한 뒤(최신 생성분) 리터치해 주세요."
+            ),
+        )
+
+
+def tencent_runtime_to_http(exc: RuntimeError) -> HTTPException:
+    """텐센트 RuntimeError 를 사용자 친화 HTTPException 으로 변환.
+
+    동시성 한도(RequestLimitExceeded)는 일시적이라 429 로 안내하고, 그 외는 503.
+    """
+    low = str(exc).lower()
+    if "requestlimitexceeded" in low or "concurrency" in low:
+        return HTTPException(
+            status_code=429,
+            detail=(
+                "현재 텐센트 영상 생성 동시 처리 한도에 도달했습니다. "
+                "진행 중인 생성이 끝난 뒤 잠시 후 다시 시도해 주세요."
+            ),
+        )
+    return HTTPException(status_code=503, detail=str(exc))
+
+
 @router.post("/image", response_model=PlaygroundTaskCreated)
 async def create_image_task_endpoint(
     body: PlaygroundImageRequest,
@@ -92,7 +137,7 @@ async def create_image_task_endpoint(
         )
     except RuntimeError as exc:
         logger.warning("create_image_task 실패: %s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise tencent_runtime_to_http(exc) from exc
 
     task_id = resp.get("TaskId")
     if not task_id:
@@ -147,7 +192,7 @@ async def create_video_task_endpoint(
         )
     except RuntimeError as exc:
         logger.warning("create_video_task 실패: %s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise tencent_runtime_to_http(exc) from exc
 
     task_id = resp.get("TaskId")
     if not task_id:
@@ -209,6 +254,9 @@ async def create_video_from_media_endpoint(
         raise HTTPException(
             status_code=400, detail=f"베이스 {label} URL 이 만료되었습니다",
         )
+    # StorageMode=Permanent 면 expires_at 이 None 이라 위 가드가 안 걸리지만, 텐센트
+    # 서명 URL 은 물리적으로 만료되므로 실제 접근성을 확인해 무의미한 생성을 막는다.
+    await assert_source_fetchable(source_url, label)
 
     try:
         name, version = parse_model_key(body.model_key)
@@ -233,7 +281,7 @@ async def create_video_from_media_endpoint(
         )
     except RuntimeError as exc:
         logger.warning("create_video_task (%s) 실패: %s", "v2v" if is_video_source else "i2v", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise tencent_runtime_to_http(exc) from exc
 
     task_id = resp.get("TaskId")
     if not task_id:
@@ -291,6 +339,8 @@ async def create_image_from_media_endpoint(
         raise HTTPException(
             status_code=400, detail="참조 이미지 URL 이 만료되었습니다"
         )
+    # 서명 URL 물리적 만료 사전 확인 (v2v 와 동일 이유).
+    await assert_source_fetchable(image_url, "이미지")
 
     try:
         name, version = parse_model_key(body.model_key)
@@ -308,7 +358,7 @@ async def create_image_from_media_endpoint(
         )
     except RuntimeError as exc:
         logger.warning("create_image_task (i2i) 실패: %s", exc)
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise tencent_runtime_to_http(exc) from exc
 
     task_id = resp.get("TaskId")
     if not task_id:
