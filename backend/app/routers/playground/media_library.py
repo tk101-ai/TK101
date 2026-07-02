@@ -48,6 +48,25 @@ async def _fetch_media_or_404(
     return row
 
 
+async def _source_type_map(
+    db: AsyncSession, rows: list[PlaygroundMedia]
+) -> dict[uuid.UUID, str]:
+    """rows 의 source_media_id → 원본 media_type 맵 (참고 썸네일 렌더링용).
+
+    참고 원본이 이미지인지 영상인지 프론트가 구분해야 <img>/<video> 로 올바르게
+    표시할 수 있다. 원본 id 를 모아 한 번의 쿼리로 조회(N+1 회피).
+    """
+    ids = {r.source_media_id for r in rows if r.source_media_id}
+    if not ids:
+        return {}
+    res = await db.execute(
+        select(PlaygroundMedia.id, PlaygroundMedia.media_type).where(
+            PlaygroundMedia.id.in_(ids)
+        )
+    )
+    return {mid: mtype for mid, mtype in res.all()}
+
+
 @router.get("/media", response_model=list[PlaygroundMediaOut])
 async def list_my_media(
     kind: Literal["image", "video"] | None = Query(default=None),
@@ -64,8 +83,15 @@ async def list_my_media(
     )
     if kind:
         stmt = stmt.where(PlaygroundMedia.media_type == kind)
-    rows = (await db.execute(stmt)).scalars().all()
-    return [PlaygroundMediaOut.model_validate(r) for r in rows]
+    rows = list((await db.execute(stmt)).scalars().all())
+    type_map = await _source_type_map(db, rows)
+    out: list[PlaygroundMediaOut] = []
+    for r in rows:
+        item = PlaygroundMediaOut.model_validate(r)
+        if r.source_media_id:
+            item.source_media_type = type_map.get(r.source_media_id)
+        out.append(item)
+    return out
 
 
 @router.get("/media/shared", response_model=list[SharedMediaOut])
@@ -97,12 +123,16 @@ async def list_shared_media(
         stmt = stmt.where(PlaygroundMedia.prompt.ilike(f"%{q}%"))
 
     rows = (await db.execute(stmt)).all()
+    medias = [media for media, _n, _d in rows]
+    type_map = await _source_type_map(db, medias)
     out: list[SharedMediaOut] = []
     for media, owner_name, owner_dept in rows:
         item = SharedMediaOut.model_validate(media)
         item.owner_name = owner_name
         item.owner_department = owner_dept
         item.is_mine = media.user_id == user.id
+        if media.source_media_id:
+            item.source_media_type = type_map.get(media.source_media_id)
         out.append(item)
     return out
 
@@ -117,7 +147,12 @@ async def get_media(
     row = await _fetch_media_or_404(db, media_id)
     if row.user_id != user.id and not row.is_shared:
         raise HTTPException(status_code=404, detail="미디어를 찾을 수 없습니다")
-    return PlaygroundMediaOut.model_validate(row)
+    item = PlaygroundMediaOut.model_validate(row)
+    if row.source_media_id:
+        item.source_media_type = (await _source_type_map(db, [row])).get(
+            row.source_media_id
+        )
+    return item
 
 
 @router.patch("/media/{media_id}/share", response_model=PlaygroundMediaOut)

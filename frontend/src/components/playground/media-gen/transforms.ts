@@ -16,6 +16,7 @@ export function itemToTask(item: PlaygroundMediaItem): ActiveTask {
     errorMessage: item.error_message,
     costUsd: item.cost_usd,
     sourceMediaId: item.source_media_id ?? null,
+    sourceMediaKind: item.source_media_type ?? null,
     createdAt: item.created_at,
   };
 }

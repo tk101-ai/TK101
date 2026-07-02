@@ -204,7 +204,10 @@ class PlaygroundMediaOut(BaseModel):
 
     id: uuid.UUID
     media_type: str  # "image" | "video"
-    source_media_id: uuid.UUID | None = None  # i2v 참고 이미지 row
+    source_media_id: uuid.UUID | None = None  # i2v/v2v/i2i 참고 원본 row
+    # 참고 원본의 종류("image"|"video"). 프론트가 참고 썸네일을 이미지/영상으로
+    # 올바르게 렌더링하기 위한 표시용 — ORM 컬럼이 아니라 라우터가 조인해 채운다.
+    source_media_type: str | None = None
     task_id: str | None
     model_key: str | None
     prompt: str | None

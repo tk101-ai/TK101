@@ -4,6 +4,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   HighlightOutlined,
+  PictureOutlined,
   RedoOutlined,
   ShareAltOutlined,
   UserOutlined,
@@ -55,6 +56,7 @@ export default function MediaLibraryCard({
   const [busy, setBusy] = useState(false);
   const isVideo = item.media_type === "video";
   const src = mediaFileUrl(item.id);
+  const refIsVideo = item.source_media_type === "video";
 
   const handleDownload = async () => {
     setBusy(true);
@@ -101,12 +103,31 @@ export default function MediaLibraryCard({
             <ShareAltOutlined /> 공유 중
           </span>
         )}
+        {/* 참고 원본 — 이 결과가 리터치/영상화로 만들어졌으면 원본 썸네일 표시 */}
+        {item.source_media_id && (
+          <Tooltip
+            title={
+              refIsVideo
+                ? "이 영상을 리터치해 만든 결과 (참고 원본)"
+                : "이 이미지로 만든 결과 (참고 원본)"
+            }
+          >
+            <div className="media-lib-card__ref">
+              {refIsVideo ? (
+                <video src={mediaFileUrl(item.source_media_id)} muted preload="metadata" />
+              ) : (
+                <img src={mediaFileUrl(item.source_media_id)} alt="참고 원본" loading="lazy" />
+              )}
+              {refIsVideo ? <VideoCameraOutlined /> : <PictureOutlined />}
+            </div>
+          </Tooltip>
+        )}
       </div>
 
       <div className="media-lib-card__body">
         <Paragraph
           className="media-lib-card__prompt"
-          ellipsis={{ rows: 2, tooltip: item.prompt ?? undefined }}
+          ellipsis={{ rows: 2, expandable: true, symbol: "자세히" }}
         >
           {item.prompt || <Text type="secondary">(프롬프트 없음)</Text>}
         </Paragraph>

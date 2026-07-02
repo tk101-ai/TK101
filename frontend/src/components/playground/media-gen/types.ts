@@ -17,8 +17,10 @@ export interface ActiveTask {
   outputUrl: string | null;
   errorMessage: string | null;
   costUsd: number | null;
-  // i2v 참고 이미지 row id(영상이 어떤 이미지로 만들어졌는지 표시용).
+  // i2v/v2v/i2i 참고 원본 row id(어떤 미디어로 만들어졌는지 표시용).
   sourceMediaId: string | null;
+  // 참고 원본의 종류 — 참고 썸네일을 이미지/영상 중 무엇으로 렌더링할지 결정.
+  sourceMediaKind: MediaKind | null;
   // 생성 시각 (ISO). DB 복원 시 created_at, 신규 요청 시 클라이언트 now.
   createdAt: string;
 }

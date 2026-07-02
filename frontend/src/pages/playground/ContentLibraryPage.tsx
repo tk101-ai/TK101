@@ -84,7 +84,8 @@ export default function ContentLibraryPage() {
     outputUrl: mediaFileUrl(item.id),
     errorMessage: null,
     costUsd: null,
-    sourceMediaId: null,
+    sourceMediaId: item.source_media_id ?? null,
+    sourceMediaKind: item.source_media_type ?? null,
     createdAt: item.created_at,
   });
 
